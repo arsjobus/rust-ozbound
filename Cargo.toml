@@ -1,0 +1,11 @@
+[package]
+name = "ozbound"
+version = "0.2.0"
+edition = "2021"
+description = "A RuneScape-inspired, single-player RPG set in an original interpretation of Baum's public-domain Oz."
+license = "MIT"
+
+[dependencies]
+bevy = "0.15"
+
+[dev-dependencies]
