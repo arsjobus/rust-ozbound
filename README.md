@@ -82,3 +82,13 @@ The game rules are now separated into pure Rust modules under `src/`:
 Moonpetal collection in the Bevy prototype now adds the item to a 20-slot inventory and shows inventory counts in the HUD. The map, generic gathering nodes, and shared interaction helper are domain foundations for the next integration pass; the visual meadow still uses placeholder shapes.
 
 Run `cargo test` to test domain rules without opening a game window. These checks are not reported as passing until run on a machine with Rust/Cargo installed.
+
+## v0.3 playable world integration
+
+The Bevy prototype now renders a 30x20 tile meadow from `scene.rs` and uses the pure rules for movement and gathering:
+
+- Trees, rock, water, and the map edge block movement (`movement.rs`); the player slides along walls.
+- Trees yield timber and copper veins yield copper ore. Stand beside one and press **E**. A full bag leaves the node untouched; spent nodes turn gray.
+- The guide takes priority over resources when both are in range.
+
+Controls are unchanged. Domain tests (`cargo test`) cover collision, text-map parsing, node placement, interaction range selection, and meadow reachability. Visual behavior still needs a manual check; see the M0.2 note in `ROADMAP.md`.

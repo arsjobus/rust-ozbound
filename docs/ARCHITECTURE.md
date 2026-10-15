@@ -8,18 +8,22 @@ src/
 ├── lib.rs           # Public pure-Rust domain modules
 ├── world.rs         # Tile positions, map bounds, walkability
 ├── inventory.rs     # Item IDs, stacks, slot capacity
-├── gathering.rs    # Resource nodes and gather transaction
-├── interaction.rs  # Shared interaction-range calculation
+├── gathering.rs    # Resource nodes, gather transaction, node placement validation
+├── interaction.rs  # Shared interaction-range calculation and nearest-target pick
+├── movement.rs     # Tile collision: box clearance and sliding movement
+├── scene.rs        # Meadow text map, spawn tiles, resource node placements
 └── quest.rs         # Moonpetal quest state
 ```
 
 ## Boundaries
 
-- `main.rs` owns rendering, Bevy entities, input, and the demo scene.
-- `world.rs`, `inventory.rs`, `gathering.rs`, `interaction.rs`, and `quest.rs` contain deterministic rules and do not depend on Bevy.
+- `main.rs` owns rendering, Bevy entities, input, and the HUD. It draws whatever `scene.rs` describes and asks the pure modules whether moves and interactions are allowed.
+- `world.rs`, `inventory.rs`, `gathering.rs`, `interaction.rs`, `movement.rs`, `scene.rs`, and `quest.rs` contain deterministic rules and do not depend on Bevy.
+- World space is centered on the origin; `WorldMap::tile_center` / `world_to_tile` convert between tile and world coordinates (`TILE_SIZE` = 32). Text maps list the top row first; `y` increases upward.
+- Collision treats anything outside the map as blocked, so no separate position clamp is needed.
 - Gathering attempts add the yield to inventory before decrementing node availability. This prevents a full inventory from consuming a resource.
 - Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
-- The prototype currently integrates inventory-backed moonpetal collection. The tile map and generic tree/ore gathering models are tested foundations; visual tile collision and their in-world interactions remain roadmap work.
+- The prototype renders the tile map, blocks movement on trees, rock, and water, and lets the player gather timber and copper ore from adjacent tiles. The meadow is still compiled in as a text constant; loading maps from a local data file is M1.
 
 ## Testing strategy
 

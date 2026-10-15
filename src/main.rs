@@ -1,8 +1,22 @@
 use bevy::prelude::*;
-use ozbound::{inventory::{Inventory, ItemId}, quest::MoonpetalQuest};
+use ozbound::{
+    gathering::{validate_node_placement, GatherError, GatheringNode, ResourceKind},
+    interaction::{nearest_in_range, within_interaction_range},
+    inventory::{Inventory, InventoryError, ItemId},
+    movement::resolve_move,
+    quest::MoonpetalQuest,
+    scene::{self, NodeSpawn},
+    world::{Tile, TilePos, WorldMap, TILE_SIZE},
+};
 
 const PLAYER_SPEED: f32 = 190.0;
 const INTERACT_DISTANCE: f32 = 88.0;
+/// Trees and ore sit on blocking tiles, so the player stands beside them:
+/// 1.75 tiles reaches an adjacent tile center (1 tile) but not two tiles away.
+const GATHER_DISTANCE: f32 = TILE_SIZE * 1.75;
+const PETAL_PICKUP_DISTANCE: f32 = 28.0;
+/// Collision box half extents (x, y) around the player's center.
+const PLAYER_HALF_EXTENTS: (f32, f32) = (11.0, 13.0);
 
 fn main() {
     App::new()
@@ -15,12 +29,13 @@ fn main() {
             ..default()
         }))
         .insert_resource(GameProgress::default())
+        .insert_resource(Meadow(scene::meadow_map().expect("built-in meadow map is valid")))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
             (
                 move_player,
-                interact_with_guide,
+                interact,
                 collect_moonpetals,
                 update_hud,
             ),
@@ -42,6 +57,46 @@ struct Moonpetal {
 #[derive(Component)]
 struct HudText;
 
+/// The collision/rules map for the current scene. Rendering is derived from it.
+#[derive(Resource)]
+struct Meadow(WorldMap);
+
+/// A tree or ore vein in the world, backed by the tested gathering rules.
+#[derive(Component)]
+struct ResourceNode(GatheringNode);
+
+fn resource_label(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::Moonpetal => "moonpetal",
+        ResourceKind::Tree => "tree",
+        ResourceKind::CopperVein => "copper vein",
+    }
+}
+
+fn tile_color(tile: Tile) -> Color {
+    match tile {
+        Tile::Grass => Color::srgb(0.30, 0.48, 0.30),
+        Tile::Path => Color::srgb(0.72, 0.65, 0.48),
+        Tile::Water => Color::srgb(0.20, 0.40, 0.70),
+        Tile::Tree => Color::srgb(0.12, 0.30, 0.16),
+        Tile::Rock => Color::srgb(0.45, 0.45, 0.48),
+    }
+}
+
+fn node_color(kind: ResourceKind, depleted: bool) -> Color {
+    match (kind, depleted) {
+        (ResourceKind::Tree, false) => Color::srgb(0.36, 0.24, 0.14),
+        (ResourceKind::CopperVein, false) => Color::srgb(0.80, 0.47, 0.25),
+        (_, true) => Color::srgb(0.25, 0.25, 0.25),
+        (ResourceKind::Moonpetal, false) => Color::srgb(0.85, 0.80, 0.98),
+    }
+}
+
+fn tile_center_vec3(map: &WorldMap, tile: TilePos, z: f32) -> Vec3 {
+    let (x, y) = map.tile_center(tile);
+    Vec3::new(x, y, z)
+}
+
 #[derive(Resource, Default)]
 struct GameProgress {
     quest: MoonpetalQuest,
@@ -50,123 +105,100 @@ struct GameProgress {
     inventory: Inventory,
 }
 
-fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+fn setup(mut commands: Commands, meadow: Res<Meadow>) {
+    let map = &meadow.0;
+    commands.spawn(Camera2d);
 
-    // Meadow background.
-    commands.spawn(SpriteBundle {
-        sprite: Sprite {
-            color: Color::srgb(0.30, 0.48, 0.30),
-            custom_size: Some(Vec2::new(1800.0, 1200.0)),
-            ..default()
-        },
-        transform: Transform::from_xyz(0.0, 0.0, -5.0),
-        ..default()
-    });
-
-    // A winding, storybook path represented by simple blocks.
-    for (position, size) in [
-        (Vec3::new(0.0, -120.0, -2.0), Vec2::new(800.0, 78.0)),
-        (Vec3::new(210.0, 20.0, -2.0), Vec2::new(70.0, 340.0)),
-        (Vec3::new(-250.0, 115.0, -2.0), Vec2::new(300.0, 54.0)),
-    ] {
-        commands.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::srgb(0.72, 0.65, 0.48),
-                custom_size: Some(size),
-                ..default()
-            },
-            transform: Transform::from_translation(position),
-            ..default()
-        });
+    // One sprite per tile; the map is the single source of truth for what is solid.
+    for y in 0..map.height() as i32 {
+        for x in 0..map.width() as i32 {
+            let tile = map.tile_at(TilePos::new(x, y)).expect("loop stays inside the map");
+            commands.spawn((
+                Sprite {
+                    color: tile_color(tile),
+                    custom_size: Some(Vec2::splat(TILE_SIZE)),
+                    ..default()
+                },
+                Transform::from_translation(tile_center_vec3(map, TilePos::new(x, y), -5.0)),
+            ));
+        }
     }
 
-    // Decorative trees around the meadow perimeter.
-    for (x, y) in [
-        (-400.0, 230.0), (-340.0, 270.0), (-470.0, 70.0),
-        (390.0, 230.0), (450.0, 160.0), (420.0, -260.0),
-        (-390.0, -260.0), (-300.0, -290.0), (60.0, 270.0),
-    ] {
-        commands.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::srgb(0.12, 0.30, 0.16),
-                custom_size: Some(Vec2::new(54.0, 62.0)),
-                ..default()
-            },
-            transform: Transform::from_xyz(x, y, 0.0),
-            ..default()
-        });
-        commands.spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::srgb(0.36, 0.24, 0.14),
-                custom_size: Some(Vec2::new(14.0, 28.0)),
-                ..default()
-            },
-            transform: Transform::from_xyz(x, y - 29.0, -0.5),
-            ..default()
-        });
+    // Trees and copper veins: each sits on a blocking tile and is gathered from beside it.
+    for NodeSpawn { tile, kind, actions, yield_per_action } in scene::RESOURCE_NODES {
+        if let Err(error) = validate_node_placement(map, tile, kind) {
+            error!("skipping {} at {tile:?}: {error:?}", resource_label(kind));
+            continue;
+        }
+        commands.spawn((
+            (
+                Sprite {
+                    color: node_color(kind, false),
+                    custom_size: Some(Vec2::splat(TILE_SIZE * 0.6)),
+                    ..default()
+                },
+                Transform::from_translation(tile_center_vec3(map, tile, 0.0)),
+            ),
+            ResourceNode(GatheringNode::new(kind, actions, yield_per_action)),
+        ));
     }
 
     // Player.
     commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
+        (
+            Sprite {
                 color: Color::srgb(0.24, 0.60, 0.92),
                 custom_size: Some(Vec2::new(28.0, 36.0)),
                 ..default()
             },
-            transform: Transform::from_xyz(-80.0, -110.0, 2.0),
-            ..default()
-        },
+            Transform::from_translation(tile_center_vec3(map, scene::PLAYER_START, 2.0)),
+        ),
         Player,
     ));
 
     // Village guide NPC.
     commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
+        (
+            Sprite {
                 color: Color::srgb(0.86, 0.70, 0.28),
                 custom_size: Some(Vec2::new(30.0, 38.0)),
                 ..default()
             },
-            transform: Transform::from_xyz(110.0, 5.0, 2.0),
-            ..default()
-        },
+            Transform::from_translation(tile_center_vec3(map, scene::GUIDE_TILE, 2.0)),
+        ),
         Guide,
     ));
 
     // Three moonpetals placed along the path.
-    for (x, y) in [(-10.0, -145.0), (180.0, -115.0), (260.0, 90.0)] {
+    for tile in scene::MOONPETAL_TILES {
+        if let Err(error) = validate_node_placement(map, tile, ResourceKind::Moonpetal) {
+            error!("skipping moonpetal at {tile:?}: {error:?}");
+            continue;
+        }
         commands.spawn((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: Color::srgb(0.85, 0.80, 0.98),
+            (
+                Sprite {
+                    color: node_color(ResourceKind::Moonpetal, false),
                     custom_size: Some(Vec2::new(18.0, 18.0)),
                     ..default()
                 },
-                transform: Transform::from_xyz(x, y, 1.0),
-                ..default()
-            },
+                Transform::from_translation(tile_center_vec3(map, tile, 1.0)),
+            ),
             Moonpetal { collected: false },
         ));
     }
 
     // UI overlay.
     commands.spawn((
-        TextBundle::from_section(
-            "OZBOUND\nWASD / arrows: move   E: talk   Esc: quit\nFind the village guide to begin.",
-            TextStyle {
-                font_size: 20.0,
-                color: Color::WHITE,
-                ..default()
-            },
-        )
-        .with_style(Style {
+        Text::new("OZBOUND\nWASD / arrows: move   E: interact   Esc: quit\nFind the village guide to begin."),
+        TextFont { font_size: 20.0, ..default() },
+        TextColor(Color::WHITE),
+        Node {
             position_type: PositionType::Absolute,
             top: Val::Px(14.0),
             left: Val::Px(16.0),
             ..default()
-        }),
+        },
         HudText,
     ));
 
@@ -176,6 +208,7 @@ fn setup(mut commands: Commands) {
 fn move_player(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
+    meadow: Res<Meadow>,
     mut player: Query<&mut Transform, With<Player>>,
 ) {
     let Ok(mut transform) = player.get_single_mut() else {
@@ -197,16 +230,24 @@ fn move_player(
     }
 
     if direction != Vec2::ZERO {
-        let movement = direction.normalize() * PLAYER_SPEED * time.delta_seconds();
-        transform.translation.x = (transform.translation.x + movement.x).clamp(-470.0, 470.0);
-        transform.translation.y = (transform.translation.y + movement.y).clamp(-300.0, 300.0);
+        let movement = direction.normalize() * PLAYER_SPEED * time.delta_secs();
+        // Collision (including the map edge) is decided by the tested pure rules.
+        let (x, y) = resolve_move(
+            &meadow.0,
+            (transform.translation.x, transform.translation.y),
+            (movement.x, movement.y),
+            PLAYER_HALF_EXTENTS,
+        );
+        transform.translation.x = x;
+        transform.translation.y = y;
     }
 }
 
-fn interact_with_guide(
+fn interact(
     keys: Res<ButtonInput<KeyCode>>,
     player: Query<&Transform, With<Player>>,
     guide: Query<&Transform, With<Guide>>,
+    mut nodes: Query<(&Transform, &mut ResourceNode, &mut Sprite)>,
     mut progress: ResMut<GameProgress>,
 ) {
     if !keys.just_pressed(KeyCode::KeyE) {
@@ -215,13 +256,45 @@ fn interact_with_guide(
     let (Ok(player), Ok(guide)) = (player.get_single(), guide.get_single()) else {
         return;
     };
-    let distance = player.translation.truncate().distance(guide.translation.truncate());
-    if distance <= INTERACT_DISTANCE {
+    let actor = (player.translation.x, player.translation.y);
+
+    // The guide takes priority over resources when both are in range.
+    if within_interaction_range(actor, (guide.translation.x, guide.translation.y), INTERACT_DISTANCE) {
         progress.spoke_to_guide = true;
         progress.journal = "Guide: The moonpetals glow after dusk. Please gather three for the village apothecary.".into();
-    } else {
-        progress.journal = "There is nobody close enough to talk to.".into();
+        return;
     }
+
+    let candidates = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, (transform, _, _))| (index, (transform.translation.x, transform.translation.y)));
+    let Some(index) = nearest_in_range(actor, candidates, GATHER_DISTANCE) else {
+        progress.journal = "There is nothing close enough to interact with.".into();
+        return;
+    };
+    let Some((_, mut node, mut sprite)) = nodes.iter_mut().nth(index) else {
+        return;
+    };
+
+    let kind = node.0.kind();
+    // Gathering only consumes the node when the inventory accepted the yield.
+    progress.journal = match node.0.gather(&mut progress.inventory) {
+        Ok(amount) if node.0.is_depleted() => {
+            sprite.color = node_color(kind, true);
+            format!("You gathered {amount} from the {}. It is spent for now.", resource_label(kind))
+        }
+        Ok(amount) => format!(
+            "You gathered {amount} from the {} ({} left).",
+            resource_label(kind),
+            node.0.remaining_actions()
+        ),
+        Err(GatherError::Depleted) => format!("This {} has nothing left to give.", resource_label(kind)),
+        Err(GatherError::Inventory(InventoryError::Full)) => {
+            "Your inventory is full. Make room before gathering more.".into()
+        }
+        Err(GatherError::Inventory(_)) => "You cannot carry that right now.".into(),
+    };
 }
 
 fn collect_moonpetals(
@@ -236,7 +309,7 @@ fn collect_moonpetals(
     let player_pos = player.translation.truncate();
 
     for (entity, transform, mut petal) in &mut petals {
-        if !petal.collected && player_pos.distance(transform.translation.truncate()) < 28.0 {
+        if !petal.collected && player_pos.distance(transform.translation.truncate()) < PETAL_PICKUP_DISTANCE {
             // Inventory first: a full bag must never silently consume a world resource.
             if progress.inventory.add(ItemId::Moonpetal, 1).is_ok() {
                 petal.collected = true;
@@ -259,6 +332,7 @@ fn update_hud(
     mut hud: Query<&mut Text, With<HudText>>,
     player: Query<&Transform, With<Player>>,
     guide: Query<&Transform, With<Guide>>,
+    nodes: Query<(&Transform, &ResourceNode)>,
 ) {
     let Ok(mut text) = hud.get_single_mut() else {
         return;
@@ -278,14 +352,29 @@ fn update_hud(
     } else {
         "Objective: Talk to the village guide"
     };
-    let prompt = if nearby_guide { "\n[E] Talk to the village guide" } else { "" };
+    let nearby_node = player.get_single().ok().and_then(|player| {
+        let actor = (player.translation.x, player.translation.y);
+        let candidates = nodes
+            .iter()
+            .enumerate()
+            .map(|(index, (transform, _))| (index, (transform.translation.x, transform.translation.y)));
+        nearest_in_range(actor, candidates, GATHER_DISTANCE)
+            .and_then(|index| nodes.iter().nth(index))
+            .map(|(_, node)| node.0.clone())
+    });
+    let prompt = match (nearby_guide, nearby_node) {
+        (true, _) => "\n[E] Talk to the village guide".to_string(),
+        (false, Some(node)) if node.is_depleted() => format!("\nThis {} is spent", resource_label(node.kind())),
+        (false, Some(node)) => format!("\n[E] Gather from the {}", resource_label(node.kind())),
+        (false, None) => String::new(),
+    };
     let journal = if progress.journal.is_empty() {
         "Journal: A quiet meadow awaits."
     } else {
         &progress.journal
     };
 
-    text.sections[0].value = format!(
+    text.0 = format!(
         "OZBOUND — A FAIRYTALE RPG\nWASD / arrows: move   E: interact   Esc: quit\n{}\n{}{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
         objective,
         progress.quest.progress_text(),

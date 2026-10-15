@@ -21,9 +21,11 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [x] Add shared interaction-range logic.
 - [x] Integrate moonpetal pickup with inventory and HUD counts in the Bevy prototype.
 - [x] Add unit tests for world bounds/walkability, inventory capacity/stacking/removal, gathering yields/depletion, and interaction range.
-- [ ] Integrate map tiles and collision into the rendered world; expose tree and ore nodes in the scene.
-  - Tests: tile collision and node interaction edge cases.
+- [x] Integrate map tiles and collision into the rendered world; expose tree and ore nodes in the scene.
+  - Done: `scene.rs` defines the meadow (text map), `movement.rs` resolves collision against it, trees and copper veins are gatherable in the Bevy scene via `E`.
+  - Tests: tile collision, tunneling, map edges, text-map parsing, node placement validation, nearest-in-range selection, and meadow reachability (all pure Rust).
   - Acceptance: player cannot move into blocked tiles; gathering is available only in range; full inventory preserves resources.
+  - Manual check (needs a window; not covered by unit tests): walk into trees, rock, water, and the map edge and confirm you stop; stand beside a tree/ore and press `E` to gather; fill the bag and confirm the node is not consumed.
 
 ## M1 — World movement and interaction
 - [ ] Replace the demo meadow with a tile-based map loaded from a local data file.
