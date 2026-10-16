@@ -11,6 +11,7 @@ src/
 ├── pointer.rs       # Hover label, left-click walk/interact, click markers
 ├── actions.rs       # Route following, talk/pick/gather, limb animation
 ├── camera_rig.rs    # Orbit camera that follows the player
+├── menu.rs          # Right-click menu: open, choose a row, draw the panel
 ├── hud.rs           # Objective, bag, journal, hover label
 ├── lib.rs           # Public pure-Rust domain modules (library crate)
 ├── world.rs         # Tile positions, map bounds, walkability, 3D tile centers
@@ -21,6 +22,8 @@ src/
 ├── interaction.rs   # Interaction kinds and hover text; range helpers
 ├── inventory.rs     # Item IDs, stacks, slot capacity
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
+├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
+├── respawn.rs       # One-shot countdown for respawning nodes
 ├── scene.rs         # Meadow text map, placements, deterministic per-tile variation
 └── quest.rs         # Moonpetal quest state
 ```
@@ -34,6 +37,8 @@ src/
 - A new click plans from the tile being walked toward, and the stride in progress is kept, so the player never snaps backwards.
 - Collision treats anything outside the map as blocked, so no separate position clamp is needed.
 - Gathering attempts add the yield to inventory before decrementing node availability, so a full inventory never consumes a resource. Repeat gathering stops when `should_keep_gathering` says so (spent node, full bag, or any failure) or when the player starts walking.
+- Spent trees and veins get a `Respawning` timer the moment an action empties them; when it finishes `GatheringNode::restock` refills them and their visual is shown again.
+- Right-click opens a menu that owns the mouse while open (`pointer` skips input), so one click never both picks a row and walks. Row geometry comes from `MenuMetrics`, shared by the UI layout and the click test.
 - Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
 - Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The meadow is still a compiled-in text constant; loading maps from a local data file is M1.
 

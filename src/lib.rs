@@ -1,3 +1,4 @@
+pub mod context_menu;
 pub mod gathering;
 pub mod interaction;
 pub mod inventory;
@@ -5,6 +6,7 @@ pub mod orbit;
 pub mod pathfinding;
 pub mod picking;
 pub mod quest;
+pub mod respawn;
 pub mod scene;
 pub mod task;
 pub mod world;

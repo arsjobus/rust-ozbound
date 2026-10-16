@@ -2,11 +2,13 @@
 
 use bevy::prelude::*;
 use ozbound::{
+    context_menu::MenuEntry,
     gathering::GatheringNode,
     interaction::InteractionKind,
     inventory::Inventory,
     pathfinding::Approach,
     quest::MoonpetalQuest,
+    respawn::RespawnTimer,
     task::Task,
     world::{TilePos, WorldMap},
 };
@@ -103,3 +105,27 @@ pub struct HudText;
 
 #[derive(Component)]
 pub struct HoverHud;
+
+/// Counts down on a spent tree or vein; when it finishes the node is restocked and shown again.
+#[derive(Component)]
+pub struct Respawning(pub RespawnTimer);
+
+/// A right-click menu that is currently open. `target` is the object the menu was opened on
+/// (if any) and `ground` the walkable tile under the cursor at that moment.
+pub struct OpenMenu {
+    pub origin: Vec2,
+    pub entries: Vec<MenuEntry>,
+    pub target: Option<Entity>,
+    pub ground: Option<TilePos>,
+}
+
+#[derive(Resource, Default)]
+pub struct ContextMenuState(pub Option<OpenMenu>);
+
+/// The UI panel that shows the menu rows.
+#[derive(Component)]
+pub struct ContextMenuPanel;
+
+/// One clickable row of the menu panel; the index matches `OpenMenu::entries`.
+#[derive(Component)]
+pub struct MenuRow(pub usize);

@@ -16,6 +16,11 @@ impl ResourceKind {
     pub fn label(self) -> &'static str {
         match self { Self::Moonpetal => "moonpetal", Self::Tree => "tree", Self::CopperVein => "copper vein" }
     }
+    /// Seconds a spent resource takes to come back, or `None` if it never does. Moonpetals
+    /// are one-off quest pickups and do not regrow (yet).
+    pub fn respawn_seconds(self) -> Option<f32> {
+        match self { Self::Moonpetal => None, Self::Tree => Some(30.0), Self::CopperVein => Some(45.0) }
+    }
     /// What clicking this resource does.
     pub fn interaction(self) -> InteractionKind {
         match self { Self::Moonpetal => InteractionKind::Pick, Self::Tree => InteractionKind::ChopDown, Self::CopperVein => InteractionKind::Mine }
@@ -26,15 +31,26 @@ impl ResourceKind {
 pub enum GatherError { Depleted, Inventory(InventoryError) }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GatheringNode { kind: ResourceKind, remaining: u32, yield_per_action: u32 }
+pub struct GatheringNode { kind: ResourceKind, remaining: u32, capacity: u32, yield_per_action: u32 }
 
 impl GatheringNode {
     pub fn new(kind: ResourceKind, available_actions: u32, yield_per_action: u32) -> Self {
-        Self { kind, remaining: available_actions, yield_per_action }
+        Self { kind, remaining: available_actions, capacity: available_actions, yield_per_action }
     }
     pub fn kind(&self) -> ResourceKind { self.kind }
     pub fn remaining_actions(&self) -> u32 { self.remaining }
     pub fn is_depleted(&self) -> bool { self.remaining == 0 }
+    /// How many actions the node offers when full (what [`GatheringNode::restock`] restores).
+    pub fn capacity(&self) -> u32 { self.capacity }
+
+    /// Brings a spent node back to full. Only a depleted node is restocked, so a respawn
+    /// timer firing late can never top up a node the player is still working on.
+    /// Returns whether the node was restocked.
+    pub fn restock(&mut self) -> bool {
+        if !self.is_depleted() || self.capacity == 0 { return false; }
+        self.remaining = self.capacity;
+        true
+    }
 
     /// Adds resources to the inventory and only consumes a node on success.
     pub fn gather(&mut self, inventory: &mut Inventory) -> Result<u32, GatherError> {
@@ -117,6 +133,37 @@ mod tests {
             Err(PlacementError::WrongTile { expected: "walkable ground", found: Tile::Water })
         );
         assert_eq!(validate_node_placement(&map, TilePos::new(9, 9), ResourceKind::Tree), Err(PlacementError::OutOfBounds));
+    }
+    #[test]
+    fn restock_only_refills_a_spent_node() {
+        let mut node = GatheringNode::new(ResourceKind::Tree, 2, 1);
+        let mut bag = Inventory::new(4);
+        assert_eq!(node.capacity(), 2);
+        assert!(!node.restock(), "full node: nothing to do");
+        node.gather(&mut bag).unwrap();
+        assert!(!node.restock(), "partly used node keeps its count");
+        assert_eq!(node.remaining_actions(), 1);
+        node.gather(&mut bag).unwrap();
+        assert!(node.is_depleted());
+        assert!(node.restock());
+        assert_eq!(node.remaining_actions(), 2);
+        assert_eq!(node.gather(&mut bag), Ok(1), "usable again");
+    }
+    #[test]
+    fn a_node_with_no_capacity_never_restocks() {
+        let mut node = GatheringNode::new(ResourceKind::Tree, 0, 1);
+        assert!(node.is_depleted());
+        assert!(!node.restock());
+        assert!(node.is_depleted());
+    }
+    #[test]
+    fn trees_and_ore_respawn_but_moonpetals_do_not() {
+        assert_eq!(ResourceKind::Moonpetal.respawn_seconds(), None);
+        for kind in [ResourceKind::Tree, ResourceKind::CopperVein] {
+            let secs = kind.respawn_seconds().expect("respawns");
+            assert!(secs.is_finite() && secs > 0.0, "{kind:?}");
+        }
+        assert!(ResourceKind::CopperVein.respawn_seconds() > ResourceKind::Tree.respawn_seconds(), "ore is slower to return");
     }
     #[test]
     fn node_reports_its_kind() {

@@ -19,6 +19,27 @@ impl InteractionKind {
     }
 }
 
+impl InteractionKind {
+    /// Short description shown when the player chooses "Examine".
+    pub fn examine(self) -> &'static str {
+        match self {
+            Self::TalkTo => "A friendly villager who knows the meadow well.",
+            Self::ChopDown => "A sturdy meadow tree. Its timber would be useful.",
+            Self::Mine => "A rock streaked with copper.",
+            Self::Pick => "A moonpetal, glowing faintly in the grass.",
+        }
+    }
+}
+
+/// Examine text for something that can currently be gathered from, or has run dry.
+pub fn examine_text(kind: InteractionKind, spent: bool) -> String {
+    if spent {
+        format!("{} It has nothing left to give for now, but it will recover in time.", kind.examine())
+    } else {
+        kind.examine().to_string()
+    }
+}
+
 /// Hover label for an object, e.g. `hover_text(InteractionKind::Mine, "copper vein")`.
 pub fn hover_text(kind: InteractionKind, name: &str) -> String {
     format!("{} {}", kind.verb(), name)
@@ -74,6 +95,24 @@ mod tests {
         assert_eq!(nearest_in_range((0.0, 0.0), tie, 5.0), Some(1));
         assert_eq!(nearest_in_range((0.0, 0.0), Vec::new(), 5.0), None);
         assert_eq!(nearest_in_range((0.0, 0.0), [(1, (f32::NAN, 0.0))], 5.0), None);
+    }
+    #[test]
+    fn every_kind_has_distinct_non_empty_examine_text() {
+        let kinds = [InteractionKind::TalkTo, InteractionKind::ChopDown, InteractionKind::Mine, InteractionKind::Pick];
+        for (i, a) in kinds.iter().enumerate() {
+            assert!(!a.examine().is_empty());
+            for b in &kinds[i + 1..] {
+                assert_ne!(a.examine(), b.examine());
+            }
+        }
+    }
+    #[test]
+    fn spent_resources_say_they_will_recover() {
+        let fresh = examine_text(InteractionKind::ChopDown, false);
+        let spent = examine_text(InteractionKind::ChopDown, true);
+        assert_eq!(fresh, InteractionKind::ChopDown.examine());
+        assert!(spent.starts_with(&fresh));
+        assert!(spent.contains("recover"));
     }
     #[test]
     fn hover_text_combines_verb_and_name() {

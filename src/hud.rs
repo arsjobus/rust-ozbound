@@ -31,7 +31,7 @@ pub fn update_hud(
     let journal = if progress.journal.is_empty() { "Journal: A quiet meadow awaits." } else { &progress.journal };
 
     text.0 = format!(
-        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Middle-drag or arrows: camera   Scroll: zoom   Esc: quit\n{}\n{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
+        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Right-click: menu   Middle-drag or arrows: camera   Scroll: zoom   Esc: quit\n{}\n{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
         objective,
         progress.quest.progress_text(),
         progress.inventory.count(ItemId::Moonpetal),

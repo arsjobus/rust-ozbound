@@ -44,8 +44,14 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: clicking ground walks a legal route; clicking an object walks beside it and then acts; a full bag never consumes a node; `cargo clippy --all-targets -- -D warnings` is clean.
   - Headless smoke run (Xvfb + software rendering, real mouse events) confirmed: hover labels, click-to-pick a moonpetal, chop a tree until spent, water refusal, guide dialogue, camera rotate/zoom, Esc quits. Still to check by eye: copper mining, arrow-key camera, mid-walk re-click, full bag, real-GPU frame rate.
   - Manual check (needs a window; not covered by unit tests): click grass, a path, and a blocked tile and confirm walk / walk / "You can't walk there."; click a tree and confirm the red cross, the walk, and repeated "You gathered..." messages, with the crown disappearing when spent; click mid-walk and confirm the player does not snap backwards; click the guide, then each moonpetal; fill the bag and confirm nodes are not consumed; turn the camera all the way round and zoom in and out; confirm hover text matches what a click does.
-- [ ] Right-click context menu (Walk here / Examine / Cancel) as in classic MMORPGs.
-- [ ] Respawn timers for spent trees and ore.
+- [x] Right-click context menu (main action / Examine / Walk here / Cancel) as in classic MMORPGs.
+  - Done: `context_menu.rs` (pure) builds the rows, keeps the menu inside the window, and maps a click to a row; `menu.rs` opens it, runs the choice, and draws the panel. A left-click while it is open picks a row and never also walks; a right-click elsewhere reopens it.
+  - Tests: row order and labels, Cancel always last, blocked ground omits Walk here, flip/clamp placement, row hit-testing at edges, degenerate input, examine text for fresh and spent resources.
+  - Manual check (needs a window): right-click a tree, the guide, a moonpetal, grass, and water; confirm the rows, that Walk here is absent on water, that the menu stays on screen near each window edge, that hovering highlights a row, that Examine only prints to the journal, and that clicking outside the menu closes it without moving the player.
+- [x] Respawn timers for spent trees (30 s) and copper veins (45 s); moonpetals do not respawn.
+  - Done: `respawn.rs` (pure one-shot countdown), `GatheringNode::restock` (only refills a spent node), `ResourceKind::respawn_seconds`, and the `respawn_nodes` system.
+  - Tests: countdown fires once, large steps, zero and invalid durations/time steps, restock only when spent, zero-capacity nodes, per-kind durations.
+  - Manual check (needs a window): chop a tree until spent, wait about 30 s, and confirm the crown returns and the tree can be chopped again.
 - [ ] Polish pass on models and lighting after seeing them in a window.
 
 ## M1 — World movement and interaction

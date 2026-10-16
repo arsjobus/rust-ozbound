@@ -190,4 +190,13 @@ pub fn setup(
         BackgroundColor(Color::NONE),
         HoverHud,
     ));
+
+    // Right-click menu panel: hidden until opened; `menu::sync_menu_ui` fills in the rows.
+    commands.spawn((
+        Node { position_type: PositionType::Absolute, left: Val::Px(0.0), top: Val::Px(0.0), flex_direction: FlexDirection::Column, ..default() },
+        BackgroundColor(Color::srgba(0.07, 0.07, 0.09, 0.95)),
+        GlobalZIndex(10),
+        Visibility::Hidden,
+        ContextMenuPanel,
+    ));
 }

@@ -10,13 +10,13 @@ use ozbound::{
     interaction::hover_text,
     pathfinding::{find_path, plan_route},
     picking::{ground_to_tile, pick, Pick, PickBox},
-    world::TilePos,
+    world::{TilePos, WorldMap},
 };
 
 use crate::components::*;
 
 /// Height of the walkable ground plane the cursor ray is intersected with.
-const GROUND_Y: f32 = 0.0;
+pub const GROUND_Y: f32 = 0.0;
 const MARKER_SECONDS: f32 = 0.7;
 
 pub fn pointer(
@@ -30,8 +30,13 @@ pub fn pointer(
     mut players: Query<&mut Player>,
     mut hover: ResMut<HoverText>,
     mut progress: ResMut<GameProgress>,
+    menu: Res<ContextMenuState>,
 ) {
     hover.0.clear();
+    // While the right-click menu is open it owns the mouse (see `menu::menu_input`).
+    if menu.0.is_some() {
+        return;
+    }
     let Ok(window) = windows.get_single() else { return };
     let Some(cursor) = window.cursor_position() else { return };
     let Ok((camera, camera_transform)) = cameras.get_single() else { return };
@@ -61,42 +66,69 @@ pub fn pointer(
         return;
     }
 
-    // Plan from the tile being walked toward, so a new click doesn't snap the player backwards.
-    let origin = player.task.planning_origin(player.tile);
     match picked {
         Pick::Object { id, .. } => {
             let Ok((_, it)) = targets.get(id) else { return };
-            match plan_route(map, origin, it.tile, it.approach) {
-                Some(route) => {
-                    let task = player.task.rerouted(route, Some(id));
-                    player.task = task;
-                    player.work = None;
-                    spawn_marker(&mut commands, &assets, marker_position(map, it.tile), true);
-                }
-                None => progress.journal = "You can't reach that.".into(),
-            }
+            order_interact(&mut commands, map, &assets, &mut player, &mut progress, id, it);
         }
         Pick::Ground(hit) => {
             let Some(tile) = ground_to_tile(map, hit.x, hit.z) else { return };
-            if !map.can_walk_to(tile) {
-                progress.journal = "You can't walk there.".into();
-                return;
-            }
-            match find_path(map, origin, tile) {
-                Some(route) => {
-                    let task = player.task.rerouted(route, None);
-                    player.task = task;
-                    player.work = None;
-                    spawn_marker(&mut commands, &assets, marker_position(map, tile), false);
-                }
-                None => progress.journal = "You can't reach that.".into(),
-            }
+            order_walk(&mut commands, map, &assets, &mut player, &mut progress, tile);
         }
         Pick::Nothing => {}
     }
 }
 
-fn marker_position(map: &ozbound::world::WorldMap, tile: TilePos) -> Vec3 {
+/// Sends the player to interact with `target`: walk beside it (or onto it), then act.
+/// Shared by left-click and the menu's main action.
+pub fn order_interact(
+    commands: &mut Commands,
+    map: &WorldMap,
+    assets: &ClickAssets,
+    player: &mut Player,
+    progress: &mut GameProgress,
+    target: Entity,
+    it: &Interactable,
+) {
+    // Plan from the tile being walked toward, so a new click doesn't snap the player backwards.
+    let origin = player.task.planning_origin(player.tile);
+    match plan_route(map, origin, it.tile, it.approach) {
+        Some(route) => {
+            let task = player.task.rerouted(route, Some(target));
+            player.task = task;
+            player.work = None;
+            spawn_marker(commands, assets, marker_position(map, it.tile), true);
+        }
+        None => progress.journal = "You can't reach that.".into(),
+    }
+}
+
+/// Sends the player walking to `tile`. Shared by left-click and the menu's "Walk here".
+pub fn order_walk(
+    commands: &mut Commands,
+    map: &WorldMap,
+    assets: &ClickAssets,
+    player: &mut Player,
+    progress: &mut GameProgress,
+    tile: TilePos,
+) {
+    if !map.can_walk_to(tile) {
+        progress.journal = "You can't walk there.".into();
+        return;
+    }
+    let origin = player.task.planning_origin(player.tile);
+    match find_path(map, origin, tile) {
+        Some(route) => {
+            let task = player.task.rerouted(route, None);
+            player.task = task;
+            player.work = None;
+            spawn_marker(commands, assets, marker_position(map, tile), false);
+        }
+        None => progress.journal = "You can't reach that.".into(),
+    }
+}
+
+fn marker_position(map: &WorldMap, tile: TilePos) -> Vec3 {
     Vec3::from_array(map.tile_center_3d(tile, 0.06))
 }
 

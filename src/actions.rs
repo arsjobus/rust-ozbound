@@ -6,6 +6,7 @@ use ozbound::{
     gathering::{should_keep_gathering, GatherError, ResourceKind},
     interaction::InteractionKind,
     inventory::{InventoryError, ItemId},
+    respawn::RespawnTimer,
     task::{facing_yaw, step_toward},
     world::{TilePos, WorldMap},
 };
@@ -129,15 +130,37 @@ pub fn interact(
             let kind = node.0.kind();
             let outcome = node.0.gather(&mut progress.inventory);
             progress.journal = gather_message(kind, &outcome, node.0.remaining_actions());
-            if node.0.is_depleted() {
+            if outcome.is_ok() && node.0.is_depleted() {
                 if let Ok(mut visibility) = visibilities.get_mut(spent.0) {
                     *visibility = Visibility::Hidden;
+                }
+                // Trees and ore grow back after a while; start the clock the moment they run dry.
+                if let Some(seconds) = kind.respawn_seconds() {
+                    commands.entity(target).insert(Respawning(RespawnTimer::new(seconds)));
                 }
             }
             keep_going = should_keep_gathering(&outcome, &node.0);
         }
         if !keep_going {
             player.work = None;
+        }
+    }
+}
+
+/// Counts down spent trees and veins, then restocks them and brings their visuals back.
+pub fn respawn_nodes(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut nodes: Query<(Entity, &mut ResourceNode, &SpentVisual, &mut Respawning)>,
+    mut visibilities: Query<&mut Visibility>,
+) {
+    for (entity, mut node, spent, mut respawn) in &mut nodes {
+        if respawn.0.tick(time.delta_secs()) {
+            node.0.restock();
+            if let Ok(mut visibility) = visibilities.get_mut(spent.0) {
+                *visibility = Visibility::Inherited;
+            }
+            commands.entity(entity).remove::<Respawning>();
         }
     }
 }

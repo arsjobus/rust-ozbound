@@ -8,6 +8,7 @@ mod actions;
 mod camera_rig;
 mod components;
 mod hud;
+mod menu;
 mod models;
 mod pointer;
 mod setup;
@@ -15,7 +16,7 @@ mod setup;
 use bevy::prelude::*;
 use ozbound::scene;
 
-use components::{GameProgress, HoverText, Meadow};
+use components::{ContextMenuState, GameProgress, HoverText, Meadow};
 
 fn main() {
     App::new()
@@ -30,18 +31,22 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
         .insert_resource(GameProgress::default())
         .insert_resource(HoverText::default())
+        .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(scene::meadow_map().expect("built-in meadow map is valid")))
         .add_systems(Startup, setup::setup)
         .add_systems(
             Update,
             (
                 pointer::pointer,
+                menu::menu_input,
                 actions::follow_route,
                 actions::interact,
+                actions::respawn_nodes,
                 actions::animate_limbs,
                 actions::float_props,
                 pointer::fade_markers,
                 camera_rig::update_camera,
+                menu::sync_menu_ui,
                 hud::update_hud,
                 exit_on_escape,
             )
