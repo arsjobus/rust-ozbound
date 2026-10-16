@@ -1,0 +1,19 @@
+# Quest definitions for the meadow. Format (see src/quests.rs):
+#
+#   [quest <id>]            ids use lower-case letters, digits, and underscores
+#   title = <text>          shown in the journal
+#   summary = <text>        one or two sentences for the journal
+#   requires = <id>, <id>   optional: quests that must be completed first
+#   objective = talk <npc>            done in order, one at a time
+#   objective = collect <item> <n>    counts items gathered while this objective is current
+#   takes = <item> <n>      optional: handed over (removed from the bag) when the quest is completed
+#   reward = <item> <n>     optional: given when the quest is completed
+#
+# Items: moonpetal, timber, copper_ore
+
+[quest moonpetals]
+title = Moonpetals for the Apothecary
+summary = The village apothecary is short of moonpetals, which glow in the meadow grass after dusk. Gather three and bring them to the village guide.
+objective = collect moonpetal 3
+takes = moonpetal 3
+reward = timber 2

@@ -126,3 +126,14 @@ Mouse-first play is the intended style, but it is not accessible to everyone. A 
 ## Level data (M1)
 
 The meadow now lives in `assets/maps/meadow.map`, a plain-text file with `[map]`, `[player]`, `[guide]`, `[moonpetals]`, and `[nodes]` sections (the format is described at the top of the file; `y` counts up from the bottom row). The game loads it at startup; set `OZBOUND_MAP=path/to/other.map` to play a different file. If the file has a mistake the game prints the file name, line number, and what is wrong, then exits. If `assets/maps/meadow.map` is missing (for example when run from another directory) the identical built-in copy is used.
+
+## Quests and dialogue (M2)
+
+Quests and conversations are now data, handled by pure Rust modules under `src/`:
+
+- `quests.rs`: quest definitions from `assets/quests/meadow.quest` (prerequisites, ordered `talk`/`collect` objectives, items taken on hand-in, item rewards) and the player's `QuestLog`.
+- `dialogue.rs`: conversations from `assets/dialogue/meadow.dialogue`, with choices that depend on quest and bag state, and effects that start or complete quests.
+- `journal.rs`: the active/completed quest list. `quest_save.rs`: a versioned text format for the quest log.
+- `textdata.rs`: the shared reader behind the content files; errors name the file line.
+
+These are tested without a window, including a full play-through of the moonpetal quest (`tests/quest_playthrough.rs`). The Bevy prototype still uses the original moonpetal counter and the guide's fixed line; connecting it to the new modules is the open item at the end of M2 in `ROADMAP.md`.

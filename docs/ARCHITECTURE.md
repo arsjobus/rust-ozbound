@@ -27,8 +27,13 @@ src/
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
 ├── level.rs         # Level data file parser/validator: map, player, guide, moonpetals, nodes, signs
+├── textdata.rs      # Shared reader for plain-text content files (sections, fields, ids, line-numbered errors)
+├── quests.rs        # Quest definitions (parsed/validated), QuestLog transitions, events and updates
+├── dialogue.rs      # Dialogue conversations/nodes/choices, conditions and effects, DialogueSession
+├── journal.rs       # Active/completed quest view built from the quest book and log
+├── quest_save.rs    # Versioned plain-text save/load of the QuestLog (no file I/O)
 ├── scene.rs         # Built-in default level (compiled in), per-tile variation, fence rail links
-└── quest.rs         # Moonpetal quest state
+└── quest.rs         # Original moonpetal counter (to be replaced by quests.rs in the Bevy layer)
 ```
 
 ## Boundaries
@@ -48,6 +53,11 @@ src/
 - Right-click opens a menu that owns the mouse while open (`pointer` skips input), so one click never both picks a row and walks. Row geometry comes from `MenuMetrics`, shared by the UI layout and the click test.
 - Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
 - Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The world is described by a plain-text level file (`assets/maps/meadow.map`, parsed by `level.rs`); a copy is compiled in as a fallback for when the file is not found. An invalid level file stops startup with a file/line error rather than falling back.
+
+- Quests and dialogue are plain-text content (`assets/quests/*.quest`, `assets/dialogue/*.dialogue`) parsed by pure modules. Every parser error carries a line number, and loading validates the whole file before anything is used, so a bad file never half-loads. Dialogue is also checked against the quest file (`DialogueBook::check_against`).
+- Quest state changes are all-or-nothing. `QuestLog::complete` works on a copy of the bag and only commits if the items are there and the rewards fit; a failed hand-in changes nothing and the quest stays ready. Quest progress comes only from `QuestEvent`s (items gathered, NPC spoken to), never from what happens to be in the bag.
+- A conversation can never trap the player: content validation requires an always-available choice on every node and an unconditional route to the end from everywhere. Dialogue effects that fail (for example a full bag at hand-in) are returned in `Outcome::failures`, and content routes those cases with the `can_complete` condition.
+- Saves are text with a version header. `QuestLog::from_text` refuses states that play could not have produced and never loads partially. Where and how the text is written to disk is left to the M6 save system.
 
 ## Testing strategy
 

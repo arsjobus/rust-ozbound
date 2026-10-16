@@ -76,12 +76,24 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: player cannot pass through blocked tiles; map data errors are reported clearly; interactions only succeed within range.
 
 ## M2 — Quest and dialogue foundations
-- [ ] Add data-driven dialogue nodes and choices.
-- [ ] Add quest definitions, prerequisites, objectives, and completion rewards.
-- [ ] Add a journal that lists active and completed quests.
-- [ ] Add quest state persistence independent of rendering.
-- [ ] Test dialogue branching, prerequisite checks, quest transitions, and invalid content.
+- [x] Add data-driven dialogue nodes and choices.
+  - Done: `dialogue.rs` (pure) parses `assets/dialogue/meadow.dialogue` into conversations of nodes and choices. Choices can carry conditions (`quest <id> is|not <status>`, `has <item> <n>`, `can_complete <id>`), nodes can run effects (`start <quest>`, `complete <quest>`), and a conversation's `entry` list picks the opening node from the current quest state. `DialogueSession` walks a conversation (`begin`, `view`, `choose`, `close`); talking to an NPC records that for `talk` objectives. Loading rejects anything that could trap the player: missing or hidden entries, nodes with no text or no always-available choice, unknown or unreachable nodes, and loops with no unconditional way out.
+  - Tests: parsing of every field and condition, arrows and "if" inside choice text, every syntax error with its line number, every structural error above, quest ids checked against the quest file, choice indexes with hidden choices, effects that cannot apply being reported rather than hidden.
+- [x] Add quest definitions, prerequisites, objectives, and completion rewards.
+  - Done: `quests.rs` (pure) parses `assets/quests/meadow.quest` into a validated `QuestBook` (unique ids, known prerequisites, no cycles, at least one objective, positive amounts). Objectives are `talk <npc>` and `collect <item> <n>`, done in order. A quest can take items on hand-in and grant rewards. `QuestLog` does the transitions: `start`, `record` (events in, `QuestUpdate`s out), `complete`. Rewards never count as gathering, and surplus from one event is not carried over (rules are written at the top of `quests.rs`).
+  - Tests: parsing and every content error, prerequisite checks (including a still-active prerequisite), ordered objectives, ignored and zero-quantity events, one event advancing several quests, capped surplus, completion taking items and granting rewards once, and all-or-nothing failure for missing items and a full bag.
+- [x] Add a journal that lists active and completed quests.
+  - Done: `journal.rs` (pure) builds `Journal { active, completed }` from the quest book and log, with finished steps, the current step with its count, and a hand-in step for ready quests; future steps stay hidden. `Journal::render` gives the same as text.
+  - Tests: empty journal, hidden future steps, ready and completed placement, exact rendered text, quests missing from the book.
+- [x] Add quest state persistence independent of rendering.
+  - Done: `quest_save.rs` adds `QuestLog::to_text` / `from_text`, a versioned (`ozbound-quests 1`) plain-text format. Loading validates against the quest definitions and refuses unknown or duplicate quests, impossible progress, newer format versions, and quests started without their prerequisites. It does no file I/O; safe file writes belong to M6.
+  - Tests: round trips of every stage, play continuing after a load, comment/CRLF/BOM tolerance, every refusal with its line number, no partial loads.
+- [x] Test dialogue branching, prerequisite checks, quest transitions, and invalid content.
   - Acceptance: a complete short quest can be started, advanced, completed, and verified through tests without launching Bevy.
+  - Done: `tests/quest_playthrough.rs` plays the shipped "Moonpetals for the Apothecary" through the public API: accept at the guide, gather with real `GatheringNode`s, save and reload mid-quest, early hand-in does nothing, hand-in takes petals and pays timber once, journal and later dialogue change, a full bag delays the reward without losing anything, and declining starts nothing.
+- [ ] Wire the new modules into the Bevy layer.
+  - Replace `quest::MoonpetalQuest` and the guide's hard-coded line in `interact.rs` with `QuestLog` + `DialogueSession`: load both content files at startup (with the same compiled-in fallback and file/line errors as the level), show the dialogue text and choices in a panel, send `QuestEvent::Gathered` after a successful pickup, and show `Journal::render` in the HUD. Not done in this pass because the Bevy layer could not be compiled where the pure modules were written.
+  - Manual check (needs a window): talk to the guide and accept; pick petals and watch the journal count; talk early and confirm nothing is handed over; fill the bag and confirm the guide asks for room; hand in and confirm timber appears; restart and confirm a saved quest is still where it was left.
 
 ## M3 — Inventory, gathering, and crafting
 - [ ] Add stackable items, equipment slots, and inventory capacity.

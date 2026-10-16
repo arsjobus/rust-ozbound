@@ -1,0 +1,52 @@
+# Dialogue for the meadow. Format (see src/dialogue.rs):
+#
+#   [conversation <id>]
+#   npc = <npc id>          talking starts this NPC's "talk" objectives
+#   speaker = <name shown above the text>
+#   entry = <node> [if <conditions>]     first matching entry starts the talk; the last has no `if`
+#
+#   [node <id>]
+#   text = <line>           repeat for more lines
+#   effect = start <quest> | complete <quest>      runs when the node is reached
+#   choice = <text> -> <node or end> [if <conditions>]
+#
+# Conditions are joined with ` and `:
+#   quest <id> is|not not_started|active|ready|completed
+#   has <item> <n>
+#   can_complete <id>       the quest is ready and its items/rewards fit in the bag
+
+[conversation guide]
+npc = guide
+speaker = Village Guide
+entry = turn_in if can_complete moonpetals
+entry = bag_full if quest moonpetals is ready
+entry = waiting if quest moonpetals is active
+entry = thanks if quest moonpetals is completed
+entry = greeting
+
+[node greeting]
+text = Welcome to the meadow, traveller. The moonpetals glow after dusk, and the village apothecary is running short of them.
+choice = I can gather some. -> accept
+choice = Not right now. -> end
+
+[node accept]
+effect = start moonpetals
+text = Wonderful. Please gather three moonpetals and bring them back to me.
+choice = I'll be back soon. -> end
+
+[node waiting]
+text = Three moonpetals, please. They are lying in the grass around the meadow.
+choice = I'm on it. -> end
+
+[node turn_in]
+effect = complete moonpetals
+text = These are lovely. The apothecary will be delighted. Please take some timber for your trouble.
+choice = Glad to help. -> end
+
+[node bag_full]
+text = Your bag is too full for me to give you anything in return. Make some room and come back.
+choice = I'll make some room. -> end
+
+[node thanks]
+text = Thank you again for the moonpetals.
+choice = Take care. -> end

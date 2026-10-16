@@ -8,6 +8,31 @@ pub enum ItemId {
     CopperOre,
 }
 
+impl ItemId {
+    /// Stable lower-case key used in data files and saves. Never change an existing key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Moonpetal => "moonpetal",
+            Self::Timber => "timber",
+            Self::CopperOre => "copper_ore",
+        }
+    }
+
+    /// Reverse of [`ItemId::key`]; unknown keys give `None`.
+    pub fn from_key(key: &str) -> Option<Self> {
+        [Self::Moonpetal, Self::Timber, Self::CopperOre].into_iter().find(|item| item.key() == key)
+    }
+
+    /// Plain-language name for journal and quest text.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Moonpetal => "moonpetal",
+            Self::Timber => "timber",
+            Self::CopperOre => "copper ore",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryError {
     ZeroQuantity,
@@ -94,5 +119,15 @@ mod tests {
         assert_eq!(bag.remove(ItemId::Moonpetal, 0), Err(InventoryError::ZeroQuantity));
         assert_eq!(bag.remove(ItemId::Moonpetal, 3), Err(InventoryError::NotEnoughItems));
         assert_eq!(bag.count(ItemId::Moonpetal), 2);
+    }
+
+    #[test]
+    fn item_keys_round_trip_and_reject_unknowns() {
+        for item in [ItemId::Moonpetal, ItemId::Timber, ItemId::CopperOre] {
+            assert_eq!(ItemId::from_key(item.key()), Some(item));
+        }
+        assert_eq!(ItemId::from_key("Moonpetal"), None);
+        assert_eq!(ItemId::from_key(""), None);
+        assert_eq!(ItemId::CopperOre.label(), "copper ore");
     }
 }
