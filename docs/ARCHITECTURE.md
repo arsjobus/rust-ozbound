@@ -4,26 +4,38 @@
 
 ```text
 src/
-├── main.rs          # Bevy app, visuals, keyboard input, HUD
-├── lib.rs           # Public pure-Rust domain modules
-├── world.rs         # Tile positions, map bounds, walkability
+├── main.rs          # Bevy app wiring and system order (binary crate)
+├── setup.rs         # Startup: terrain, props, characters, lights, camera, HUD
+├── models.rs        # Original low-poly models built from primitives
+├── components.rs    # Bevy components and resources
+├── pointer.rs       # Hover label, left-click walk/interact, click markers
+├── actions.rs       # Route following, talk/pick/gather, limb animation
+├── camera_rig.rs    # Orbit camera that follows the player
+├── hud.rs           # Objective, bag, journal, hover label
+├── lib.rs           # Public pure-Rust domain modules (library crate)
+├── world.rs         # Tile positions, map bounds, walkability, 3D tile centers
+├── pathfinding.rs   # BFS routes, no corner cutting, Adjacent/OnTile approach
+├── picking.rs       # Ray vs ground and boxes: what is under the cursor
+├── task.rs          # Route + pending interaction; step and facing helpers
+├── orbit.rs         # Orbit-camera angles, clamps, zoom
+├── interaction.rs   # Interaction kinds and hover text; range helpers
 ├── inventory.rs     # Item IDs, stacks, slot capacity
-├── gathering.rs    # Resource nodes, gather transaction, node placement validation
-├── interaction.rs  # Shared interaction-range calculation and nearest-target pick
-├── movement.rs     # Tile collision: box clearance and sliding movement
-├── scene.rs        # Meadow text map, spawn tiles, resource node placements
+├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
+├── scene.rs         # Meadow text map, placements, deterministic per-tile variation
 └── quest.rs         # Moonpetal quest state
 ```
 
 ## Boundaries
 
-- `main.rs` owns rendering, Bevy entities, input, and the HUD. It draws whatever `scene.rs` describes and asks the pure modules whether moves and interactions are allowed.
-- `world.rs`, `inventory.rs`, `gathering.rs`, `interaction.rs`, `movement.rs`, `scene.rs`, and `quest.rs` contain deterministic rules and do not depend on Bevy.
-- World space is centered on the origin; `WorldMap::tile_center` / `world_to_tile` convert between tile and world coordinates (`TILE_SIZE` = 32). Text maps list the top row first; `y` increases upward.
+- The **library crate** (`lib.rs` and the modules it lists) is pure Rust: no Bevy types, fully unit-tested without a window. The **binary crate** (`main.rs` and its modules) renders, reads input, and connects the two.
+- Input flow: `pointer.rs` turns the cursor into a ray, `picking::pick` says what it hits, `pathfinding::plan_route` plans a route, and `Task` stores it. `actions.rs` glides the player along the route and runs the interaction on arrival.
+- World space is 3D, Y-up. One tile is one world unit (`TILE_SIZE` = 1.0). Map tile `(x, y)` sits at world `(x, h, -y)`: map "north" is Bevy's forward direction (`-z`). Use `WorldMap::tile_center_3d` and `picking::ground_to_tile` to convert; text maps list the top row first.
+- Gameplay is tile-based: walkability, routes, and interaction ranges ("stand on or orthogonally beside the target tile") are decided on tiles. Smooth motion is display only: the logical `Player.tile` updates as each tile is reached.
+- A new click plans from the tile being walked toward, and the stride in progress is kept, so the player never snaps backwards.
 - Collision treats anything outside the map as blocked, so no separate position clamp is needed.
-- Gathering attempts add the yield to inventory before decrementing node availability. This prevents a full inventory from consuming a resource.
+- Gathering attempts add the yield to inventory before decrementing node availability, so a full inventory never consumes a resource. Repeat gathering stops when `should_keep_gathering` says so (spent node, full bag, or any failure) or when the player starts walking.
 - Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
-- The prototype renders the tile map, blocks movement on trees, rock, and water, and lets the player gather timber and copper ore from adjacent tiles. The meadow is still compiled in as a text constant; loading maps from a local data file is M1.
+- Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The meadow is still a compiled-in text constant; loading maps from a local data file is M1.
 
 ## Testing strategy
 
@@ -34,7 +46,7 @@ src/
 
 ## Technical choices
 
-- Rust + Bevy 0.15 for the game loop and rendering.
+- Rust + Bevy 0.15 for the game loop and 3D rendering. Building needs Rust 1.88 or newer (the locked `image` crate requires it; Bevy 0.15 itself needs 1.82).
 - Pure domain logic wherever practical, to keep tests fast and independent of a window.
 - Local-first: saves and content stay on the user's device. Networking is not part of the initial design.
 - Minimal dependencies; review licensing and maintenance before adding crates.

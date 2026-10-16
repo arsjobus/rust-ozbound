@@ -2,7 +2,7 @@
 
 ## High-level pitch
 
-A gentle, exploratory, top-down RPG set in a reimagined fairy-tale country inspired by the 1900 Oz novel. It borrows the *shape* of a classic MMORPG's satisfying world loop—explore, talk, gather, learn skills, complete quests, improve equipment—but starts as a private, offline, single-player game.
+A gentle, exploratory, low-poly 3D RPG set in a reimagined fairy-tale country inspired by the 1900 Oz novel. It borrows the *shape* of a classic MMORPG's satisfying world loop—explore, talk, gather, learn skills, complete quests, improve equipment—but starts as a private, offline, single-player game.
 
 ## Design pillars
 
@@ -15,9 +15,16 @@ A gentle, exploratory, top-down RPG set in a reimagined fairy-tale country inspi
 
 ## Originality boundaries
 
-The 1900 novel is a source of public-domain inspiration in the United States, but later Oz books, translations, illustrations, film adaptations, and branding can have separate rights. Keep this project anchored to the first novel's public-domain material and original additions. Do not copy the 1939 film's visual designs, dialogue, songs, costumes, or other distinctive adaptation elements. Use original sprites, music, names for new characters, and quest writing.
+The 1900 novel is a source of public-domain inspiration in the United States, but later Oz books, translations, illustrations, film adaptations, and branding can have separate rights. Keep this project anchored to the first novel's public-domain material and original additions. Do not copy the 1939 film's visual designs, dialogue, songs, costumes, or other distinctive adaptation elements. Use original models, music, names for new characters, and quest writing.
 
-The RuneScape reference is about interaction patterns and pacing—not copying its assets, names, interface, maps, quests, or exact systems.
+The RuneScape reference is about interaction patterns, pacing, and a general low-poly feel—not copying its models, textures, names, interface, maps, quests, or exact systems. Character, tree, and rock models are built from scratch.
+
+## Look and controls
+
+- **Art direction:** chunky, flat-shaded low-poly 3D: faceted trees, boulders, blocky characters, a bright storybook palette. Models are original and generated from simple primitives; they should read clearly at a glance from a raised third-person camera.
+- **Controls:** point-and-click, in the tradition of classic MMORPGs. Left-click a tile to walk there; left-click an object to walk beside it and interact. Hovering names the action. The camera orbits with middle-drag or arrow keys and zooms with the wheel.
+- **Movement is tile-based.** Routes are planned over whole tiles; characters glide between tile centers. This keeps rules simple, testable, and readable.
+- **Accessibility:** mouse-first play must not be the only way to play; a keyboard path is planned (see M7).
 
 ## Core play loop (target)
 
@@ -25,7 +32,7 @@ Explore a region → meet a character or discover a problem → gather clues/mat
 
 ## First vertical slice
 
-- One small meadow.
+- One small low-poly meadow.
 - One original village guide NPC.
 - Three collectible moonpetals.
 - A short dialogue prompt.

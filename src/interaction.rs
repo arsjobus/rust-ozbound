@@ -1,3 +1,29 @@
+/// What a left-click on a world object does. The label shown while hovering is
+/// "<verb> <name>", e.g. "Chop down tree".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InteractionKind {
+    TalkTo,
+    ChopDown,
+    Mine,
+    Pick,
+}
+
+impl InteractionKind {
+    pub fn verb(self) -> &'static str {
+        match self {
+            Self::TalkTo => "Talk to",
+            Self::ChopDown => "Chop down",
+            Self::Mine => "Mine",
+            Self::Pick => "Pick",
+        }
+    }
+}
+
+/// Hover label for an object, e.g. `hover_text(InteractionKind::Mine, "copper vein")`.
+pub fn hover_text(kind: InteractionKind, name: &str) -> String {
+    format!("{} {}", kind.verb(), name)
+}
+
 /// Euclidean interaction range check shared by NPCs and world objects.
 pub fn within_interaction_range(actor: (f32, f32), target: (f32, f32), range: f32) -> bool {
     if !range.is_finite() || range < 0.0 || !actor.0.is_finite() || !actor.1.is_finite()
@@ -18,7 +44,7 @@ where
         if !within_interaction_range(actor, pos, range) { continue; }
         let (dx, dy) = (actor.0 - pos.0, actor.1 - pos.1);
         let dist_sq = dx.mul_add(dx, dy * dy);
-        if best.map_or(true, |(_, d)| dist_sq < d) { best = Some((id, dist_sq)); }
+        if best.is_none_or(|(_, d)| dist_sq < d) { best = Some((id, dist_sq)); }
     }
     best.map(|(id, _)| id)
 }
@@ -48,5 +74,12 @@ mod tests {
         assert_eq!(nearest_in_range((0.0, 0.0), tie, 5.0), Some(1));
         assert_eq!(nearest_in_range((0.0, 0.0), Vec::new(), 5.0), None);
         assert_eq!(nearest_in_range((0.0, 0.0), [(1, (f32::NAN, 0.0))], 5.0), None);
+    }
+    #[test]
+    fn hover_text_combines_verb_and_name() {
+        assert_eq!(hover_text(InteractionKind::ChopDown, "tree"), "Chop down tree");
+        assert_eq!(hover_text(InteractionKind::TalkTo, "Village Guide"), "Talk to Village Guide");
+        assert_eq!(hover_text(InteractionKind::Mine, "copper vein"), "Mine copper vein");
+        assert_eq!(hover_text(InteractionKind::Pick, "moonpetal"), "Pick moonpetal");
     }
 }

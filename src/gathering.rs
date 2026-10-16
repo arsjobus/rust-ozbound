@@ -1,3 +1,4 @@
+use crate::interaction::InteractionKind;
 use crate::inventory::{Inventory, InventoryError, ItemId};
 use crate::world::{MapError, Tile, TilePos, WorldMap};
 
@@ -7,6 +8,17 @@ pub enum ResourceKind { Moonpetal, Tree, CopperVein }
 impl ResourceKind {
     pub fn item(self) -> ItemId {
         match self { Self::Moonpetal => ItemId::Moonpetal, Self::Tree => ItemId::Timber, Self::CopperVein => ItemId::CopperOre }
+    }
+}
+
+impl ResourceKind {
+    /// Lower-case name used in hover text and journal messages.
+    pub fn label(self) -> &'static str {
+        match self { Self::Moonpetal => "moonpetal", Self::Tree => "tree", Self::CopperVein => "copper vein" }
+    }
+    /// What clicking this resource does.
+    pub fn interaction(self) -> InteractionKind {
+        match self { Self::Moonpetal => InteractionKind::Pick, Self::Tree => InteractionKind::ChopDown, Self::CopperVein => InteractionKind::Mine }
     }
 }
 
@@ -32,6 +44,13 @@ impl GatheringNode {
         self.remaining -= 1;
         Ok(self.yield_per_action)
     }
+}
+
+/// Whether an automatic "keep gathering" loop should continue after an attempt: only while
+/// attempts succeed and the node still has something to give. A full inventory or a spent
+/// node ends the loop.
+pub fn should_keep_gathering(outcome: &Result<u32, GatherError>, node: &GatheringNode) -> bool {
+    outcome.is_ok() && !node.is_depleted()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,5 +121,28 @@ mod tests {
     #[test]
     fn node_reports_its_kind() {
         assert_eq!(GatheringNode::new(ResourceKind::Tree, 1, 1).kind(), ResourceKind::Tree);
+    }
+    #[test]
+    fn gathering_loop_continues_until_spent_or_blocked() {
+        let mut bag = Inventory::new(4);
+        let mut node = GatheringNode::new(ResourceKind::Tree, 2, 1);
+        let first = node.gather(&mut bag);
+        assert!(should_keep_gathering(&first, &node), "one action left");
+        let second = node.gather(&mut bag);
+        assert!(!should_keep_gathering(&second, &node), "just spent");
+        let third = node.gather(&mut bag);
+        assert!(!should_keep_gathering(&third, &node), "already depleted");
+
+        let mut full = Inventory::new(0);
+        let mut ore = GatheringNode::new(ResourceKind::CopperVein, 3, 1);
+        let blocked = ore.gather(&mut full);
+        assert!(!should_keep_gathering(&blocked, &ore), "full inventory stops the loop");
+    }
+    #[test]
+    fn resources_know_their_label_and_click_action() {
+        assert_eq!(ResourceKind::Tree.label(), "tree");
+        assert_eq!(ResourceKind::CopperVein.interaction(), InteractionKind::Mine);
+        assert_eq!(ResourceKind::Tree.interaction(), InteractionKind::ChopDown);
+        assert_eq!(ResourceKind::Moonpetal.interaction(), InteractionKind::Pick);
     }
 }

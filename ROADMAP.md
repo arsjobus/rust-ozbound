@@ -27,6 +27,27 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: player cannot move into blocked tiles; gathering is available only in range; full inventory preserves resources.
   - Manual check (needs a window; not covered by unit tests): walk into trees, rock, water, and the map edge and confirm you stop; stand beside a tree/ore and press `E` to gather; fill the bag and confirm the node is not consumed.
 
+## M0.3 — Low-poly 3D and click-to-move
+- [x] Change direction from top-down keyboard play to a low-poly 3D world with mouse-driven, tile-based controls.
+- [x] Pure-Rust tile pathfinding: shortest routes, diagonal steps that never cut blocked corners, and an `Adjacent` approach for blocked targets (trees, ore, NPCs).
+  - Tests: straight and diagonal routes, corner cutting, walls and gaps, blocked/off-map/enclosed goals, already-adjacent targets, agreement with `is_reachable` on every meadow tile.
+- [x] Pure-Rust mouse picking: ray vs ground plane and ray vs boxes; nearest object wins unless the ground is nearer.
+  - Tests: oblique and vertical rays, parallel/upward rays, box entry distance, origin inside box, NaN input, ties, ground-to-tile round trip.
+- [x] Click-to-walk, click-to-interact (walk beside the target, then act), automatic repeat gathering, hover action label, and click markers (yellow = walk, red = interact).
+  - Tests: route/target task state (target handed out once, only after arrival; new clicks finish the current stride), gather-loop stop conditions, hover text.
+- [x] Third-person orbit camera that follows the player (middle-drag or arrows to turn, scroll to zoom).
+  - Tests: default view direction, offset length, clamping, yaw wrap, invalid input.
+- [x] Original low-poly models generated in code (terrain, trees, boulders and copper ore, moonpetals, characters with walk and work animation).
+- [x] Split the Bevy layer into focused modules (setup, models, pointer, actions, camera, HUD).
+- [x] Retire pixel-space continuous collision (`movement.rs`); `TILE_SIZE` is now 1.0 world unit.
+- [x] Esc quits (documented before, but not previously handled).
+  - Acceptance: clicking ground walks a legal route; clicking an object walks beside it and then acts; a full bag never consumes a node; `cargo clippy --all-targets -- -D warnings` is clean.
+  - Headless smoke run (Xvfb + software rendering, real mouse events) confirmed: hover labels, click-to-pick a moonpetal, chop a tree until spent, water refusal, guide dialogue, camera rotate/zoom, Esc quits. Still to check by eye: copper mining, arrow-key camera, mid-walk re-click, full bag, real-GPU frame rate.
+  - Manual check (needs a window; not covered by unit tests): click grass, a path, and a blocked tile and confirm walk / walk / "You can't walk there."; click a tree and confirm the red cross, the walk, and repeated "You gathered..." messages, with the crown disappearing when spent; click mid-walk and confirm the player does not snap backwards; click the guide, then each moonpetal; fill the bag and confirm nodes are not consumed; turn the camera all the way round and zoom in and out; confirm hover text matches what a click does.
+- [ ] Right-click context menu (Walk here / Examine / Cancel) as in classic MMORPGs.
+- [ ] Respawn timers for spent trees and ore.
+- [ ] Polish pass on models and lighting after seeing them in a window.
+
 ## M1 — World movement and interaction
 - [ ] Replace the demo meadow with a tile-based map loaded from a local data file.
 - [ ] Add collision against trees, rocks, fences, and water.
@@ -63,7 +84,7 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [ ] Build an original starting village and nearby meadow/forest.
 - [ ] Add 3–5 short quests with different objective types.
 - [ ] Add a small bestiary and non-lethal/optional encounters as appropriate to the tone.
-- [ ] Add readable original NPC portraits/sprites and ambient sound.
+- [ ] Add readable original low-poly NPC models, portraits for dialogue, and ambient sound.
 - [ ] Test each quest path, item reward, and key progression gate.
   - Acceptance: a new player can complete a 30–60 minute local adventure without blockers.
 
@@ -76,11 +97,12 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 
 ## M7 — Polish and accessibility
 - [ ] Add key remapping and adjustable UI scale.
+- [ ] Add a keyboard path for click-to-move and click-to-interact (for example Tab to cycle nearby targets, Enter to act), so mouse-first play is not required.
 - [ ] Add readable dialogue, quest, inventory, and settings panels.
 - [ ] Add pause menu and audio controls.
 - [ ] Add performance profiling and a basic smoke-test checklist.
 - [ ] Test settings validation and UI state transitions where practical.
-  - Acceptance: all essential actions work from keyboard; no critical text is clipped at supported resolutions.
+  - Acceptance: all essential actions are reachable without a mouse; no critical text is clipped at supported resolutions.
 
 ## M8 — Optional future directions (not committed)
 - [ ] Consider controller support.

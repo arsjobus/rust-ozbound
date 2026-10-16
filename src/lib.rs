@@ -1,7 +1,10 @@
 pub mod gathering;
 pub mod interaction;
 pub mod inventory;
-pub mod movement;
+pub mod orbit;
+pub mod pathfinding;
+pub mod picking;
 pub mod quest;
 pub mod scene;
+pub mod task;
 pub mod world;

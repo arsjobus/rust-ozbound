@@ -1,5 +1,6 @@
-/// Side length of one tile in world units (pixels in the Bevy prototype).
-pub const TILE_SIZE: f32 = 32.0;
+/// Side length of one tile in world units. In the 3D prototype one tile is one world unit,
+/// so characters, trees, and camera distances can all be reasoned about in tiles.
+pub const TILE_SIZE: f32 = 1.0;
 
 /// Integer tile coordinate, independent of Bevy's rendering types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -98,6 +99,14 @@ impl WorldMap {
         )
     }
 
+    /// 3D world position (x, height, z) of a tile center. The map plane's `y` axis (up the
+    /// map, "north") becomes `-z`, so north is Bevy's forward direction and the picture is
+    /// not mirrored. Use together with [`WorldMap::world_to_tile`] via `(x, -z)`.
+    pub fn tile_center_3d(&self, pos: TilePos, height: f32) -> [f32; 3] {
+        let (x, y) = self.tile_center(pos);
+        [x, height, -y]
+    }
+
     /// Tile containing a world-space point. The result may lie outside the map;
     /// use [`WorldMap::tile_at`] to find out. Non-finite input yields `None`.
     pub fn world_to_tile(&self, point: (f32, f32)) -> Option<TilePos> {
@@ -186,5 +195,15 @@ mod tests {
         assert!(!map.is_reachable(TilePos::new(0, 0), TilePos::new(3, 0)));
         assert!(!map.is_reachable(TilePos::new(0, 0), TilePos::new(2, 0))); // target blocked
         assert!(!map.is_reachable(TilePos::new(0, 0), TilePos::new(9, 9))); // out of bounds
+    }
+    #[test]
+    fn three_d_centers_map_north_to_negative_z() {
+        let map = WorldMap::from_ascii("....\n....\n....").unwrap();
+        let south = map.tile_center_3d(TilePos::new(1, 0), 0.5);
+        let north = map.tile_center_3d(TilePos::new(1, 2), 0.5);
+        assert_eq!(south[1], 0.5);
+        assert_eq!(south[0], north[0]);
+        assert!(north[2] < south[2], "north must lie further along -z");
+        assert!((south[2] - north[2] - 2.0 * TILE_SIZE).abs() < 1e-5);
     }
 }
