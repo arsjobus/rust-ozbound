@@ -9,7 +9,8 @@ use ozbound::{
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
     interaction::InteractionKind,
     pathfinding::Approach,
-    scene::{self, NodeSpawn},
+    level::NodeSpawn,
+    scene,
     task::Task,
     world::{Tile, TilePos, WorldMap},
 };
@@ -34,10 +35,12 @@ fn pick_box(map: &WorldMap, tile: TilePos, half: f32, height: f32) -> ([f32; 3],
 pub fn setup(
     mut commands: Commands,
     meadow: Res<Meadow>,
+    level: Res<LevelData>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let map = &meadow.0;
+    let level = &level.0;
     let kit = Kit::new(&mut meshes, &mut materials);
 
     // Click markers: a yellow cross for walking, a red one for interacting.
@@ -71,7 +74,7 @@ pub fn setup(
 
     // Validate resource nodes once; scenery below attaches gameplay to the valid ones.
     let mut nodes: HashMap<TilePos, NodeSpawn> = HashMap::new();
-    for node in scene::RESOURCE_NODES {
+    for node in level.nodes.iter().copied() {
         match validate_node_placement(map, node.tile, node.kind) {
             Ok(()) => {
                 nodes.insert(node.tile, node);
@@ -122,7 +125,7 @@ pub fn setup(
     }
 
     // Three moonpetals along the path. They are picked up by clicking them.
-    for (i, tile) in scene::MOONPETAL_TILES.into_iter().enumerate() {
+    for (i, tile) in level.moonpetals.iter().copied().enumerate() {
         if let Err(error) = validate_node_placement(map, tile, ResourceKind::Moonpetal) {
             error!("skipping moonpetal at {tile:?}: {error:?}");
             continue;
@@ -138,19 +141,19 @@ pub fn setup(
     }
 
     // The village guide faces the player's starting tile.
-    let guide_at = vec3(map.tile_center_3d(scene::GUIDE_TILE, 0.0));
-    let start_at = vec3(map.tile_center_3d(scene::PLAYER_START, 0.0));
+    let guide_at = vec3(map.tile_center_3d(level.guide, 0.0));
+    let start_at = vec3(map.tile_center_3d(level.player_start, 0.0));
     let toward_start = ozbound::task::facing_yaw(start_at.x - guide_at.x, start_at.z - guide_at.z).unwrap_or(0.0);
     let guide = models::spawn_humanoid(&mut commands, &kit, &kit.guide, guide_at, toward_start);
-    let (pick_min, pick_max) = pick_box(map, scene::GUIDE_TILE, 0.4, 1.95);
+    let (pick_min, pick_max) = pick_box(map, level.guide, 0.4, 1.95);
     commands.entity(guide).insert((
         Guide,
-        Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: scene::GUIDE_TILE, approach: Approach::Adjacent, pick_min, pick_max },
+        Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: level.guide, approach: Approach::Adjacent, pick_min, pick_max },
     ));
 
     // The player.
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, start_at, 0.0);
-    commands.entity(player).insert(Player { tile: scene::PLAYER_START, task: Task::idle(), work: None });
+    commands.entity(player).insert(Player { tile: level.player_start, task: Task::idle(), work: None });
 
     // A wide dark floor under the meadow so the map edge doesn't float in the sky colour.
     commands.spawn((

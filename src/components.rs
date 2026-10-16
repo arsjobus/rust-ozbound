@@ -6,6 +6,7 @@ use ozbound::{
     gathering::GatheringNode,
     interaction::InteractionKind,
     inventory::Inventory,
+    level::Level,
     pathfinding::Approach,
     quest::MoonpetalQuest,
     respawn::RespawnTimer,
@@ -16,6 +17,11 @@ use ozbound::{
 /// The rules map for the current scene. Rendering and clicking are derived from it.
 #[derive(Resource)]
 pub struct Meadow(pub WorldMap);
+
+/// The loaded level: where the player, guide, moonpetals, and resource nodes stand.
+/// `Meadow` holds the same map for the systems that only need tiles.
+#[derive(Resource)]
+pub struct LevelData(pub Level);
 
 #[derive(Resource, Default)]
 pub struct GameProgress {

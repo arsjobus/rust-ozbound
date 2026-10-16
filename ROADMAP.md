@@ -55,7 +55,12 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [ ] Polish pass on models and lighting after seeing them in a window.
 
 ## M1 — World movement and interaction
-- [ ] Replace the demo meadow with a tile-based map loaded from a local data file.
+- [x] Replace the demo meadow with a tile-based map loaded from a local data file.
+  - Done: `assets/maps/meadow.map` (plain text: `[map]`, `[player]`, `[guide]`, `[moonpetals]`, `[nodes]`; format documented at the top of the file) is parsed by the pure `level.rs` into a validated `Level`. `main.rs` loads it at startup (`OZBOUND_MAP=path` plays another file); if the default file is absent the identical compiled-in copy (`scene::DEFAULT_LEVEL`) is used so the game still starts from any directory. `setup.rs` builds the scene from the `Level` instead of constants, and `scene.rs` keeps only the built-in default and the per-tile variation helpers.
+  - Errors: an invalid file stops startup with the file name, 1-based line, and a plain explanation (unknown glyph with column, ragged row, malformed coordinates, unknown resource, duplicate section, tile out of bounds, wrong tile for a tree/vein, unreachable guide/moonpetal/node, fewer moonpetals than the quest needs, node that never yields). An existing but invalid file is never silently replaced by the built-in map.
+  - Tests: the shipped file parses and equals the original hand-written layout; the on-disk file equals the built-in copy; y-counts-up-from-bottom convention; comments, blank lines, CRLF, and case-insensitive headers; every error kind above with its line number; missing/unreadable/invalid files report their path. The old meadow-layout tests (size, reachability, routes to every target) moved to `level.rs` and run against the parsed level.
+  - Acceptance: the game builds its world from a data file; map data errors are reported clearly with a line number; trees, rocks, and water from the file block movement as before.
+  - Manual check (needs a window; not covered by unit tests): `cargo run` and confirm the meadow looks and plays as before; edit a glyph in `assets/maps/meadow.map` (for example turn a `.` into `~`) and confirm it shows up; break the file (add a `?` to a map row) and confirm the game exits with `invalid level file ... line N` instead of opening a window; run from another directory and confirm the built-in-meadow note appears.
 - [ ] Add collision against trees, rocks, fences, and water.
 - [ ] Add interactable objects and a consistent interaction range.
 - [ ] Separate input, movement, world interaction, and UI systems into focused modules.

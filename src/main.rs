@@ -14,11 +14,40 @@ mod pointer;
 mod setup;
 
 use bevy::prelude::*;
-use ozbound::scene;
+use ozbound::{
+    level::{Level, LoadError},
+    scene,
+};
 
-use components::{ContextMenuState, GameProgress, HoverText, Meadow};
+use components::{ContextMenuState, GameProgress, HoverText, LevelData, Meadow};
+
+/// Where the game looks for its level, relative to the working directory.
+const LEVEL_PATH: &str = "assets/maps/meadow.map";
+/// Set this to play a different level file; a missing or invalid file is then an error.
+const LEVEL_ENV: &str = "OZBOUND_MAP";
+
+/// Loads the level from disk. A custom path (`OZBOUND_MAP`) must load. The default file is
+/// used when it exists; if it is simply absent (the game was started from another
+/// directory) the identical built-in copy is used instead. An existing file that is
+/// invalid is never papered over: the error says which file and line to fix.
+fn load_level() -> Result<Level, String> {
+    if let Some(custom) = std::env::var_os(LEVEL_ENV) {
+        return Level::load(&custom).map_err(|e| e.to_string());
+    }
+    match Level::load(LEVEL_PATH) {
+        Err(LoadError::Io { error, .. }) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("note: {LEVEL_PATH} not found; using the built-in meadow");
+            scene::meadow_level().map_err(|e| format!("built-in meadow is invalid: {e}"))
+        }
+        other => other.map_err(|e| e.to_string()),
+    }
+}
 
 fn main() {
+    let level = load_level().unwrap_or_else(|message| {
+        eprintln!("error: {message}");
+        std::process::exit(1);
+    });
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -32,7 +61,8 @@ fn main() {
         .insert_resource(GameProgress::default())
         .insert_resource(HoverText::default())
         .insert_resource(ContextMenuState::default())
-        .insert_resource(Meadow(scene::meadow_map().expect("built-in meadow map is valid")))
+        .insert_resource(Meadow(level.map.clone()))
+        .insert_resource(LevelData(level))
         .add_systems(Startup, setup::setup)
         .add_systems(
             Update,

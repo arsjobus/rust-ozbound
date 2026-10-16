@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn pathfinding_agrees_with_four_way_reachability_everywhere() {
         let m = crate::scene::meadow_map().unwrap();
-        let start = crate::scene::PLAYER_START;
+        let start = crate::scene::meadow_level().unwrap().player_start;
         for y in -1..=m.height() as i32 {
             for x in -1..=m.width() as i32 {
                 let goal = TilePos::new(x, y);

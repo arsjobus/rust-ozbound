@@ -122,3 +122,7 @@ Mouse-first play is the intended style, but it is not accessible to everyone. A 
 - The game was also launched in a headless Linux session with software rendering (Xvfb + llvmpipe) and driven with real mouse events. Observed working: hover labels, walking to a clicked moonpetal and picking it, chopping a tree until it was spent (crown disappears, timber added), the "You can't walk there." refusal on water, talking to the guide, middle-drag camera rotation, scroll zoom, and Esc to quit.
 - Not yet checked by eye: copper mining, arrow-key camera, clicking mid-walk, a full bag, and real-GPU frame rate. See the manual checklist in `ROADMAP.md` (M0.3).
 - Building needs Rust 1.88 or newer because the committed `Cargo.lock` pins an `image` release that requires it.
+
+## Level data (M1)
+
+The meadow now lives in `assets/maps/meadow.map`, a plain-text file with `[map]`, `[player]`, `[guide]`, `[moonpetals]`, and `[nodes]` sections (the format is described at the top of the file; `y` counts up from the bottom row). The game loads it at startup; set `OZBOUND_MAP=path/to/other.map` to play a different file. If the file has a mistake the game prints the file name, line number, and what is wrong, then exits. If `assets/maps/meadow.map` is missing (for example when run from another directory) the identical built-in copy is used.

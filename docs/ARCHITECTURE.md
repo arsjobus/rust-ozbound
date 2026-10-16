@@ -24,7 +24,8 @@ src/
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
-├── scene.rs         # Meadow text map, placements, deterministic per-tile variation
+├── level.rs         # Level data file parser/validator: map, player, guide, moonpetals, nodes
+├── scene.rs         # Built-in default level (compiled in) and deterministic per-tile variation
 └── quest.rs         # Moonpetal quest state
 ```
 
@@ -40,7 +41,7 @@ src/
 - Spent trees and veins get a `Respawning` timer the moment an action empties them; when it finishes `GatheringNode::restock` refills them and their visual is shown again.
 - Right-click opens a menu that owns the mouse while open (`pointer` skips input), so one click never both picks a row and walks. Row geometry comes from `MenuMetrics`, shared by the UI layout and the click test.
 - Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
-- Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The meadow is still a compiled-in text constant; loading maps from a local data file is M1.
+- Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The world is described by a plain-text level file (`assets/maps/meadow.map`, parsed by `level.rs`); a copy is compiled in as a fallback for when the file is not found. An invalid level file stops startup with a file/line error rather than falling back.
 
 ## Testing strategy
 

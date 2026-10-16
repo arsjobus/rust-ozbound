@@ -2,6 +2,7 @@ pub mod context_menu;
 pub mod gathering;
 pub mod interaction;
 pub mod inventory;
+pub mod level;
 pub mod orbit;
 pub mod pathfinding;
 pub mod picking;
