@@ -1,3 +1,6 @@
+use crate::pathfinding::{is_orthogonally_adjacent, Approach};
+use crate::world::TilePos;
+
 /// What a left-click on a world object does. The label shown while hovering is
 /// "<verb> <name>", e.g. "Chop down tree".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6,6 +9,7 @@ pub enum InteractionKind {
     ChopDown,
     Mine,
     Pick,
+    Read,
 }
 
 impl InteractionKind {
@@ -15,7 +19,30 @@ impl InteractionKind {
             Self::ChopDown => "Chop down",
             Self::Mine => "Mine",
             Self::Pick => "Pick",
+            Self::Read => "Read",
         }
+    }
+
+    /// Where the player must stand to use this kind of object. This is the single source of
+    /// truth for interaction range: scenery that blocks movement (trees, ore, signposts) and
+    /// people are used from a walkable tile right beside them; things lying on open ground
+    /// (moonpetals) are used by standing on them.
+    pub fn approach(self) -> Approach {
+        match self {
+            Self::Pick => Approach::OnTile,
+            Self::TalkTo | Self::ChopDown | Self::Mine | Self::Read => Approach::Adjacent,
+        }
+    }
+}
+
+/// True when an actor standing on `actor` is close enough to use a target on `target` the way
+/// `approach` demands: on the same tile, or orthogonally beside it (diagonals do not count).
+/// Interactions re-check this on arrival, so nothing can be used from further away than the
+/// route planner would have walked to.
+pub fn in_reach(actor: TilePos, target: TilePos, approach: Approach) -> bool {
+    match approach {
+        Approach::OnTile => actor == target,
+        Approach::Adjacent => is_orthogonally_adjacent(actor, target),
     }
 }
 
@@ -27,6 +54,7 @@ impl InteractionKind {
             Self::ChopDown => "A sturdy meadow tree. Its timber would be useful.",
             Self::Mine => "A rock streaked with copper.",
             Self::Pick => "A moonpetal, glowing faintly in the grass.",
+            Self::Read => "A weathered wooden signpost with a few words painted on it.",
         }
     }
 }
@@ -73,6 +101,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scene::meadow_level;
+    use crate::pathfinding::plan_route;
+
+    const ALL_KINDS: [InteractionKind; 5] =
+        [InteractionKind::TalkTo, InteractionKind::ChopDown, InteractionKind::Mine, InteractionKind::Pick, InteractionKind::Read];
     #[test]
     fn includes_boundary_and_excludes_outside() {
         assert!(within_interaction_range((0.0, 0.0), (3.0, 4.0), 5.0));
@@ -98,7 +131,7 @@ mod tests {
     }
     #[test]
     fn every_kind_has_distinct_non_empty_examine_text() {
-        let kinds = [InteractionKind::TalkTo, InteractionKind::ChopDown, InteractionKind::Mine, InteractionKind::Pick];
+        let kinds = ALL_KINDS;
         for (i, a) in kinds.iter().enumerate() {
             assert!(!a.examine().is_empty());
             for b in &kinds[i + 1..] {
@@ -120,5 +153,63 @@ mod tests {
         assert_eq!(hover_text(InteractionKind::TalkTo, "Village Guide"), "Talk to Village Guide");
         assert_eq!(hover_text(InteractionKind::Mine, "copper vein"), "Mine copper vein");
         assert_eq!(hover_text(InteractionKind::Pick, "moonpetal"), "Pick moonpetal");
+    }
+    #[test]
+    fn hover_text_for_signposts() {
+        assert_eq!(hover_text(InteractionKind::Read, "signpost"), "Read signpost");
+    }
+
+    #[test]
+    fn every_kind_has_a_verb_and_an_approach() {
+        for kind in ALL_KINDS {
+            assert!(!kind.verb().is_empty());
+        }
+        // Only things lying on open ground are used by standing on them.
+        let on_tile: Vec<_> = ALL_KINDS.iter().filter(|k| k.approach() == Approach::OnTile).collect();
+        assert_eq!(on_tile, vec![&InteractionKind::Pick]);
+    }
+
+    #[test]
+    fn on_tile_reach_needs_the_exact_tile() {
+        let t = TilePos::new(4, 4);
+        assert!(in_reach(t, t, Approach::OnTile));
+        assert!(!in_reach(TilePos::new(4, 5), t, Approach::OnTile));
+    }
+
+    #[test]
+    fn adjacent_reach_is_orthogonal_only() {
+        let t = TilePos::new(4, 4);
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            assert!(in_reach(TilePos::new(4 + dx, 4 + dy), t, Approach::Adjacent), "({dx},{dy})");
+        }
+        for (dx, dy) in [(1, 1), (-1, 1), (1, -1), (-1, -1), (2, 0), (0, -2), (0, 0)] {
+            assert!(!in_reach(TilePos::new(4 + dx, 4 + dy), t, Approach::Adjacent), "({dx},{dy})");
+        }
+    }
+
+    #[test]
+    fn reach_is_symmetric_and_handles_far_away_tiles() {
+        let a = TilePos::new(1, 1);
+        let b = TilePos::new(1, 2);
+        assert_eq!(in_reach(a, b, Approach::Adjacent), in_reach(b, a, Approach::Adjacent));
+        assert!(!in_reach(TilePos::new(i32::MIN / 2, 0), TilePos::new(i32::MAX / 2, 0), Approach::Adjacent));
+    }
+
+    /// The planner and the range rule must agree: wherever a planned route ends, the actor is
+    /// in reach, for every kind of object the meadow places.
+    #[test]
+    fn every_planned_route_ends_in_reach_of_its_target() {
+        let level = meadow_level().expect("built-in meadow parses");
+        let start = level.player_start;
+        let ends_in_reach = |target: TilePos, kind: InteractionKind| {
+            let approach = kind.approach();
+            let route = plan_route(&level.map, start, target, approach)
+                .unwrap_or_else(|| panic!("no route to {kind:?} at {target:?}"));
+            assert!(in_reach(route.last().copied().unwrap_or(start), target, approach), "{kind:?} at {target:?}");
+        };
+        ends_in_reach(level.guide, InteractionKind::TalkTo);
+        for petal in &level.moonpetals { ends_in_reach(*petal, InteractionKind::Pick); }
+        for node in &level.nodes { ends_in_reach(node.tile, node.kind.interaction()); }
+        for sign in &level.signs { ends_in_reach(sign.tile, InteractionKind::Read); }
     }
 }

@@ -46,6 +46,7 @@ pub struct Kit {
     pub trunk: Handle<Mesh>,
     pub crowns: [Handle<Mesh>; 3],
     pub bark: Handle<StandardMaterial>,
+    pub plank: Handle<StandardMaterial>,
     pub leaves: [Handle<StandardMaterial>; 3],
 
     pub rock: Handle<Mesh>,
@@ -89,6 +90,7 @@ impl Kit {
                 meshes.add(flat(Cone::new(0.42, 0.75).mesh().resolution(6).into())),
             ],
             bark: material(materials, 0.38, 0.26, 0.15),
+            plank: material(materials, 0.66, 0.50, 0.30),
             leaves: [
                 material(materials, 0.16, 0.42, 0.20),
                 material(materials, 0.20, 0.48, 0.22),
@@ -160,6 +162,41 @@ pub fn spawn_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale:
     }
     commands.entity(root).add_children(&[trunk, crown]);
     (root, crown)
+}
+
+/// One tile of fence: a post in the middle with two rails reaching toward each linked
+/// neighbour, so a row of fence tiles reads as one continuous fence. `rails` are unit map
+/// offsets `(dx, dy)` from [`ozbound::scene::FenceLinks::rails`]; map `+y` is world `-z`.
+pub fn spawn_fence(commands: &mut Commands, kit: &Kit, at: Vec3, rails: &[(i32, i32)]) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at))).id();
+    let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.42, 0.0).with_scale(Vec3::new(0.14, 0.84, 0.14)))).id();
+    commands.entity(root).add_child(post);
+    for &(dx, dy) in rails {
+        // Half a tile long, so rails from two neighbouring tiles meet at the tile edge.
+        let (along_x, sign) = if dx != 0 { (true, dx as f32) } else { (false, -(dy as f32)) };
+        for height in [0.34, 0.64] {
+            let (offset, size) = if along_x {
+                (Vec3::new(sign * 0.25, height, 0.0), Vec3::new(0.5, 0.07, 0.05))
+            } else {
+                (Vec3::new(0.0, height, sign * 0.25), Vec3::new(0.05, 0.07, 0.5))
+            };
+            let rail = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_translation(offset).with_scale(size))).id();
+            commands.entity(root).add_child(rail);
+        }
+    }
+    root
+}
+
+/// A signpost: a wooden post with a painted board, turned a little so no two look identical.
+pub fn spawn_signpost(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.5, 0.0).with_scale(Vec3::new(0.10, 1.0, 0.10)))).id();
+    let board = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(0.0, 0.92, 0.07).with_scale(Vec3::new(0.72, 0.38, 0.06)))).id();
+    // Dark strokes standing in for painted words.
+    let line_a = commands.spawn(part(&kit.cube, &kit.dark, Transform::from_xyz(0.0, 0.98, 0.105).with_scale(Vec3::new(0.50, 0.04, 0.01)))).id();
+    let line_b = commands.spawn(part(&kit.cube, &kit.dark, Transform::from_xyz(-0.06, 0.88, 0.105).with_scale(Vec3::new(0.38, 0.04, 0.01)))).id();
+    commands.entity(root).add_children(&[post, board, line_a, line_b]);
+    root
 }
 
 /// A boulder made of two squashed icospheres. With `copper`, orange flecks stud the surface.

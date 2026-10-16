@@ -4,12 +4,14 @@
 // Bevy systems take one parameter per resource/query they use, so long signatures are normal.
 #![allow(clippy::too_many_arguments)]
 
-mod actions;
+mod animation;
 mod camera_rig;
 mod components;
 mod hud;
+mod interact;
 mod menu;
 mod models;
+mod movement;
 mod pointer;
 mod setup;
 
@@ -69,11 +71,11 @@ fn main() {
             (
                 pointer::pointer,
                 menu::menu_input,
-                actions::follow_route,
-                actions::interact,
-                actions::respawn_nodes,
-                actions::animate_limbs,
-                actions::float_props,
+                movement::follow_route,
+                interact::interact,
+                interact::respawn_nodes,
+                animation::animate_limbs,
+                animation::float_props,
                 pointer::fade_markers,
                 camera_rig::update_camera,
                 menu::sync_menu_ui,

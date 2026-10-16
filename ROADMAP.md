@@ -61,10 +61,18 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Tests: the shipped file parses and equals the original hand-written layout; the on-disk file equals the built-in copy; y-counts-up-from-bottom convention; comments, blank lines, CRLF, and case-insensitive headers; every error kind above with its line number; missing/unreadable/invalid files report their path. The old meadow-layout tests (size, reachability, routes to every target) moved to `level.rs` and run against the parsed level.
   - Acceptance: the game builds its world from a data file; map data errors are reported clearly with a line number; trees, rocks, and water from the file block movement as before.
   - Manual check (needs a window; not covered by unit tests): `cargo run` and confirm the meadow looks and plays as before; edit a glyph in `assets/maps/meadow.map` (for example turn a `.` into `~`) and confirm it shows up; break the file (add a `?` to a map row) and confirm the game exits with `invalid level file ... line N` instead of opening a window; run from another directory and confirm the built-in-meadow note appears.
-- [ ] Add collision against trees, rocks, fences, and water.
-- [ ] Add interactable objects and a consistent interaction range.
-- [ ] Separate input, movement, world interaction, and UI systems into focused modules.
-- [ ] Add unit tests for map parsing, walkability, movement bounds, and interaction range.
+- [x] Add collision against trees, rocks, fences, and water.
+  - Done: new `F` (fence) and `S` (signpost) tiles in `world.rs`. `Tile::is_walkable` is the one place collision is decided; pathfinding, click validation, and level validation all use it. Fences render as posts with rails toward neighbouring fence tiles (`scene::fence_links`, `models::spawn_fence`); the meadow now has a five-tile fence rail south of the pond.
+  - Tests: every tile kind's walkability, fence/sign glyph parsing, fence lines blocking and gaps letting through, routes never entering any blocker, fences approached from beside like other blocked targets, fence links (ends, corners, lone posts, map edge), and the meadow staying fully connected with the rail in place.
+  - Manual check (needs a window): walk toward the fence rail south of the pond from every side and confirm the player routes around it; click a fence and confirm "You can't walk there."; click ground beyond it and confirm the route bends around the ends.
+- [x] Add interactable objects and a consistent interaction range.
+  - Done: readable signposts (`InteractionKind::Read`, `[signs]` section in level files). `InteractionKind::approach()` is the single rule for where the player must stand; `interaction::in_reach` is checked again on arrival and before each gather attempt, and a failed check says "You are too far away to do that." Setup builds every object's `Approach` from `approach()` instead of hard-coding it.
+  - Tests: reach for both approaches (orthogonal only, diagonals and distance refused, symmetric, extreme coordinates), planned routes always end in reach for the guide, petals, nodes, and signs, sign parsing (spaces in text, malformed lines with line numbers), and sign validation (wrong tile, off map, duplicates, walled off). Unlisted `S` tiles are valid scenery.
+  - Manual check (needs a window): click each signpost and confirm the player walks beside it and the journal shows its text; right-click one and confirm "Read signpost" and Examine; click a tree, then click far ground mid-chop and confirm chopping stops.
+- [x] Separate input, movement, world interaction, and UI systems into focused modules.
+  - Done: `actions.rs` is split into `movement.rs` (route following), `interact.rs` (arrival actions, gathering, respawn), and `animation.rs` (cosmetic only). Input stays in `pointer.rs` and `menu.rs`; UI in `menu.rs` and `hud.rs`. `docs/ARCHITECTURE.md` lists each module's single job and the per-frame order.
+- [x] Add unit tests for map parsing, walkability, movement bounds, and interaction range.
+  - Covered by the tests above plus the existing parser, bounds, and range tests; map errors keep their file and line numbers, including the new `[signs]` section and glyph legend.
   - Acceptance: player cannot pass through blocked tiles; map data errors are reported clearly; interactions only succeed within range.
 
 ## M2 — Quest and dialogue foundations

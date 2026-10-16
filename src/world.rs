@@ -11,12 +11,14 @@ impl TilePos {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tile { Grass, Path, Water, Tree, Rock }
+pub enum Tile { Grass, Path, Water, Tree, Rock, Fence, Sign }
 
 impl Tile {
     pub fn is_walkable(self) -> bool { matches!(self, Tile::Grass | Tile::Path) }
 
-    /// Legend used by text maps: `.` grass, `=` path, `~` water, `T` tree, `#` rock.
+    /// Legend used by text maps: `.` grass, `=` path, `~` water, `T` tree, `#` rock,
+    /// `F` fence, `S` signpost. Only grass and path can be walked on; everything else blocks
+    /// movement, so collision is decided in one place: [`Tile::is_walkable`].
     pub fn from_glyph(glyph: char) -> Option<Self> {
         Some(match glyph {
             '.' => Tile::Grass,
@@ -24,6 +26,8 @@ impl Tile {
             '~' => Tile::Water,
             'T' => Tile::Tree,
             '#' => Tile::Rock,
+            'F' => Tile::Fence,
+            'S' => Tile::Sign,
             _ => return None,
         })
     }
@@ -175,6 +179,32 @@ mod tests {
         assert_eq!(WorldMap::from_ascii("  \n"), Err(MapError::Empty));
         assert_eq!(WorldMap::from_ascii("..\n."), Err(MapError::RaggedRows));
     }
+    #[test]
+    fn every_blocking_tile_kind_refuses_walking() {
+        // One of each tile in a row: only grass and path may be walked on.
+        let map = WorldMap::from_ascii(".=~T#FS").unwrap();
+        let walkable: Vec<bool> = (0..7).map(|x| map.can_walk_to(TilePos::new(x, 0))).collect();
+        assert_eq!(walkable, vec![true, true, false, false, false, false, false]);
+    }
+
+    #[test]
+    fn fence_and_sign_glyphs_parse_and_block() {
+        let map = WorldMap::from_ascii("F.S").unwrap();
+        assert_eq!(map.tile_at(TilePos::new(0, 0)), Ok(Tile::Fence));
+        assert_eq!(map.tile_at(TilePos::new(2, 0)), Ok(Tile::Sign));
+        assert!(!Tile::Fence.is_walkable() && !Tile::Sign.is_walkable());
+        assert_eq!(Tile::from_glyph('f'), None, "glyphs are case-sensitive");
+    }
+
+    #[test]
+    fn fences_wall_off_reachability() {
+        let open = WorldMap::from_ascii("..F..\n..F..\n..F..").unwrap();
+        assert!(!open.is_reachable(TilePos::new(0, 0), TilePos::new(4, 0)), "a full fence line blocks");
+        let gate = WorldMap::from_ascii("..F..\n.....\n..F..").unwrap();
+        assert!(gate.is_reachable(TilePos::new(0, 0), TilePos::new(4, 0)), "a gap lets you through");
+        assert!(!gate.is_reachable(TilePos::new(0, 0), TilePos::new(2, 0)), "the fence tile itself is blocked");
+    }
+
     #[test]
     fn tile_and_world_coordinates_round_trip() {
         let map = WorldMap::from_ascii("....\n....\n....").unwrap();

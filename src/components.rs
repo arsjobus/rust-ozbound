@@ -63,6 +63,10 @@ pub struct Moonpetal;
 #[derive(Component)]
 pub struct ResourceNode(pub GatheringNode);
 
+/// What a signpost says when read.
+#[derive(Component)]
+pub struct SignText(pub String);
+
 /// The child entity to hide once its node is spent (tree crown, copper flecks).
 #[derive(Component)]
 pub struct SpentVisual(pub Entity);

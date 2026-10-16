@@ -228,6 +228,31 @@ mod tests {
     }
 
     #[test]
+    fn routes_never_enter_fences_signposts_or_any_other_blocker() {
+        // Every blocking kind sits between the start and the goal; the only way is the gap.
+        let m = map("S.F.#\n..~..\n.T.F.\n.....");
+        let start = TilePos::new(0, 0);
+        for goal in [TilePos::new(3, 3), TilePos::new(0, 2), TilePos::new(4, 0)] {
+            let route = find_path(&m, start, goal).expect("goal is reachable");
+            assert_valid_route(&m, start, &route);
+            for step in &route {
+                assert!(m.can_walk_to(*step), "{step:?} is blocked");
+            }
+        }
+        for blocker in [(0, 3), (2, 3), (4, 3), (2, 2), (1, 1), (3, 1)] {
+            assert_eq!(find_path(&m, start, TilePos::new(blocker.0, blocker.1)), None, "{blocker:?}");
+        }
+    }
+
+    #[test]
+    fn a_fence_is_approached_from_beside_like_any_blocked_target() {
+        let m = map("...\n.F.\n...");
+        let route = plan_route(&m, TilePos::new(0, 0), TilePos::new(1, 1), Approach::Adjacent).unwrap();
+        assert!(is_orthogonally_adjacent(route.last().copied().unwrap_or(TilePos::new(0, 0)), TilePos::new(1, 1)));
+        assert_eq!(plan_route(&m, TilePos::new(0, 0), TilePos::new(1, 1), Approach::OnTile), None);
+    }
+
+    #[test]
     fn pathfinding_agrees_with_four_way_reachability_everywhere() {
         let m = crate::scene::meadow_map().unwrap();
         let start = crate::scene::meadow_level().unwrap().player_start;

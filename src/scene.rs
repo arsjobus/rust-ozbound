@@ -3,7 +3,7 @@
 //! [`crate::level`] and `assets/maps/meadow.map`.
 
 use crate::level::{Level, LevelError};
-use crate::world::{TilePos, WorldMap};
+use crate::world::{Tile, TilePos, WorldMap};
 
 /// The starter meadow's level data, compiled in so the game still starts when it is run
 /// from another directory. It is the same file as `assets/maps/meadow.map`, which the game
@@ -33,6 +33,37 @@ pub fn tile_noise(pos: TilePos, salt: u32) -> f32 {
 /// Picks one of `count` variants (for example shades) for a tile. Always `0` when `count <= 1`.
 pub fn tile_variant(pos: TilePos, salt: u32, count: usize) -> usize {
     ((tile_noise(pos, salt) * count as f32) as usize).min(count.saturating_sub(1))
+}
+
+/// Which of a fence tile's four orthogonal neighbours are fences too. The renderer draws a
+/// rail toward each linked neighbour, so a row of fence tiles reads as one continuous fence.
+/// `north` is map `+y`, which is `-z` in the 3D world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FenceLinks {
+    pub east: bool,
+    pub west: bool,
+    pub north: bool,
+    pub south: bool,
+}
+
+impl FenceLinks {
+    /// The directions to draw rails in, as unit `(dx, dy)` map offsets. A lone post with no
+    /// neighbours gets a short east-west rail so it still looks like a piece of fence.
+    pub fn rails(self) -> Vec<(i32, i32)> {
+        let mut rails = Vec::new();
+        if self.east { rails.push((1, 0)); }
+        if self.west { rails.push((-1, 0)); }
+        if self.north { rails.push((0, 1)); }
+        if self.south { rails.push((0, -1)); }
+        if rails.is_empty() { rails = vec![(1, 0), (-1, 0)]; }
+        rails
+    }
+}
+
+/// Fence links for the tile at `pos`. Off-map neighbours and non-fence tiles do not link.
+pub fn fence_links(map: &WorldMap, pos: TilePos) -> FenceLinks {
+    let is_fence = |dx: i32, dy: i32| map.tile_at(TilePos::new(pos.x + dx, pos.y + dy)) == Ok(Tile::Fence);
+    FenceLinks { east: is_fence(1, 0), west: is_fence(-1, 0), north: is_fence(0, 1), south: is_fence(0, -1) }
 }
 
 #[cfg(test)]
@@ -71,5 +102,53 @@ mod tests {
         assert_eq!(seen, [true; 3], "every shade should appear somewhere on the meadow");
         assert_eq!(tile_variant(TilePos::new(3, 3), 7, 1), 0);
         assert_eq!(tile_variant(TilePos::new(3, 3), 7, 0), 0);
+    }
+
+    #[test]
+    fn fence_rows_link_along_their_length_and_stop_at_the_ends() {
+        let m = WorldMap::from_ascii("FFF\n...").unwrap();
+        let left = fence_links(&m, TilePos::new(0, 1));
+        let middle = fence_links(&m, TilePos::new(1, 1));
+        let right = fence_links(&m, TilePos::new(2, 1));
+        assert_eq!(left.rails(), vec![(1, 0)]);
+        assert_eq!(middle.rails(), vec![(1, 0), (-1, 0)]);
+        assert_eq!(right.rails(), vec![(-1, 0)]);
+    }
+
+    #[test]
+    fn fence_corners_and_columns_link_in_the_right_directions() {
+        // y counts up from the bottom row: the top text row is y = 2.
+        let m = WorldMap::from_ascii("F.\nFF\n.F").unwrap();
+        let corner = fence_links(&m, TilePos::new(0, 1));
+        assert_eq!((corner.east, corner.west, corner.north, corner.south), (true, false, true, false));
+        let bottom = fence_links(&m, TilePos::new(1, 0));
+        assert_eq!((bottom.east, bottom.west, bottom.north, bottom.south), (false, false, true, false));
+        assert_eq!(bottom.rails(), vec![(0, 1)]);
+    }
+
+    #[test]
+    fn a_lone_fence_post_still_gets_a_rail_and_other_tiles_do_not_link() {
+        let m = WorldMap::from_ascii("T#S\n.F=\n~..").unwrap();
+        let lone = fence_links(&m, TilePos::new(1, 1));
+        assert_eq!((lone.east, lone.west, lone.north, lone.south), (false, false, false, false));
+        assert_eq!(lone.rails(), vec![(1, 0), (-1, 0)]);
+    }
+
+    #[test]
+    fn fences_on_the_map_edge_ignore_off_map_neighbours() {
+        let m = WorldMap::from_ascii("F").unwrap();
+        let links = fence_links(&m, TilePos::new(0, 0));
+        assert_eq!((links.east, links.west, links.north, links.south), (false, false, false, false));
+        // Asking about a tile outside the map is harmless.
+        assert!(!fence_links(&m, TilePos::new(-5, 9)).east);
+    }
+
+    #[test]
+    fn the_meadow_fence_rail_links_into_one_continuous_run() {
+        let m = meadow_map().unwrap();
+        // Fence at x = 11..=15, y = 7: the ends link one way, the middle both ways.
+        assert_eq!(fence_links(&m, TilePos::new(11, 7)).rails(), vec![(1, 0)]);
+        assert_eq!(fence_links(&m, TilePos::new(13, 7)).rails(), vec![(1, 0), (-1, 0)]);
+        assert_eq!(fence_links(&m, TilePos::new(15, 7)).rails(), vec![(-1, 0)]);
     }
 }

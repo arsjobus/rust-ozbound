@@ -8,8 +8,7 @@ use bevy::prelude::*;
 use ozbound::{
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
     interaction::InteractionKind,
-    pathfinding::Approach,
-    level::NodeSpawn,
+    level::{NodeSpawn, SignSpawn},
     scene,
     task::Task,
     world::{Tile, TilePos, WorldMap},
@@ -58,7 +57,7 @@ pub fn setup(
             let pos = TilePos::new(x, y);
             let tile = map.tile_at(pos).expect("loop stays inside the map");
             let (material, top) = match tile {
-                Tile::Grass | Tile::Rock => (kit.grass[scene::tile_variant(pos, 1, 3)].clone(), 0.0),
+                Tile::Grass | Tile::Rock | Tile::Fence | Tile::Sign => (kit.grass[scene::tile_variant(pos, 1, 3)].clone(), 0.0),
                 Tile::Tree => (kit.dark_grass.clone(), 0.0),
                 Tile::Path => (kit.path[scene::tile_variant(pos, 2, 2)].clone(), -0.02),
                 Tile::Water => (kit.water[scene::tile_variant(pos, 3, 2)].clone(), -0.2),
@@ -83,8 +82,12 @@ pub fn setup(
         }
     }
 
-    // Trees and rocks stand on every blocking tile. Only the ones listed as resource nodes
-    // can be clicked and harvested; the rest are scenery that fences in the meadow.
+    let signs: HashMap<TilePos, &SignSpawn> = level.signs.iter().map(|sign| (sign.tile, sign)).collect();
+
+    // Trees, rocks, fences, and signposts stand on every blocking tile. Only the trees and
+    // rocks listed as resource nodes, and the signposts listed in `[signs]`, can be clicked;
+    // the rest is scenery that shuts the player in. Collision itself comes from the tile
+    // map (`Tile::is_walkable`), never from these models.
     for y in 0..map.height() as i32 {
         for x in 0..map.width() as i32 {
             let pos = TilePos::new(x, y);
@@ -101,7 +104,7 @@ pub fn setup(
                         commands.entity(root).insert((
                             ResourceNode(GatheringNode::new(node.kind, node.actions, node.yield_per_action)),
                             SpentVisual(crown),
-                            Interactable { kind: InteractionKind::ChopDown, name: "tree", tile: pos, approach: Approach::Adjacent, pick_min, pick_max },
+                            Interactable { kind: InteractionKind::ChopDown, name: "tree", tile: pos, approach: InteractionKind::ChopDown.approach(), pick_min, pick_max },
                         ));
                     }
                 }
@@ -115,7 +118,21 @@ pub fn setup(
                         commands.entity(root).insert((
                             ResourceNode(GatheringNode::new(node.kind, node.actions, node.yield_per_action)),
                             SpentVisual(flecks),
-                            Interactable { kind: InteractionKind::Mine, name: "copper vein", tile: pos, approach: Approach::Adjacent, pick_min, pick_max },
+                            Interactable { kind: InteractionKind::Mine, name: "copper vein", tile: pos, approach: InteractionKind::Mine.approach(), pick_min, pick_max },
+                        ));
+                    }
+                }
+                Tile::Fence => {
+                    let rails = scene::fence_links(map, pos).rails();
+                    models::spawn_fence(&mut commands, &kit, at, &rails);
+                }
+                Tile::Sign => {
+                    let post = models::spawn_signpost(&mut commands, &kit, at, (scene::tile_noise(pos, 9) - 0.5) * 0.5);
+                    if let Some(sign) = signs.get(&pos) {
+                        let (pick_min, pick_max) = pick_box(map, pos, 0.4, 1.2);
+                        commands.entity(post).insert((
+                            SignText(sign.text.clone()),
+                            Interactable { kind: InteractionKind::Read, name: "signpost", tile: pos, approach: InteractionKind::Read.approach(), pick_min, pick_max },
                         ));
                     }
                 }
@@ -136,7 +153,7 @@ pub fn setup(
         commands.entity(flower).insert((
             Moonpetal,
             Floaty { base_y: at.y, phase: i as f32 * 2.1 },
-            Interactable { kind: InteractionKind::Pick, name: "moonpetal", tile, approach: Approach::OnTile, pick_min, pick_max },
+            Interactable { kind: InteractionKind::Pick, name: "moonpetal", tile, approach: InteractionKind::Pick.approach(), pick_min, pick_max },
         ));
     }
 
@@ -148,7 +165,7 @@ pub fn setup(
     let (pick_min, pick_max) = pick_box(map, level.guide, 0.4, 1.95);
     commands.entity(guide).insert((
         Guide,
-        Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: level.guide, approach: Approach::Adjacent, pick_min, pick_max },
+        Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: level.guide, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
     ));
 
     // The player.

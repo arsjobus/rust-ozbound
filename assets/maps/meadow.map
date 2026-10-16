@@ -2,13 +2,14 @@
 ;
 ; Lines starting with ';' are comments (a '#' is the rock tile, so it cannot start one).
 ; Blank lines are ignored. Sections may appear in any order, each at most once.
-; Required sections: [map], [player], [guide]. Optional: [moonpetals], [nodes].
+; Required sections: [map], [player], [guide]. Optional: [moonpetals], [nodes], [signs].
 ;
 ; Coordinates are "x y" in tiles. x counts right from the left edge; y counts UP from the
 ; BOTTOM row of [map] (the last row listed is y = 0).
 
 [map]
-; Tile glyphs: '.' grass, '=' path, '~' water, 'T' tree, '#' rock. First row is the top.
+; Tile glyphs: '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost.
+; Only grass and path can be walked on. First row is the top.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 T............................T
 T............................T
@@ -19,11 +20,11 @@ T.....................=......T
 T.....................=......T
 T...........~~~.......=......T
 T...#.......~~~.......=......T
-T...........~~~.......=......T
+T...........~~~S......=......T
 T.....................=......T
-T.....................=......T
+T..........FFFFF......=......T
 T.........T...........=...T..T
-T.....................=......T
+T......S..............=......T
 T.....................=......T
 T..========================..T
 T............................T
@@ -50,3 +51,8 @@ tree 10 6 3 1
 tree 26 6 3 1
 copper 4 10 2 1
 copper 27 16 2 1
+
+[signs]
+; x y message -- each must stand on an 'S' tile and be reachable. The text may contain spaces.
+7 5 Moonpetal Meadow: the village lies east along the path, and the old copper rocks are scattered round the edges.
+15 9 Mind the pond. The water is deeper than it looks, and the fence rail to the south keeps careless travellers out.

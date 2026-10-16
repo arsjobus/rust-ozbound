@@ -3,6 +3,8 @@
 //! Pure Rust (no Bevy). Parsing reports the line that is wrong, and a parsed [`Level`] has
 //! already been checked: the player and guide stand on walkable tiles that connect, every
 //! resource sits on a suitable tile and can be reached, and the quest can be completed.
+//! Signposts (`S` tiles listed in `[signs]`) are validated like resources: right tile,
+//! no duplicates, reachable from the player start.
 //! The file format is documented at the top of `assets/maps/meadow.map`.
 
 use std::fmt;
@@ -21,6 +23,13 @@ pub struct NodeSpawn {
     pub yield_per_action: u32,
 }
 
+/// A signpost standing on an `S` tile; clicking it reads `text` in the journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignSpawn {
+    pub tile: TilePos,
+    pub text: String,
+}
+
 /// Everything the world needs to be built: the tile map plus what stands on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Level {
@@ -30,10 +39,12 @@ pub struct Level {
     pub moonpetals: Vec<TilePos>,
     /// Trees and copper veins. Moonpetals are listed separately.
     pub nodes: Vec<NodeSpawn>,
+    /// Readable signposts. An `S` tile with no entry here is plain scenery.
+    pub signs: Vec<SignSpawn>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section { Map, Player, Guide, Moonpetals, Nodes }
+enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs }
 
 impl Section {
     fn from_name(name: &str) -> Option<Self> {
@@ -43,6 +54,7 @@ impl Section {
             "guide" => Self::Guide,
             "moonpetals" => Self::Moonpetals,
             "nodes" => Self::Nodes,
+            "signs" => Self::Signs,
             _ => return None,
         })
     }
@@ -53,6 +65,7 @@ impl Section {
             Self::Guide => "guide",
             Self::Moonpetals => "moonpetals",
             Self::Nodes => "nodes",
+            Self::Signs => "signs",
         }
     }
 }
@@ -107,7 +120,7 @@ impl fmt::Display for LevelError {
             ContentBeforeSection => write!(f, "content before the first [section] header"),
             UnknownSection(name) => write!(
                 f,
-                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals] or [nodes])"
+                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes] or [signs])"
             ),
             DuplicateSection(name) => write!(f, "section [{name}] appears more than once"),
             MissingSection(name) => write!(f, "required section [{name}] is missing"),
@@ -117,7 +130,7 @@ impl fmt::Display for LevelError {
             }
             UnknownGlyph { glyph, column } => write!(
                 f,
-                "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock)"
+                "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock, F fence, S signpost)"
             ),
             Malformed { expected, found } => write!(f, "expected {expected}, found {found:?}"),
             UnknownResource(name) => write!(f, "unknown resource {name:?} (use tree or copper)"),
@@ -213,6 +226,16 @@ fn parse_node(text: &str, line: usize) -> Result<NodeSpawn, LevelError> {
     })
 }
 
+/// `x y message`: two whole numbers, then the sign's text (which may contain spaces).
+fn parse_sign(text: &str, line: usize) -> Result<SignSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"x y message\" for a sign", found: text.to_string() });
+    let mut parts = text.splitn(3, char::is_whitespace);
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let message = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    Ok(SignSpawn { tile: TilePos::new(x, y), text: message.to_string() })
+}
+
 fn check_walkable(map: &WorldMap, what: &'static str, tile: TilePos, line: usize) -> Result<(), LevelError> {
     match map.tile_at(tile) {
         Err(_) => Err(LevelError::at(line, LevelErrorKind::OffMap { what, tile })),
@@ -241,6 +264,7 @@ impl Level {
         let mut guide: Vec<Entry<TilePos>> = Vec::new();
         let mut moonpetals: Vec<Entry<TilePos>> = Vec::new();
         let mut nodes: Vec<Entry<NodeSpawn>> = Vec::new();
+        let mut signs: Vec<Entry<SignSpawn>> = Vec::new();
 
         for (index, raw) in text.lines().enumerate() {
             let line_no = index + 1;
@@ -277,6 +301,7 @@ impl Level {
                 Section::Guide => guide.push(Entry { line: line_no, value: parse_tile(line, line_no)? }),
                 Section::Moonpetals => moonpetals.push(Entry { line: line_no, value: parse_tile(line, line_no)? }),
                 Section::Nodes => nodes.push(Entry { line: line_no, value: parse_node(line, line_no)? }),
+                Section::Signs => signs.push(Entry { line: line_no, value: parse_sign(line, line_no)? }),
             }
         }
 
@@ -351,12 +376,31 @@ impl Level {
             }
         }
 
+        for (i, entry) in signs.iter().enumerate() {
+            let sign = &entry.value;
+            let tile = sign.tile;
+            let found = map
+                .tile_at(tile)
+                .map_err(|_| LevelError::at(entry.line, LevelErrorKind::OffMap { what: "signpost", tile }))?;
+            if found != Tile::Sign {
+                let error = PlacementError::WrongTile { expected: "signpost", found };
+                return Err(LevelError::at(entry.line, LevelErrorKind::Placement { what: "signpost", tile, error }));
+            }
+            if signs[..i].iter().any(|other| other.value.tile == tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Duplicate { what: "signpost", tile }));
+            }
+            if !has_reachable_neighbour(&map, player_start, tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what: "signpost", tile }));
+            }
+        }
+
         Ok(Self {
             map,
             player_start,
             guide: guide_tile,
             moonpetals: moonpetals.into_iter().map(|e| e.value).collect(),
             nodes: nodes.into_iter().map(|e| e.value).collect(),
+            signs: signs.into_iter().map(|e| e.value).collect(),
         })
     }
 
@@ -686,6 +730,110 @@ copper 1 1 2 1
         assert!(text.contains("copper vein") && text.contains("rock"), "{text}");
         // Errors without a line omit the prefix.
         assert!(!err("").to_string().starts_with("line"));
+    }
+
+    // ---- fences and signposts ----
+
+    /// `SMALL` with a signpost at (1, 2) and the given `[signs]` body appended.
+    fn with_signs(body: &str) -> String {
+        let mut text = small_with(".....T\n......\n.#....", ".....T\n.S....\n.#....");
+        text.push_str("\n[signs]\n");
+        text.push_str(body);
+        text.push('\n');
+        text
+    }
+
+    #[test]
+    fn meadow_has_a_fence_rail_and_readable_signposts() {
+        let level = meadow();
+        for x in 11..=15 {
+            assert_eq!(level.map.tile_at(TilePos::new(x, 7)), Ok(Tile::Fence), "fence at x={x}");
+            assert!(!level.map.can_walk_to(TilePos::new(x, 7)));
+        }
+        assert_eq!(level.signs.len(), 2);
+        for sign in &level.signs {
+            assert_eq!(level.map.tile_at(sign.tile), Ok(Tile::Sign));
+            assert!(!sign.text.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_fence_rail_does_not_cut_the_meadow_in_two() {
+        let level = meadow();
+        let start = level.player_start;
+        for y in 0..level.map.height() as i32 {
+            for x in 0..level.map.width() as i32 {
+                let tile = TilePos::new(x, y);
+                if level.map.can_walk_to(tile) {
+                    assert!(level.map.is_reachable(start, tile), "{tile:?} became unreachable");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parses_signs_with_spaces_in_their_text() {
+        let level = Level::parse(&with_signs("1 2   Welcome to the meadow, traveller!  ")).unwrap();
+        assert_eq!(level.signs, vec![SignSpawn { tile: TilePos::new(1, 2), text: "Welcome to the meadow, traveller!".into() }]);
+        assert_eq!(level.map.tile_at(TilePos::new(1, 2)), Ok(Tile::Sign));
+    }
+
+    #[test]
+    fn a_level_without_signs_has_none_and_an_unlisted_post_is_scenery() {
+        assert!(Level::parse(SMALL).unwrap().signs.is_empty());
+        let mut text = small_with(".....T\n......\n.#....", ".....T\n.S....\n.#....");
+        text.push('\n');
+        assert!(Level::parse(&text).unwrap().signs.is_empty());
+    }
+
+    #[test]
+    fn malformed_signs_are_reported_with_their_line() {
+        for bad in ["1 2", "1 2    ", "x 2 hello", "1 y hello", "1", "hello"] {
+            let text = with_signs(bad);
+            let line = text.lines().count();
+            let e = err(&text);
+            assert_eq!(e.line, Some(line), "{bad:?}");
+            assert!(matches!(e.kind, LevelErrorKind::Malformed { .. }), "{bad:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn signs_must_stand_on_signpost_tiles_inside_the_map() {
+        let e = err(&with_signs("3 2 Wrong tile"));
+        assert_eq!(
+            e.kind,
+            LevelErrorKind::Placement {
+                what: "signpost",
+                tile: TilePos::new(3, 2),
+                error: PlacementError::WrongTile { expected: "signpost", found: Tile::Grass },
+            }
+        );
+        assert!(e.to_string().contains("signpost"), "{e}");
+        assert_eq!(err(&with_signs("9 9 Off the map")).kind, LevelErrorKind::OffMap { what: "signpost", tile: TilePos::new(9, 9) });
+        assert_eq!(err(&with_signs("-1 0 Off the map")).kind, LevelErrorKind::OffMap { what: "signpost", tile: TilePos::new(-1, 0) });
+    }
+
+    #[test]
+    fn signs_cannot_overlap_or_be_walled_off() {
+        let e = err(&with_signs("1 2 First\n1 2 Second"));
+        assert_eq!(e.kind, LevelErrorKind::Duplicate { what: "signpost", tile: TilePos::new(1, 2) });
+        // Wall the post and the whole top row off from the player with fences.
+        let text = SMALL
+            .replacen(".....T\n......\n.#....\n......", "FFFFFF\nFSFFFF\nF#....\n......", 1)
+            .replace("0 2\n2 2\n3 3\n", "0 0\n2 0\n3 0\n")
+            .replace("tree 5 3 3 1\n", "")
+            + "\n[signs]\n1 2 Hidden\n";
+        let e = err(&text);
+        assert_eq!(e.kind, LevelErrorKind::Unreachable { what: "signpost", tile: TilePos::new(1, 2) });
+    }
+
+    #[test]
+    fn fences_block_the_player_start_the_guide_and_pickups() {
+        let on_fence = SMALL.replacen(".....T\n", "F....T\n", 1);
+        // (0, 3) is now a fence; a guide there is rejected as not walkable.
+        let e = err(&on_fence.replace("[guide]\n5 0", "[guide]\n0 3"));
+        assert_eq!(e.kind, LevelErrorKind::NotWalkable { what: "guide", tile: TilePos::new(0, 3), found: Tile::Fence });
+        assert!(e.to_string().contains("Fence"), "{e}");
     }
 
     // ---- files ----
