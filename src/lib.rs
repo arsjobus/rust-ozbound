@@ -1,3 +1,4 @@
+pub mod content;
 pub mod context_menu;
 pub mod dialogue;
 pub mod gathering;
@@ -9,10 +10,12 @@ pub mod orbit;
 pub mod pathfinding;
 pub mod picking;
 pub mod quest;
+pub mod quest_store;
 pub mod quest_save;
 pub mod quests;
 pub mod respawn;
 pub mod scene;
+pub mod talk;
 pub mod task;
 pub mod textdata;
 pub mod world;

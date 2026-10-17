@@ -32,7 +32,15 @@ pub fn menu_input(
     mut players: Query<&mut Player>,
     mut menu: ResMut<ContextMenuState>,
     mut progress: ResMut<GameProgress>,
+    talk: Res<TalkState>,
 ) {
+    // A conversation owns the mouse; a menu that was open when it began is dismissed.
+    if talk.0.is_some() {
+        if menu.0.is_some() {
+            menu.0 = None;
+        }
+        return;
+    }
     let left = buttons.just_pressed(MouseButton::Left);
     let right = buttons.just_pressed(MouseButton::Right);
     if !left && !right {

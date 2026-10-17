@@ -153,7 +153,7 @@ fn a_full_bag_delays_the_reward_without_losing_anything() {
 
     let before = (game.log.clone(), game.bag.clone());
     let (first, updates) = game.talk(&[0]);
-    assert!(first.starts_with("Your bag is too full"));
+    assert!(first.starts_with("I can't take the moonpetals"));
     assert!(updates.is_empty());
     assert_eq!(
         (game.log.clone(), game.bag.clone()),

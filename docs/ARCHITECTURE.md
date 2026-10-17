@@ -32,14 +32,17 @@ src/
 ├── dialogue.rs      # Dialogue conversations/nodes/choices, conditions and effects, DialogueSession
 ├── journal.rs       # Active/completed quest view built from the quest book and log
 ├── quest_save.rs    # Versioned plain-text save/load of the QuestLog (no file I/O)
+├── quest_store.rs   # Reads/writes the quest log file (temp file + rename; bad saves never overwritten)
+├── content.rs       # Loads quest + dialogue files (custom path, default path, built-in fallback)
+├── talk.rs          # One open conversation: current view, choices, journal lines per step
 ├── scene.rs         # Built-in default level (compiled in), per-tile variation, fence rail links
-└── quest.rs         # Original moonpetal counter (to be replaced by quests.rs in the Bevy layer)
+└── quest.rs         # Original moonpetal counter (only used by level validation now)
 ```
 
 ## Boundaries
 
 - The **library crate** (`lib.rs` and the modules it lists) is pure Rust: no Bevy types, fully unit-tested without a window. The **binary crate** (`main.rs` and its modules) renders, reads input, and connects the two.
-- System modules have one job each, and they run in this order every frame: **input** (`pointer`, `menu::menu_input`) turns the mouse into orders; **movement** (`movement::follow_route`) walks the route; **world interaction** (`interact::interact`, `interact::respawn_nodes`) acts on arrival; **animation** is cosmetic; **UI** (`menu::sync_menu_ui`, `hud`) draws state. Only input writes the player's `Task`; only `interact` changes the inventory, quest, and nodes.
+- System modules have one job each, and they run in this order every frame: **input** (`pointer`, `menu::menu_input`) turns the mouse into orders; **movement** (`movement::follow_route`) walks the route; **world interaction** (`interact::interact`, `interact::respawn_nodes`) acts on arrival; **animation** is cosmetic; **UI** (`menu::sync_menu_ui`, `dialogue_ui`, `hud`) draws state; `persist::persist_quests` saves the quest log when it changes. A conversation is modal: while `TalkState` is open, `pointer` and `menu` stand aside, `dialogue_ui::dialogue_input` takes clicks and 1-9, and Esc or walking away closes it. Only input writes the player's `Task`; only `interact` changes the inventory, quest, and nodes.
 - Input flow: `pointer.rs` turns the cursor into a ray, `picking::pick` says what it hits, `pathfinding::plan_route` plans a route, and `Task` stores it. `actions.rs` glides the player along the route and runs the interaction on arrival.
 - World space is 3D, Y-up. One tile is one world unit (`TILE_SIZE` = 1.0). Map tile `(x, y)` sits at world `(x, h, -y)`: map "north" is Bevy's forward direction (`-z`). Use `WorldMap::tile_center_3d` and `picking::ground_to_tile` to convert; text maps list the top row first.
 - Gameplay is tile-based: walkability, routes, and interaction ranges ("stand on or orthogonally beside the target tile") are decided on tiles. Smooth motion is display only: the logical `Player.tile` updates as each tile is reached.

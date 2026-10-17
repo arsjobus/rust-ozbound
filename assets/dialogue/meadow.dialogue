@@ -44,7 +44,7 @@ text = These are lovely. The apothecary will be delighted. Please take some timb
 choice = Glad to help. -> end
 
 [node bag_full]
-text = Your bag is too full for me to give you anything in return. Make some room and come back.
+text = I can't take the moonpetals and hand over your reward just now. Do you have all three, and is there room in your bag?
 choice = I'll make some room. -> end
 
 [node thanks]

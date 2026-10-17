@@ -165,6 +165,7 @@ pub fn setup(
     let (pick_min, pick_max) = pick_box(map, level.guide, 0.4, 1.95);
     commands.entity(guide).insert((
         Guide,
+        Npc("guide"),
         Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: level.guide, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
     ));
 
@@ -209,6 +210,36 @@ pub fn setup(
         Node { position_type: PositionType::Absolute, bottom: Val::Px(12.0), left: Val::Px(10.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
         BackgroundColor(Color::NONE),
         HoverHud,
+    ));
+
+    // Journal panel (toggled with J): `hud::update_journal_panel` fills in the text.
+    commands.spawn((
+        Text::new(""),
+        TextFont { font_size: 17.0, ..default() },
+        TextColor(Color::WHITE),
+        Node { position_type: PositionType::Absolute, top: Val::Px(10.0), right: Val::Px(10.0), width: Val::Px(400.0), padding: UiRect::all(Val::Px(10.0)), ..default() },
+        BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.88)),
+        Visibility::Hidden,
+        JournalPanel,
+    ));
+
+    // Dialogue panel: hidden until a conversation opens; `dialogue_ui::sync_dialogue_ui` fills it in.
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            bottom: Val::Px(70.0),
+            width: Val::Px(640.0),
+            margin: UiRect::left(Val::Px(-320.0)),
+            padding: UiRect::all(Val::Px(14.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.07, 0.06, 0.10, 0.94)),
+        GlobalZIndex(9),
+        Visibility::Hidden,
+        DialoguePanel,
     ));
 
     // Right-click menu panel: hidden until opened; `menu::sync_menu_ui` fills in the rows.

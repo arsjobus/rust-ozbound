@@ -8,7 +8,10 @@ use ozbound::{
     gathering::{should_keep_gathering, GatherError, ResourceKind},
     interaction::{in_reach, InteractionKind},
     inventory::{InventoryError, ItemId},
+    journal::describe_update,
+    quests::{QuestBook, QuestEvent, QuestLog, QuestUpdate},
     respawn::RespawnTimer,
+    talk::Talk,
 };
 
 use crate::components::*;
@@ -30,30 +33,60 @@ fn gather_message(kind: ResourceKind, outcome: &Result<u32, GatherError>, remain
     }
 }
 
+/// Tells the quest log that `quantity` of `item` was gathered and returns what that changed
+/// (nothing when no active quest wants the item).
+fn record_gathered(book: &QuestBook, log: &mut QuestLog, item: ItemId, quantity: u32) -> Vec<QuestUpdate> {
+    log.record(book, &QuestEvent::Gathered { item, quantity })
+}
+
+/// `base`, followed by one sentence per quest update.
+fn with_updates(base: String, book: &QuestBook, updates: &[QuestUpdate]) -> String {
+    let mut text = base;
+    for update in updates {
+        text.push(' ');
+        text.push_str(&describe_update(book, update));
+    }
+    text
+}
+
 /// Runs the pending interaction when the player reaches their target, then keeps
 /// gathering automatically until the node is spent, the bag is full, or the player moves away.
 pub fn interact(
     mut commands: Commands,
     time: Res<Time>,
     meadow: Res<Meadow>,
+    content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
+    mut talk: ResMut<TalkState>,
     mut players: Query<(&mut Player, &mut Transform)>,
-    interactables: Query<(&Interactable, Option<&SignText>)>,
+    interactables: Query<(&Interactable, Option<&SignText>, Option<&Npc>)>,
     mut nodes: Query<(&mut ResourceNode, &SpentVisual)>,
     mut visibilities: Query<&mut Visibility>,
 ) {
     let Ok((mut player, mut transform)) = players.get_single_mut() else { return };
 
     if let Some(target) = player.task.take_ready_target() {
-        if let Ok((it, sign)) = interactables.get(target) {
+        if let Ok((it, sign, npc)) = interactables.get(target) {
             if !in_reach(player.tile, it.tile, it.approach) {
                 progress.journal = TOO_FAR.into();
             } else {
                 face_tile(&mut transform, &meadow.0, player.tile, it.tile);
                 match it.kind {
                     InteractionKind::TalkTo => {
-                        progress.spoke_to_guide = true;
-                        progress.journal = "Guide: The moonpetals glow after dusk. Please gather three for the village apothecary.".into();
+                        let progress = &mut *progress;
+                        let started = match npc {
+                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, npc.0),
+                            None => Err("They have nothing to say right now.".to_string()),
+                        };
+                        match started {
+                            Ok((opened, messages)) => {
+                                if !messages.is_empty() {
+                                    progress.journal = messages.join(" ");
+                                }
+                                talk.0 = Some(opened);
+                            }
+                            Err(message) => progress.journal = message,
+                        }
                     }
                     InteractionKind::Read => {
                         progress.journal = match sign {
@@ -65,12 +98,9 @@ pub fn interact(
                         // Inventory first: a full bag must never silently consume a world resource.
                         if progress.inventory.add(ItemId::Moonpetal, 1).is_ok() {
                             commands.entity(target).despawn_recursive();
-                            progress.quest.collect_one();
-                            progress.journal = if progress.quest.is_complete() {
-                                "Quest objective complete! Return to the guide with the moonpetals.".into()
-                            } else {
-                                format!("You gathered a moonpetal. {}", progress.quest.progress_text())
-                            };
+                            let progress = &mut *progress;
+                            let updates = record_gathered(&content.0.quests, &mut progress.log, ItemId::Moonpetal, 1);
+                            progress.journal = with_updates("You gathered a moonpetal.".into(), &content.0.quests, &updates);
                         } else {
                             progress.journal = "Your inventory is full. Make room before gathering more.".into();
                         }
@@ -92,9 +122,10 @@ pub fn interact(
         }
     }
 
-    // Walking away abandons the job.
+    // Walking away abandons the job and ends any conversation.
     if player.task.is_moving() {
         player.work = None;
+        talk.0 = None;
     }
 
     let mut attempt = None;
@@ -106,14 +137,20 @@ pub fn interact(
     }
     if let Some(target) = attempt {
         // Each attempt needs the player still in reach, not just at the moment of arrival.
-        let in_range = interactables.get(target).is_ok_and(|(it, _)| in_reach(player.tile, it.tile, it.approach));
+        let in_range = interactables.get(target).is_ok_and(|(it, _, _)| in_reach(player.tile, it.tile, it.approach));
         let mut keep_going = false;
         if !in_range {
             progress.journal = TOO_FAR.into();
         } else if let Ok((mut node, spent)) = nodes.get_mut(target) {
             let kind = node.0.kind();
             let outcome = node.0.gather(&mut progress.inventory);
-            progress.journal = gather_message(kind, &outcome, node.0.remaining_actions());
+            let progress = &mut *progress;
+            let mut message = gather_message(kind, &outcome, node.0.remaining_actions());
+            if let Ok(amount) = outcome {
+                let updates = record_gathered(&content.0.quests, &mut progress.log, kind.item(), amount);
+                message = with_updates(message, &content.0.quests, &updates);
+            }
+            progress.journal = message;
             if outcome.is_ok() && node.0.is_depleted() {
                 if let Ok(mut visibility) = visibilities.get_mut(spent.0) {
                     *visibility = Visibility::Hidden;

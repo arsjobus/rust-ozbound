@@ -82,6 +82,10 @@ The game rules are now separated into pure Rust modules under `src/`:
 - `interaction.rs`: shared interaction-range check for characters and objects.
 - `quest.rs`: quest progress state and tests.
 
+### Quests and dialogue in the game
+
+Talking to the village guide opens a dialogue panel (click a choice or press 1-9; Esc or walking away closes it). Quests and conversations come from `assets/quests/meadow.quest` and `assets/dialogue/meadow.dialogue` (override with `OZBOUND_QUESTS` / `OZBOUND_DIALOGUE`; absent default files fall back to built-in copies, invalid files stop startup with file and line). The HUD shows a quest tracker, **J** opens the journal, and quest progress is saved to `saves/quests.txt` (`OZBOUND_QUEST_SAVE` to change; the bag and world are not saved until M6).
+
 Moonpetal collection in the Bevy prototype now adds the item to a 20-slot inventory and shows inventory counts in the HUD. The map, generic gathering nodes, and shared interaction helper are domain foundations for the next integration pass; the visual meadow still uses placeholder shapes.
 
 Run `cargo test` to test domain rules without opening a game window. These checks are not reported as passing until run on a machine with Rust/Cargo installed.

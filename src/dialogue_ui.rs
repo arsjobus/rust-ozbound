@@ -1,0 +1,105 @@
+//! The dialogue panel: draws the open conversation and turns a click or a number key into a
+//! choice. What is said, which choices exist, and what each one changes all come from the
+//! tested `ozbound::talk::Talk`; this module only connects it to Bevy.
+//!
+//! While a conversation is open it owns the mouse (`pointer` and `menu` stand aside), so a
+//! click on a choice never also walks. Esc closes it (see `exit_on_escape` in `main.rs`) and
+//! so does walking away, so the player can never be trapped.
+
+use bevy::prelude::*;
+
+use crate::components::*;
+
+const ROW_IDLE: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
+const ROW_HOVER: Color = Color::srgba(0.35, 0.30, 0.10, 0.9);
+
+const DIGITS: [KeyCode; 9] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
+    KeyCode::Digit4,
+    KeyCode::Digit5,
+    KeyCode::Digit6,
+    KeyCode::Digit7,
+    KeyCode::Digit8,
+    KeyCode::Digit9,
+];
+
+/// Picks a choice when a row is clicked or its number key (1-9) is pressed.
+pub fn dialogue_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    rows: Query<(&Interaction, &ChoiceRow), Changed<Interaction>>,
+    content: Res<GameContent>,
+    mut progress: ResMut<GameProgress>,
+    mut talk: ResMut<TalkState>,
+) {
+    let Some(active) = talk.0.as_mut() else { return };
+    let from_key = DIGITS.iter().position(|key| keys.just_pressed(*key));
+    let from_click = rows.iter().find(|(interaction, _)| **interaction == Interaction::Pressed).map(|(_, row)| row.0);
+    let Some(index) = from_key.or(from_click) else { return };
+    if index >= active.view().choices.len() {
+        return;
+    }
+    let progress = &mut *progress;
+    let (messages, open) = active.choose(&content.0, &mut progress.log, &mut progress.inventory, index);
+    if !messages.is_empty() {
+        progress.journal = messages.join(" ");
+    }
+    if !open {
+        talk.0 = None;
+    }
+}
+
+/// Rebuilds the panel when the conversation changes and highlights the row under the cursor.
+pub fn sync_dialogue_ui(
+    mut commands: Commands,
+    talk: Res<TalkState>,
+    mut panels: Query<(Entity, &mut Visibility), With<DialoguePanel>>,
+    mut rows: Query<(&Interaction, &mut BackgroundColor), With<ChoiceRow>>,
+) {
+    let Ok((panel, mut visibility)) = panels.get_single_mut() else { return };
+
+    if talk.is_changed() {
+        commands.entity(panel).despawn_descendants();
+        match &talk.0 {
+            Some(active) => {
+                *visibility = Visibility::Inherited;
+                let view = active.view();
+                commands.entity(panel).with_children(|panel| {
+                    panel.spawn((
+                        Text::new(view.speaker.clone()),
+                        TextFont { font_size: 21.0, ..default() },
+                        TextColor(Color::srgb(1.0, 0.92, 0.5)),
+                    ));
+                    panel.spawn((
+                        Text::new(view.text.clone()),
+                        TextFont { font_size: 19.0, ..default() },
+                        TextColor(Color::WHITE),
+                        Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
+                    ));
+                    for (index, choice) in view.choices.iter().enumerate() {
+                        panel
+                            .spawn((
+                                Button,
+                                Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                                BackgroundColor(ROW_IDLE),
+                                ChoiceRow(index),
+                            ))
+                            .with_children(|row| {
+                                row.spawn((
+                                    Text::new(format!("{}. {}", index + 1, choice)),
+                                    TextFont { font_size: 18.0, ..default() },
+                                    TextColor(Color::srgb(0.85, 0.95, 1.0)),
+                                ));
+                            });
+                    }
+                });
+            }
+            None => *visibility = Visibility::Hidden,
+        }
+    }
+
+    for (interaction, mut background) in &mut rows {
+        background.0 = if *interaction == Interaction::None { ROW_IDLE } else { ROW_HOVER };
+    }
+}

@@ -1,7 +1,11 @@
-//! Heads-up display: quest objective, bag contents, journal line, and the hover label.
+//! Heads-up display: quest tracker, bag contents, the latest message, the hover label, and
+//! the journal panel (J) that lists active and completed quests.
 
 use bevy::prelude::*;
-use ozbound::inventory::ItemId;
+use ozbound::{
+    inventory::ItemId,
+    journal::{tracker, Journal},
+};
 
 use crate::components::*;
 
@@ -10,6 +14,7 @@ type HoverLabelQuery<'w, 's> =
 
 pub fn update_hud(
     progress: Res<GameProgress>,
+    content: Res<GameContent>,
     hover: Res<HoverText>,
     mut hud: Query<&mut Text, (With<HudText>, Without<HoverHud>)>,
     mut hover_label: HoverLabelQuery,
@@ -21,22 +26,30 @@ pub fn update_hud(
     }
     let Ok(mut text) = hud.get_single_mut() else { return };
 
-    let objective = if progress.quest.is_complete() {
-        "Objective: Return to the guide"
-    } else if progress.spoke_to_guide {
-        "Objective: Gather 3 moonpetals"
-    } else {
-        "Objective: Talk to the village guide"
-    };
-    let journal = if progress.journal.is_empty() { "Journal: A quiet meadow awaits." } else { &progress.journal };
+    let journal = if progress.journal.is_empty() { "A quiet meadow awaits." } else { &progress.journal };
 
     text.0 = format!(
-        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Right-click: menu   Middle-drag or arrows: camera   Scroll: zoom   Esc: quit\n{}\n{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
-        objective,
-        progress.quest.progress_text(),
+        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Right-click: menu   J: journal   Middle-drag or arrows: camera   Scroll: zoom   Esc: close talk / quit\n{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
+        tracker(&content.0.quests, &progress.log),
         progress.inventory.count(ItemId::Moonpetal),
         progress.inventory.count(ItemId::Timber),
         progress.inventory.count(ItemId::CopperOre),
         journal,
     );
+}
+
+/// J shows or hides the journal; while it is shown the text follows the quest log.
+pub fn update_journal_panel(
+    keys: Res<ButtonInput<KeyCode>>,
+    progress: Res<GameProgress>,
+    content: Res<GameContent>,
+    mut panel: Query<(&mut Text, &mut Visibility), With<JournalPanel>>,
+) {
+    let Ok((mut text, mut visibility)) = panel.get_single_mut() else { return };
+    if keys.just_pressed(KeyCode::KeyJ) {
+        *visibility = if *visibility == Visibility::Hidden { Visibility::Inherited } else { Visibility::Hidden };
+    }
+    if *visibility != Visibility::Hidden {
+        text.0 = format!("JOURNAL (J to close)\n\n{}", Journal::build(&content.0.quests, &progress.log).render());
+    }
 }

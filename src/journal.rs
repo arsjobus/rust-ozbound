@@ -5,7 +5,8 @@
 //! Quests appear in the order they were started. Objectives the player has not reached yet
 //! are not listed, so the journal never spoils what comes next.
 
-use crate::quests::{QuestBook, QuestLog, QuestStatus};
+use crate::dialogue::{EffectFailure, Outcome};
+use crate::quests::{CompleteError, QuestBook, QuestLog, QuestStatus, QuestUpdate, StartError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JournalStep {
@@ -126,6 +127,86 @@ impl Journal {
             }
         }
         out
+    }
+}
+
+/// The quest's title for messages, falling back to its id for a quest missing from the book.
+fn title_of<'a>(book: &'a QuestBook, id: &'a str) -> &'a str {
+    book.get(id).map_or(id, |def| def.title.as_str())
+}
+
+/// One plain-language line for a quest state change, for the journal message line.
+pub fn describe_update(book: &QuestBook, update: &QuestUpdate) -> String {
+    let step = |quest: &str, objective: usize| {
+        book.get(quest)
+            .and_then(|def| def.objectives.get(objective))
+            .map_or_else(|| "Objective".to_string(), |o| o.describe())
+    };
+    match update {
+        QuestUpdate::Started { quest } => format!("New quest: {}.", title_of(book, quest)),
+        QuestUpdate::Progress { quest, objective, count, needed } => {
+            format!("{}: {} ({count}/{needed})", title_of(book, quest), step(quest, *objective))
+        }
+        QuestUpdate::ObjectiveDone { quest, objective } => {
+            format!("{}: {} - done.", title_of(book, quest), step(quest, *objective))
+        }
+        QuestUpdate::ReadyToTurnIn { quest } => {
+            format!("{} is ready to hand in.", title_of(book, quest))
+        }
+        QuestUpdate::Completed { quest, rewards } => {
+            let mut text = format!("Quest complete: {}.", title_of(book, quest));
+            if !rewards.is_empty() {
+                let list: Vec<String> =
+                    rewards.iter().map(|r| format!("{} {}", r.quantity, r.item.label())).collect();
+                text.push_str(&format!(" You received {}.", list.join(", ")));
+            }
+            text
+        }
+    }
+}
+
+/// One plain-language line for an effect that could not be applied.
+pub fn describe_failure(book: &QuestBook, failure: &EffectFailure) -> String {
+    match failure {
+        EffectFailure::Start { quest, error } => match error {
+            StartError::AlreadyStarted(_) => format!("{} is already under way.", title_of(book, quest)),
+            StartError::PrerequisiteNotMet(_) => {
+                format!("You are not ready to start {} yet.", title_of(book, quest))
+            }
+            StartError::UnknownQuest(_) => "That quest cannot be started.".to_string(),
+        },
+        EffectFailure::Complete { quest, error } => match error {
+            CompleteError::InventoryFull => {
+                format!("Your bag is too full to receive the reward for {}.", title_of(book, quest))
+            }
+            CompleteError::MissingItems(item) => {
+                format!("You do not have the {} needed for {}.", item.label(), title_of(book, quest))
+            }
+            CompleteError::NotReady(_) => format!("{} is not ready to hand in.", title_of(book, quest)),
+            CompleteError::UnknownQuest(_) => "That quest cannot be completed.".to_string(),
+        },
+    }
+}
+
+/// Everything worth telling the player about a dialogue step: quest changes, then failures.
+pub fn outcome_messages(book: &QuestBook, outcome: &Outcome) -> Vec<String> {
+    outcome
+        .updates
+        .iter()
+        .map(|u| describe_update(book, u))
+        .chain(outcome.failures.iter().map(|f| describe_failure(book, f)))
+        .collect()
+}
+
+/// A one-line quest tracker for the HUD: the first active quest and its next step.
+pub fn tracker(book: &QuestBook, log: &QuestLog) -> String {
+    let journal = Journal::build(book, log);
+    match journal.active.first() {
+        Some(entry) => match entry.steps.iter().find(|s| !s.done) {
+            Some(step) => format!("Quest: {} - {}", entry.title, step.text),
+            None => format!("Quest: {}", entry.title),
+        },
+        None => "No active quests.".to_string(),
     }
 }
 
@@ -267,5 +348,111 @@ mod tests {
             QuestBook::parse("[quest planks]\ntitle = Planks\nobjective = collect timber 1\n")
                 .unwrap();
         assert!(Journal::build(&smaller, &log).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod message_tests {
+    use super::*;
+    use crate::inventory::{Inventory, ItemId};
+    use crate::quests::{ItemAmount, QuestEvent, DEFAULT_QUESTS};
+
+    fn book() -> QuestBook {
+        QuestBook::parse(DEFAULT_QUESTS).unwrap()
+    }
+
+    fn gathered(n: u32) -> QuestEvent {
+        QuestEvent::Gathered { item: ItemId::Moonpetal, quantity: n }
+    }
+
+    #[test]
+    fn updates_read_as_plain_sentences() {
+        let book = book();
+        let mut log = QuestLog::new();
+        log.start(&book, "moonpetals").unwrap();
+        let progress = log.record(&book, &gathered(1));
+        assert_eq!(
+            describe_update(&book, &QuestUpdate::Started { quest: "moonpetals".into() }),
+            "New quest: Moonpetals for the Apothecary."
+        );
+        assert_eq!(describe_update(&book, &progress[0]), "Moonpetals for the Apothecary: Collect moonpetal (1/3)");
+        let done = log.record(&book, &gathered(2));
+        let texts: Vec<String> = done.iter().map(|u| describe_update(&book, u)).collect();
+        assert!(texts.contains(&"Moonpetals for the Apothecary: Collect moonpetal - done.".to_string()), "{texts:?}");
+        assert!(texts.contains(&"Moonpetals for the Apothecary is ready to hand in.".to_string()), "{texts:?}");
+    }
+
+    #[test]
+    fn completion_lists_rewards_and_handles_none() {
+        let book = book();
+        let with = QuestUpdate::Completed {
+            quest: "moonpetals".into(),
+            rewards: vec![ItemAmount { item: ItemId::Timber, quantity: 2 }],
+        };
+        assert_eq!(
+            describe_update(&book, &with),
+            "Quest complete: Moonpetals for the Apothecary. You received 2 timber."
+        );
+        let without = QuestUpdate::Completed { quest: "moonpetals".into(), rewards: vec![] };
+        assert_eq!(describe_update(&book, &without), "Quest complete: Moonpetals for the Apothecary.");
+    }
+
+    #[test]
+    fn unknown_quests_fall_back_to_their_id() {
+        let book = book();
+        assert_eq!(describe_update(&book, &QuestUpdate::Started { quest: "ghost".into() }), "New quest: ghost.");
+        let progress = QuestUpdate::Progress { quest: "ghost".into(), objective: 4, count: 1, needed: 2 };
+        assert_eq!(describe_update(&book, &progress), "ghost: Objective (1/2)");
+    }
+
+    #[test]
+    fn failures_explain_themselves() {
+        let book = book();
+        let full = EffectFailure::Complete { quest: "moonpetals".into(), error: CompleteError::InventoryFull };
+        assert_eq!(
+            describe_failure(&book, &full),
+            "Your bag is too full to receive the reward for Moonpetals for the Apothecary."
+        );
+        let missing = EffectFailure::Complete {
+            quest: "moonpetals".into(),
+            error: CompleteError::MissingItems(ItemId::Moonpetal),
+        };
+        assert!(describe_failure(&book, &missing).starts_with("You do not have the moonpetal needed"));
+        let again = EffectFailure::Start {
+            quest: "moonpetals".into(),
+            error: StartError::AlreadyStarted(QuestStatus::Active),
+        };
+        assert_eq!(describe_failure(&book, &again), "Moonpetals for the Apothecary is already under way.");
+    }
+
+    #[test]
+    fn outcome_messages_list_updates_before_failures() {
+        let book = book();
+        let outcome = Outcome {
+            updates: vec![QuestUpdate::Started { quest: "moonpetals".into() }],
+            failures: vec![EffectFailure::Complete { quest: "moonpetals".into(), error: CompleteError::InventoryFull }],
+        };
+        let lines = outcome_messages(&book, &outcome);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("New quest"));
+        assert!(lines[1].starts_with("Your bag is too full"));
+        assert!(outcome_messages(&book, &Outcome::default()).is_empty());
+    }
+
+    #[test]
+    fn tracker_follows_the_quest_through_every_stage() {
+        let book = book();
+        let mut log = QuestLog::new();
+        assert_eq!(tracker(&book, &log), "No active quests.");
+        log.start(&book, "moonpetals").unwrap();
+        assert_eq!(tracker(&book, &log), "Quest: Moonpetals for the Apothecary - Collect moonpetal (0/3)");
+        log.record(&book, &gathered(2));
+        assert_eq!(tracker(&book, &log), "Quest: Moonpetals for the Apothecary - Collect moonpetal (2/3)");
+        log.record(&book, &gathered(1));
+        assert_eq!(tracker(&book, &log), "Quest: Moonpetals for the Apothecary - Hand in the quest");
+        let mut bag = Inventory::default();
+        bag.add(ItemId::Moonpetal, 3).unwrap();
+        log.complete(&book, "moonpetals", &mut bag).unwrap();
+        assert_eq!(tracker(&book, &log), "No active quests.");
     }
 }

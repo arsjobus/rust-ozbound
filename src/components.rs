@@ -1,15 +1,19 @@
 //! Bevy components and resources shared by the game systems.
 
+use std::path::PathBuf;
+
 use bevy::prelude::*;
 use ozbound::{
+    content::Content,
     context_menu::MenuEntry,
     gathering::GatheringNode,
     interaction::InteractionKind,
     inventory::Inventory,
     level::Level,
     pathfinding::Approach,
-    quest::MoonpetalQuest,
+    quests::QuestLog,
     respawn::RespawnTimer,
+    talk::Talk,
     task::Task,
     world::{TilePos, WorldMap},
 };
@@ -23,13 +27,46 @@ pub struct Meadow(pub WorldMap);
 #[derive(Resource)]
 pub struct LevelData(pub Level);
 
+/// The validated quest and dialogue content for this session.
+#[derive(Resource)]
+pub struct GameContent(pub Content);
+
 #[derive(Resource, Default)]
 pub struct GameProgress {
-    pub quest: MoonpetalQuest,
-    pub spoke_to_guide: bool,
+    pub log: QuestLog,
+    /// The latest message for the player (shown under the HUD).
     pub journal: String,
     pub inventory: Inventory,
 }
+
+/// The conversation that is open, if any. While one is, it owns the mouse and the number keys.
+#[derive(Resource, Default)]
+pub struct TalkState(pub Option<Talk>);
+
+/// Where quest progress is saved. `enabled` is false when an unreadable save was found at
+/// startup, so that file is never overwritten. `saved` is the log as last written.
+#[derive(Resource)]
+pub struct QuestSave {
+    pub path: PathBuf,
+    pub enabled: bool,
+    pub saved: QuestLog,
+}
+
+/// Who a character is in the dialogue file (`npc = ...`).
+#[derive(Component)]
+pub struct Npc(pub &'static str);
+
+/// The panel that shows the current line of dialogue and its choices.
+#[derive(Component)]
+pub struct DialoguePanel;
+
+/// One clickable choice; the index matches `Talk::view().choices`.
+#[derive(Component)]
+pub struct ChoiceRow(pub usize);
+
+/// The panel that lists active and completed quests (toggled with J).
+#[derive(Component)]
+pub struct JournalPanel;
 
 /// What the cursor is over, shown as an action label such as "Chop down tree".
 #[derive(Resource, Default)]

@@ -7,21 +7,28 @@
 mod animation;
 mod camera_rig;
 mod components;
+mod dialogue_ui;
 mod hud;
 mod interact;
 mod menu;
 mod models;
 mod movement;
+mod persist;
 mod pointer;
 mod setup;
 
+use std::path::PathBuf;
+
 use bevy::prelude::*;
 use ozbound::{
+    content::{self, Content},
     level::{Level, LoadError},
+    quest_store,
+    quests::QuestLog,
     scene,
 };
 
-use components::{ContextMenuState, GameProgress, HoverText, LevelData, Meadow};
+use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, QuestSave, TalkState};
 
 /// Where the game looks for its level, relative to the working directory.
 const LEVEL_PATH: &str = "assets/maps/meadow.map";
@@ -45,11 +52,56 @@ fn load_level() -> Result<Level, String> {
     }
 }
 
+/// Set these to play other quest or dialogue files; a missing or invalid file is then an error.
+const QUESTS_ENV: &str = "OZBOUND_QUESTS";
+const DIALOGUE_ENV: &str = "OZBOUND_DIALOGUE";
+/// Where quest progress is saved (override with `OZBOUND_QUEST_SAVE`).
+const QUEST_SAVE_PATH: &str = "saves/quests.txt";
+const QUEST_SAVE_ENV: &str = "OZBOUND_QUEST_SAVE";
+
+/// Loads the quest and dialogue files with the same rules as the level: custom paths must
+/// load, absent default files fall back to the built-in copies, and an invalid file stops
+/// startup with its name and line.
+fn load_content() -> Result<Content, String> {
+    let loaded = content::load_with_custom(
+        std::env::var_os(QUESTS_ENV).map(PathBuf::from),
+        std::env::var_os(DIALOGUE_ENV).map(PathBuf::from),
+    )?;
+    for note in &loaded.notes {
+        eprintln!("{note}");
+    }
+    Ok(loaded.content)
+}
+
+/// Restores saved quest progress. An unreadable or invalid save is reported and left alone:
+/// the game starts with a fresh log and does not save over the old file this session.
+fn restore_quests(content: &Content) -> (QuestLog, QuestSave, String) {
+    let path = std::env::var_os(QUEST_SAVE_ENV).map_or_else(|| PathBuf::from(QUEST_SAVE_PATH), PathBuf::from);
+    match quest_store::load(&path, &content.quests) {
+        Ok(Some(log)) => {
+            let message = if log.started().next().is_some() { "Welcome back. Press J to read your journal." } else { "" };
+            let save = QuestSave { path, enabled: true, saved: log.clone() };
+            (log, save, message.to_string())
+        }
+        Ok(None) => (QuestLog::new(), QuestSave { path, enabled: true, saved: QuestLog::new() }, String::new()),
+        Err(error) => {
+            eprintln!("warning: {error}; starting with a fresh quest log and not saving this session");
+            let message = "Your quest save could not be read, so progress will not be saved this session. See the console.";
+            (QuestLog::new(), QuestSave { path, enabled: false, saved: QuestLog::new() }, message.to_string())
+        }
+    }
+}
+
 fn main() {
     let level = load_level().unwrap_or_else(|message| {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
+    let content = load_content().unwrap_or_else(|message| {
+        eprintln!("error: {message}");
+        std::process::exit(1);
+    });
+    let (log, quest_save, welcome) = restore_quests(&content);
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -60,7 +112,10 @@ fn main() {
             ..default()
         }))
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
-        .insert_resource(GameProgress::default())
+        .insert_resource(GameProgress { log, journal: welcome, ..default() })
+        .insert_resource(GameContent(content))
+        .insert_resource(quest_save)
+        .insert_resource(TalkState::default())
         .insert_resource(HoverText::default())
         .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(level.map.clone()))
@@ -71,15 +126,19 @@ fn main() {
             (
                 pointer::pointer,
                 menu::menu_input,
+                dialogue_ui::dialogue_input,
                 movement::follow_route,
                 interact::interact,
                 interact::respawn_nodes,
+                persist::persist_quests,
                 animation::animate_limbs,
                 animation::float_props,
                 pointer::fade_markers,
                 camera_rig::update_camera,
                 menu::sync_menu_ui,
+                dialogue_ui::sync_dialogue_ui,
                 hud::update_hud,
+                hud::update_journal_panel,
                 exit_on_escape,
             )
                 .chain(),
@@ -87,8 +146,13 @@ fn main() {
         .run();
 }
 
-fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut exit: EventWriter<AppExit>) {
+/// Esc closes an open conversation; with none open it quits.
+fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut talk: ResMut<TalkState>, mut exit: EventWriter<AppExit>) {
     if keys.just_pressed(KeyCode::Escape) {
-        exit.send(AppExit::Success);
+        if talk.0.is_some() {
+            talk.0 = None;
+        } else {
+            exit.send(AppExit::Success);
+        }
     }
 }
