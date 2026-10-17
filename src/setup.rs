@@ -157,6 +157,34 @@ pub fn setup(
         ));
     }
 
+    // Herb patches and berry bushes grow on open ground and are used by standing on them.
+    // Only valid, listed nodes become clickable; the crop (not the soil or bush) hides when spent.
+    for spawn in level.nodes.iter().filter(|n| matches!(n.kind, ResourceKind::HerbPatch | ResourceKind::BerryBush)) {
+        let pos = spawn.tile;
+        if !nodes.contains_key(&pos) {
+            continue;
+        }
+        let at = vec3(map.tile_center_3d(pos, 0.0));
+        let yaw = scene::tile_noise(pos, 10) * TAU;
+        let (root, crop, height) = match spawn.kind {
+            ResourceKind::HerbPatch => {
+                let (root, plants) = models::spawn_herb_patch(&mut commands, &kit, at, yaw);
+                (root, plants, 0.5)
+            }
+            _ => {
+                let (root, berries) = models::spawn_berry_bush(&mut commands, &kit, at, yaw);
+                (root, berries, 0.8)
+            }
+        };
+        let (pick_min, pick_max) = pick_box(map, pos, 0.42, height);
+        let kind = InteractionKind::Forage;
+        commands.entity(root).insert((
+            ResourceNode(GatheringNode::new(spawn.kind, spawn.actions, spawn.yield_per_action)),
+            SpentVisual(crop),
+            Interactable { kind, name: spawn.kind.label(), tile: pos, approach: kind.approach(), pick_min, pick_max },
+        ));
+    }
+
     // The village guide faces the player's starting tile.
     let guide_at = vec3(map.tile_center_3d(level.guide, 0.0));
     let start_at = vec3(map.tile_center_3d(level.player_start, 0.0));
@@ -240,6 +268,25 @@ pub fn setup(
         GlobalZIndex(9),
         Visibility::Hidden,
         DialoguePanel,
+    ));
+
+    // Crafting-and-gear panel (toggled with C): `pack_ui::sync_pack_ui` fills in the rows.
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Px(120.0),
+            width: Val::Px(620.0),
+            margin: UiRect::left(Val::Px(-310.0)),
+            padding: UiRect::all(Val::Px(14.0)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(4.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.07, 0.06, 0.10, 0.94)),
+        GlobalZIndex(9),
+        Visibility::Hidden,
+        PackPanel,
     ));
 
     // Right-click menu panel: hidden until opened; `menu::sync_menu_ui` fills in the rows.

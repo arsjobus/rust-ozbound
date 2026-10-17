@@ -44,10 +44,12 @@ The first build downloads Bevy and its dependencies. No account, game server, an
 |---|---|
 | Left-click ground | Walk to that tile |
 | Left-click tree, copper vein, moonpetal, or the guide | Walk beside it, then chop / mine / pick / talk |
+| Left-click a meadowmint patch or honeyberry bush | Walk onto it, then forage until it is spent |
+| C | Open or close the crafting-and-gear panel (click a row, or press 1-9) |
 | Hover | Shows the action a click would perform |
 | Middle-mouse drag, or arrow keys | Turn and tilt the camera |
 | Scroll wheel | Zoom |
-| Esc | Quit |
+| Esc | Close the open panel, otherwise quit |
 
 ## Project principles
 
@@ -141,3 +143,13 @@ Quests and conversations are now data, handled by pure Rust modules under `src/`
 - `textdata.rs`: the shared reader behind the content files; errors name the file line.
 
 These are tested without a window, including a full play-through of the moonpetal quest (`tests/quest_playthrough.rs`). The Bevy prototype still uses the original moonpetal counter and the guide's fixed line; connecting it to the new modules is the open item at the end of M2 in `ROADMAP.md`.
+
+## Inventory, foraging, and crafting (M3)
+
+- `inventory.rs`: slot-based bag. One slot holds up to 99 of an ordinary item (equipment is one per slot), so large piles take more than one slot; every add and remove is all or nothing.
+- `equipment.rs`: five equipment slots; equipping swaps with what was there, and taking gear off needs a free bag slot.
+- `crafting.rs`: recipes from `assets/recipes/meadow.recipes` (`name`, `input = item amount`, `output = item amount`) and all-or-nothing crafting. Set `OZBOUND_RECIPES=path/to/other.recipes` to use another file; errors name the file and line.
+- `pack.rs`: the crafting-and-gear panel as data (rows, what choosing one does, the bag and equipment lines), so it is tested without a window.
+- New gatherables in the meadow: meadowmint patches and honeyberry bushes. They grow back after about 20 to 25 seconds.
+
+The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/ARCHITECTURE.md`. Bag contents and equipment are not saved yet (that arrives with M6), and equipment has no gameplay effect until skills (M4).

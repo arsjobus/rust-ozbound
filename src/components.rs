@@ -6,6 +6,8 @@ use bevy::prelude::*;
 use ozbound::{
     content::Content,
     context_menu::MenuEntry,
+    crafting::RecipeBook,
+    equipment::Equipment,
     gathering::GatheringNode,
     interaction::InteractionKind,
     inventory::Inventory,
@@ -37,7 +39,25 @@ pub struct GameProgress {
     /// The latest message for the player (shown under the HUD).
     pub journal: String,
     pub inventory: Inventory,
+    pub equipment: Equipment,
 }
+
+/// The validated recipes for this session.
+#[derive(Resource)]
+pub struct Recipes(pub RecipeBook);
+
+/// Whether the crafting-and-gear panel (C) is open. While it is, it owns the mouse and the
+/// number keys, like a conversation does.
+#[derive(Resource, Default)]
+pub struct PackState(pub bool);
+
+/// The panel that lists recipes and gear rows.
+#[derive(Component)]
+pub struct PackPanel;
+
+/// One clickable panel row; the index matches `ozbound::pack::rows`.
+#[derive(Component)]
+pub struct PackRowButton(pub usize);
 
 /// The conversation that is open, if any. While one is, it owns the mouse and the number keys.
 #[derive(Resource, Default)]

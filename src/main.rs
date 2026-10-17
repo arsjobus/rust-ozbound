@@ -13,6 +13,7 @@ mod interact;
 mod menu;
 mod models;
 mod movement;
+mod pack_ui;
 mod persist;
 mod pointer;
 mod setup;
@@ -22,13 +23,14 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use ozbound::{
     content::{self, Content},
+    crafting::{self, RecipeBook},
     level::{Level, LoadError},
     quest_store,
     quests::QuestLog,
     scene,
 };
 
-use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, QuestSave, TalkState};
+use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, QuestSave, Recipes, TalkState};
 
 /// Where the game looks for its level, relative to the working directory.
 const LEVEL_PATH: &str = "assets/maps/meadow.map";
@@ -73,6 +75,19 @@ fn load_content() -> Result<Content, String> {
     Ok(loaded.content)
 }
 
+/// Set this to play other recipes; a missing or invalid file is then an error.
+const RECIPES_ENV: &str = "OZBOUND_RECIPES";
+
+/// Loads the recipe file with the same rules as the other content files.
+fn load_recipes() -> Result<RecipeBook, String> {
+    let custom = std::env::var_os(RECIPES_ENV).map(PathBuf::from);
+    let loaded = crafting::load(custom.as_deref(), std::path::Path::new(crafting::RECIPES_PATH))?;
+    if let Some(note) = &loaded.note {
+        eprintln!("{note}");
+    }
+    Ok(loaded.book)
+}
+
 /// Restores saved quest progress. An unreadable or invalid save is reported and left alone:
 /// the game starts with a fresh log and does not save over the old file this session.
 fn restore_quests(content: &Content) -> (QuestLog, QuestSave, String) {
@@ -101,6 +116,10 @@ fn main() {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
+    let recipes = load_recipes().unwrap_or_else(|message| {
+        eprintln!("error: {message}");
+        std::process::exit(1);
+    });
     let (log, quest_save, welcome) = restore_quests(&content);
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -114,6 +133,8 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
         .insert_resource(GameProgress { log, journal: welcome, ..default() })
         .insert_resource(GameContent(content))
+        .insert_resource(Recipes(recipes))
+        .insert_resource(PackState::default())
         .insert_resource(quest_save)
         .insert_resource(TalkState::default())
         .insert_resource(HoverText::default())
@@ -124,6 +145,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                pack_ui::pack_input,
                 pointer::pointer,
                 menu::menu_input,
                 dialogue_ui::dialogue_input,
@@ -137,6 +159,7 @@ fn main() {
                 camera_rig::update_camera,
                 menu::sync_menu_ui,
                 dialogue_ui::sync_dialogue_ui,
+                pack_ui::sync_pack_ui,
                 hud::update_hud,
                 hud::update_journal_panel,
                 exit_on_escape,
@@ -146,11 +169,18 @@ fn main() {
         .run();
 }
 
-/// Esc closes an open conversation; with none open it quits.
-fn exit_on_escape(keys: Res<ButtonInput<KeyCode>>, mut talk: ResMut<TalkState>, mut exit: EventWriter<AppExit>) {
+/// Esc closes an open conversation or the crafting panel; with neither open it quits.
+fn exit_on_escape(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut talk: ResMut<TalkState>,
+    mut pack: ResMut<PackState>,
+    mut exit: EventWriter<AppExit>,
+) {
     if keys.just_pressed(KeyCode::Escape) {
         if talk.0.is_some() {
             talk.0 = None;
+        } else if pack.0 {
+            pack.0 = false;
         } else {
             exit.send(AppExit::Success);
         }

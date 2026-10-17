@@ -3,8 +3,8 @@
 
 use bevy::prelude::*;
 use ozbound::{
-    inventory::ItemId,
     journal::{tracker, Journal},
+    pack::{bag_line, equipment_line},
 };
 
 use crate::components::*;
@@ -29,11 +29,10 @@ pub fn update_hud(
     let journal = if progress.journal.is_empty() { "A quiet meadow awaits." } else { &progress.journal };
 
     text.0 = format!(
-        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Right-click: menu   J: journal   Middle-drag or arrows: camera   Scroll: zoom   Esc: close talk / quit\n{}\nBag: {} moonpetals | {} timber | {} copper ore\n{}",
+        "OZBOUND - A FAIRYTALE RPG\nLeft-click: walk / interact   Right-click: menu   J: journal   C: craft & gear   Middle-drag or arrows: camera   Scroll: zoom   Esc: close panel / quit\n{}\n{}\n{}\n{}",
         tracker(&content.0.quests, &progress.log),
-        progress.inventory.count(ItemId::Moonpetal),
-        progress.inventory.count(ItemId::Timber),
-        progress.inventory.count(ItemId::CopperOre),
+        bag_line(&progress.inventory),
+        equipment_line(&progress.equipment),
         journal,
     );
 }

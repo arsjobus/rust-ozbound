@@ -9,6 +9,8 @@ pub enum InteractionKind {
     ChopDown,
     Mine,
     Pick,
+    /// Gathering from a plant patch or bush that grows back (herbs, berries).
+    Forage,
     Read,
 }
 
@@ -19,6 +21,7 @@ impl InteractionKind {
             Self::ChopDown => "Chop down",
             Self::Mine => "Mine",
             Self::Pick => "Pick",
+            Self::Forage => "Forage",
             Self::Read => "Read",
         }
     }
@@ -26,10 +29,10 @@ impl InteractionKind {
     /// Where the player must stand to use this kind of object. This is the single source of
     /// truth for interaction range: scenery that blocks movement (trees, ore, signposts) and
     /// people are used from a walkable tile right beside them; things lying on open ground
-    /// (moonpetals) are used by standing on them.
+    /// (moonpetals, herb patches, berry bushes) are used by standing on them.
     pub fn approach(self) -> Approach {
         match self {
-            Self::Pick => Approach::OnTile,
+            Self::Pick | Self::Forage => Approach::OnTile,
             Self::TalkTo | Self::ChopDown | Self::Mine | Self::Read => Approach::Adjacent,
         }
     }
@@ -54,6 +57,7 @@ impl InteractionKind {
             Self::ChopDown => "A sturdy meadow tree. Its timber would be useful.",
             Self::Mine => "A rock streaked with copper.",
             Self::Pick => "A moonpetal, glowing faintly in the grass.",
+            Self::Forage => "Wild plants that grow back each season. Worth gathering.",
             Self::Read => "A weathered wooden signpost with a few words painted on it.",
         }
     }
@@ -104,8 +108,14 @@ mod tests {
     use crate::scene::meadow_level;
     use crate::pathfinding::plan_route;
 
-    const ALL_KINDS: [InteractionKind; 5] =
-        [InteractionKind::TalkTo, InteractionKind::ChopDown, InteractionKind::Mine, InteractionKind::Pick, InteractionKind::Read];
+    const ALL_KINDS: [InteractionKind; 6] = [
+        InteractionKind::TalkTo,
+        InteractionKind::ChopDown,
+        InteractionKind::Mine,
+        InteractionKind::Pick,
+        InteractionKind::Forage,
+        InteractionKind::Read,
+    ];
     #[test]
     fn includes_boundary_and_excludes_outside() {
         assert!(within_interaction_range((0.0, 0.0), (3.0, 4.0), 5.0));
@@ -153,6 +163,7 @@ mod tests {
         assert_eq!(hover_text(InteractionKind::TalkTo, "Village Guide"), "Talk to Village Guide");
         assert_eq!(hover_text(InteractionKind::Mine, "copper vein"), "Mine copper vein");
         assert_eq!(hover_text(InteractionKind::Pick, "moonpetal"), "Pick moonpetal");
+        assert_eq!(hover_text(InteractionKind::Forage, "meadowmint patch"), "Forage meadowmint patch");
     }
     #[test]
     fn hover_text_for_signposts() {
@@ -164,9 +175,9 @@ mod tests {
         for kind in ALL_KINDS {
             assert!(!kind.verb().is_empty());
         }
-        // Only things lying on open ground are used by standing on them.
+        // Only things growing on open ground are used by standing on them.
         let on_tile: Vec<_> = ALL_KINDS.iter().filter(|k| k.approach() == Approach::OnTile).collect();
-        assert_eq!(on_tile, vec![&InteractionKind::Pick]);
+        assert_eq!(on_tile, vec![&InteractionKind::Pick, &InteractionKind::Forage]);
     }
 
     #[test]

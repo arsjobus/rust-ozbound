@@ -32,11 +32,12 @@ pub fn pointer(
     mut progress: ResMut<GameProgress>,
     menu: Res<ContextMenuState>,
     talk: Res<TalkState>,
+    pack: Res<PackState>,
 ) {
     hover.0.clear();
-    // While the right-click menu or a conversation is open it owns the mouse
-    // (see `menu::menu_input` and `dialogue_ui::dialogue_input`).
-    if menu.0.is_some() || talk.0.is_some() {
+    // While the right-click menu, a conversation, or the crafting panel is open it owns the
+    // mouse (see `menu::menu_input`, `dialogue_ui::dialogue_input`, `pack_ui::pack_input`).
+    if menu.0.is_some() || talk.0.is_some() || pack.0 {
         return;
     }
     let Ok(window) = windows.get_single() else { return };

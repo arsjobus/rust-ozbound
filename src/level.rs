@@ -11,6 +11,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::gathering::{validate_node_placement, PlacementError, ResourceKind};
+use crate::pathfinding::Approach;
 use crate::quest::MoonpetalQuest;
 use crate::world::{MapError, Tile, TilePos, WorldMap};
 
@@ -37,7 +38,7 @@ pub struct Level {
     pub player_start: TilePos,
     pub guide: TilePos,
     pub moonpetals: Vec<TilePos>,
-    /// Trees and copper veins. Moonpetals are listed separately.
+    /// Trees, copper veins, herb patches, and berry bushes. Moonpetals are listed separately.
     pub nodes: Vec<NodeSpawn>,
     /// Readable signposts. An `S` tile with no entry here is plain scenery.
     pub signs: Vec<SignSpawn>,
@@ -133,7 +134,7 @@ impl fmt::Display for LevelError {
                 "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock, F fence, S signpost)"
             ),
             Malformed { expected, found } => write!(f, "expected {expected}, found {found:?}"),
-            UnknownResource(name) => write!(f, "unknown resource {name:?} (use tree or copper)"),
+            UnknownResource(name) => write!(f, "unknown resource {name:?} (use tree, copper, herb, or berry)"),
             WrongEntryCount { section, found } => {
                 write!(f, "[{section}] needs exactly one entry, found {found}")
             }
@@ -216,6 +217,8 @@ fn parse_node(text: &str, line: usize) -> Result<NodeSpawn, LevelError> {
     let kind = match tokens[0] {
         "tree" => ResourceKind::Tree,
         "copper" => ResourceKind::CopperVein,
+        "herb" => ResourceKind::HerbPatch,
+        "berry" => ResourceKind::BerryBush,
         other => return Err(LevelError::at(line, LevelErrorKind::UnknownResource(other.to_string()))),
     };
     Ok(NodeSpawn {
@@ -371,7 +374,12 @@ impl Level {
             if nodes[..i].iter().any(|other| other.value.tile == node.tile) {
                 return Err(LevelError::at(entry.line, LevelErrorKind::Duplicate { what, tile: node.tile }));
             }
-            if !has_reachable_neighbour(&map, player_start, node.tile) {
+            // Plants on open ground are used from their own tile; trees and rocks from beside them.
+            let reachable = match node.kind.interaction().approach() {
+                Approach::OnTile => map.is_reachable(player_start, node.tile),
+                Approach::Adjacent => has_reachable_neighbour(&map, player_start, node.tile),
+            };
+            if !reachable {
                 return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what, tile: node.tile }));
             }
         }
@@ -479,6 +487,10 @@ copper 1 1 2 1
                 (ResourceKind::Tree, 26, 6, 3, 1),
                 (ResourceKind::CopperVein, 4, 10, 2, 1),
                 (ResourceKind::CopperVein, 27, 16, 2, 1),
+                (ResourceKind::HerbPatch, 5, 8, 3, 1),
+                (ResourceKind::HerbPatch, 20, 15, 3, 1),
+                (ResourceKind::BerryBush, 18, 13, 3, 1),
+                (ResourceKind::BerryBush, 9, 1, 3, 1),
             ]
         );
         // Spot-check the map: top-left corner is a tree, the water pond and path exist.
@@ -859,5 +871,70 @@ copper 1 1 2 1
         std::fs::write(&good, SMALL).unwrap();
         assert_eq!(Level::load(&good).unwrap(), Level::parse(SMALL).unwrap());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ---- herb patches and berry bushes ----
+
+    #[test]
+    fn herb_and_berry_lines_parse() {
+        let level = Level::parse(&small_with("copper 1 1 2 1", "copper 1 1 2 1\nherb 2 0 3 1\nberry 3 1 2 2")).unwrap();
+        let kinds: Vec<_> = level.nodes.iter().map(|n| (n.kind, n.tile, n.actions, n.yield_per_action)).collect();
+        assert!(kinds.contains(&(ResourceKind::HerbPatch, TilePos::new(2, 0), 3, 1)));
+        assert!(kinds.contains(&(ResourceKind::BerryBush, TilePos::new(3, 1), 2, 2)));
+    }
+
+    #[test]
+    fn herbs_and_berries_must_stand_on_walkable_ground() {
+        for kind in ["herb", "berry"] {
+            // (1, 1) is a rock tile in SMALL and (5, 3) is a tree tile.
+            for tile in ["1 1", "5 3"] {
+                let e = err(&small_with("copper 1 1 2 1", &format!("copper 1 1 2 1\n{kind} {tile} 3 1")));
+                assert!(matches!(e.kind, LevelErrorKind::Placement { .. }), "{kind} at {tile}: {e}");
+                assert!(e.to_string().contains("walkable ground"), "{e}");
+            }
+        }
+    }
+
+    #[test]
+    fn herbs_and_berries_cannot_share_a_tile_or_never_yield() {
+        let e = err(&small_with("copper 1 1 2 1", "copper 1 1 2 1\nherb 2 0 3 1\nberry 2 0 3 1"));
+        assert!(matches!(e.kind, LevelErrorKind::Duplicate { .. }), "{e}");
+        let e = err(&small_with("copper 1 1 2 1", "copper 1 1 2 1\nherb 2 0 0 1"));
+        assert!(matches!(e.kind, LevelErrorKind::NeverYields { .. }), "{e}");
+        let e = err(&small_with("copper 1 1 2 1", "copper 1 1 2 1\nberry 2 0 3 0"));
+        assert!(matches!(e.kind, LevelErrorKind::NeverYields { .. }), "{e}");
+    }
+
+    #[test]
+    fn a_plant_in_a_walled_off_pocket_is_unreachable_even_if_it_has_open_neighbours() {
+        // The herb tile itself is walkable grass, but it is sealed inside rock, so it cannot be
+        // stood on. (A tree there would also fail, for the same reason, via its neighbours.)
+        let sealed = "[map]\n.....\n.###.\n.#.#.\n.###.\n.....\n\n[player]\n0 0\n[guide]\n4 0\n[moonpetals]\n1 4\n3 4\n0 2\n[nodes]\nherb 2 2 3 1\n";
+        let e = err(sealed);
+        assert_eq!(e.kind, LevelErrorKind::Unreachable { what: "meadowmint patch", tile: TilePos::new(2, 2) });
+        let sealed_berry = sealed.replace("herb 2 2 3 1", "berry 2 2 3 1");
+        let e = err(&sealed_berry);
+        assert_eq!(e.kind, LevelErrorKind::Unreachable { what: "honeyberry bush", tile: TilePos::new(2, 2) });
+    }
+
+    #[test]
+    fn unknown_resource_message_lists_the_valid_kinds() {
+        let e = err(&small_with("tree 5 3 3 1", "dragon 5 3 3 1"));
+        let text = e.to_string();
+        for kind in ["tree", "copper", "herb", "berry"] {
+            assert!(text.contains(kind), "{text}");
+        }
+    }
+
+    #[test]
+    fn shipped_meadow_has_plants_to_forage_and_they_are_reachable_on_foot() {
+        let level = meadow();
+        let herbs = level.nodes.iter().filter(|n| n.kind == ResourceKind::HerbPatch).count();
+        let berries = level.nodes.iter().filter(|n| n.kind == ResourceKind::BerryBush).count();
+        assert!(herbs >= 2 && berries >= 2, "{herbs} herb patches, {berries} berry bushes");
+        for node in level.nodes.iter().filter(|n| n.kind.interaction().approach() == Approach::OnTile) {
+            let route = plan_route(&level.map, level.player_start, node.tile, Approach::OnTile).expect("route");
+            assert_eq!(route.last().copied().unwrap_or(level.player_start), node.tile);
+        }
     }
 }

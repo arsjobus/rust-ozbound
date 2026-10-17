@@ -3,27 +3,50 @@ use crate::inventory::{Inventory, InventoryError, ItemId};
 use crate::world::{MapError, Tile, TilePos, WorldMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResourceKind { Moonpetal, Tree, CopperVein }
+pub enum ResourceKind { Moonpetal, Tree, CopperVein, HerbPatch, BerryBush }
 
 impl ResourceKind {
     pub fn item(self) -> ItemId {
-        match self { Self::Moonpetal => ItemId::Moonpetal, Self::Tree => ItemId::Timber, Self::CopperVein => ItemId::CopperOre }
+        match self {
+            Self::Moonpetal => ItemId::Moonpetal,
+            Self::Tree => ItemId::Timber,
+            Self::CopperVein => ItemId::CopperOre,
+            Self::HerbPatch => ItemId::Meadowmint,
+            Self::BerryBush => ItemId::Honeyberry,
+        }
     }
 }
 
 impl ResourceKind {
     /// Lower-case name used in hover text and journal messages.
     pub fn label(self) -> &'static str {
-        match self { Self::Moonpetal => "moonpetal", Self::Tree => "tree", Self::CopperVein => "copper vein" }
+        match self {
+            Self::Moonpetal => "moonpetal",
+            Self::Tree => "tree",
+            Self::CopperVein => "copper vein",
+            Self::HerbPatch => "meadowmint patch",
+            Self::BerryBush => "honeyberry bush",
+        }
     }
     /// Seconds a spent resource takes to come back, or `None` if it never does. Moonpetals
     /// are one-off quest pickups and do not regrow (yet).
     pub fn respawn_seconds(self) -> Option<f32> {
-        match self { Self::Moonpetal => None, Self::Tree => Some(30.0), Self::CopperVein => Some(45.0) }
+        match self {
+            Self::Moonpetal => None,
+            Self::Tree => Some(30.0),
+            Self::CopperVein => Some(45.0),
+            Self::HerbPatch => Some(20.0),
+            Self::BerryBush => Some(25.0),
+        }
     }
     /// What clicking this resource does.
     pub fn interaction(self) -> InteractionKind {
-        match self { Self::Moonpetal => InteractionKind::Pick, Self::Tree => InteractionKind::ChopDown, Self::CopperVein => InteractionKind::Mine }
+        match self {
+            Self::Moonpetal => InteractionKind::Pick,
+            Self::Tree => InteractionKind::ChopDown,
+            Self::CopperVein => InteractionKind::Mine,
+            Self::HerbPatch | Self::BerryBush => InteractionKind::Forage,
+        }
     }
 }
 
@@ -78,13 +101,14 @@ pub enum PlacementError {
 }
 
 /// Checks that a node is placed on a tile that makes sense for it: trees on tree tiles,
-/// copper veins on rock tiles, and moonpetals on walkable ground (so they can be reached).
+/// copper veins on rock tiles, and moonpetals, herb patches, and berry bushes on walkable
+/// ground (so they can be reached by standing on them).
 pub fn validate_node_placement(map: &WorldMap, pos: TilePos, kind: ResourceKind) -> Result<(), PlacementError> {
     let found = map.tile_at(pos).map_err(|_: MapError| PlacementError::OutOfBounds)?;
     let (ok, expected) = match kind {
         ResourceKind::Tree => (found == Tile::Tree, "tree"),
         ResourceKind::CopperVein => (found == Tile::Rock, "rock"),
-        ResourceKind::Moonpetal => (found.is_walkable(), "walkable ground"),
+        ResourceKind::Moonpetal | ResourceKind::HerbPatch | ResourceKind::BerryBush => (found.is_walkable(), "walkable ground"),
     };
     if ok { Ok(()) } else { Err(PlacementError::WrongTile { expected, found }) }
 }
@@ -191,5 +215,107 @@ mod tests {
         assert_eq!(ResourceKind::CopperVein.interaction(), InteractionKind::Mine);
         assert_eq!(ResourceKind::Tree.interaction(), InteractionKind::ChopDown);
         assert_eq!(ResourceKind::Moonpetal.interaction(), InteractionKind::Pick);
+    }
+
+    #[test]
+    fn herbs_and_berries_yield_their_items_and_grow_back() {
+        assert_eq!(ResourceKind::HerbPatch.item(), ItemId::Meadowmint);
+        assert_eq!(ResourceKind::BerryBush.item(), ItemId::Honeyberry);
+        assert_eq!(ResourceKind::HerbPatch.label(), "meadowmint patch");
+        assert_eq!(ResourceKind::BerryBush.label(), "honeyberry bush");
+        for kind in [ResourceKind::HerbPatch, ResourceKind::BerryBush] {
+            assert_eq!(kind.interaction(), InteractionKind::Forage);
+            let secs = kind.respawn_seconds().expect("respawns");
+            assert!(secs.is_finite() && secs > 0.0, "{kind:?}");
+            assert!(secs < ResourceKind::Tree.respawn_seconds().unwrap(), "{kind:?} regrows faster than trees");
+        }
+    }
+
+    #[test]
+    fn every_resource_kind_maps_to_a_distinct_item() {
+        let kinds = [
+            ResourceKind::Moonpetal,
+            ResourceKind::Tree,
+            ResourceKind::CopperVein,
+            ResourceKind::HerbPatch,
+            ResourceKind::BerryBush,
+        ];
+        let mut items: Vec<_> = kinds.iter().map(|k| k.item()).collect();
+        items.sort();
+        items.dedup();
+        assert_eq!(items.len(), kinds.len());
+        let mut labels: Vec<_> = kinds.iter().map(|k| k.label()).collect();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), kinds.len());
+    }
+
+    #[test]
+    fn herb_and_berry_placement_needs_walkable_ground() {
+        let map = WorldMap::from_ascii("T#.~=").unwrap();
+        for kind in [ResourceKind::HerbPatch, ResourceKind::BerryBush] {
+            assert_eq!(validate_node_placement(&map, TilePos::new(2, 0), kind), Ok(()), "{kind:?} on grass");
+            assert_eq!(validate_node_placement(&map, TilePos::new(4, 0), kind), Ok(()), "{kind:?} on path");
+            assert_eq!(
+                validate_node_placement(&map, TilePos::new(0, 0), kind),
+                Err(PlacementError::WrongTile { expected: "walkable ground", found: Tile::Tree })
+            );
+            assert!(validate_node_placement(&map, TilePos::new(3, 0), kind).is_err(), "water");
+            assert_eq!(validate_node_placement(&map, TilePos::new(9, 9), kind), Err(PlacementError::OutOfBounds));
+        }
+    }
+
+    // ---- full-bag and depleted-node rules (see the module-level table in docs/ARCHITECTURE.md) ----
+
+    #[test]
+    fn foraging_with_a_full_bag_keeps_the_plant_and_the_bag_intact() {
+        let mut bag = Inventory::new(1);
+        bag.add(ItemId::Timber, 1).unwrap();
+        let mut patch = GatheringNode::new(ResourceKind::HerbPatch, 2, 1);
+        let before = bag.clone();
+        assert_eq!(patch.gather(&mut bag), Err(GatherError::Inventory(InventoryError::Full)));
+        assert_eq!(patch.remaining_actions(), 2);
+        assert_eq!(bag, before);
+    }
+
+    #[test]
+    fn a_full_bag_still_takes_more_of_a_stack_with_room() {
+        let mut bag = Inventory::new(1);
+        bag.add(ItemId::Honeyberry, 5).unwrap();
+        assert!(bag.is_full());
+        let mut bush = GatheringNode::new(ResourceKind::BerryBush, 2, 2);
+        assert_eq!(bush.gather(&mut bag), Ok(2));
+        assert_eq!(bag.count(ItemId::Honeyberry), 7);
+        assert_eq!(bush.remaining_actions(), 1);
+    }
+
+    #[test]
+    fn a_full_stack_in_a_full_bag_refuses_without_consuming_the_node() {
+        let mut bag = Inventory::new(1);
+        bag.add(ItemId::Honeyberry, 99).unwrap();
+        let mut bush = GatheringNode::new(ResourceKind::BerryBush, 1, 1);
+        assert_eq!(bush.gather(&mut bag), Err(GatherError::Inventory(InventoryError::Full)));
+        assert_eq!(bush.remaining_actions(), 1);
+        assert_eq!(bag.count(ItemId::Honeyberry), 99);
+    }
+
+    #[test]
+    fn a_depleted_node_refuses_before_the_bag_is_even_looked_at() {
+        // Depleted wins over full: the message should say the plant is spent, not that the
+        // bag is full, because emptying the bag would not help.
+        let mut bag = Inventory::new(0);
+        let mut patch = GatheringNode::new(ResourceKind::HerbPatch, 0, 1);
+        assert_eq!(patch.gather(&mut bag), Err(GatherError::Depleted));
+    }
+
+    #[test]
+    fn a_spent_herb_patch_can_be_gathered_again_after_restocking() {
+        let mut bag = Inventory::new(2);
+        let mut patch = GatheringNode::new(ResourceKind::HerbPatch, 1, 2);
+        patch.gather(&mut bag).unwrap();
+        assert_eq!(patch.gather(&mut bag), Err(GatherError::Depleted));
+        assert!(patch.restock());
+        assert_eq!(patch.gather(&mut bag), Ok(2));
+        assert_eq!(bag.count(ItemId::Meadowmint), 4);
     }
 }

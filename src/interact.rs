@@ -105,13 +105,17 @@ pub fn interact(
                             progress.journal = "Your inventory is full. Make room before gathering more.".into();
                         }
                     }
-                    InteractionKind::ChopDown | InteractionKind::Mine => {
+                    InteractionKind::ChopDown | InteractionKind::Mine | InteractionKind::Forage => {
                         if let Ok((node, _)) = nodes.get(target) {
                             let label = node.0.kind().label();
                             if node.0.is_depleted() {
                                 progress.journal = format!("This {label} has nothing left to give.");
                             } else {
-                                let action = if it.kind == InteractionKind::ChopDown { "chopping" } else { "mining" };
+                                let action = match it.kind {
+                                    InteractionKind::ChopDown => "chopping",
+                                    InteractionKind::Forage => "foraging",
+                                    _ => "mining",
+                                };
                                 progress.journal = format!("You start {action} the {label}...");
                                 player.work = Some(Work { target, timer: Timer::from_seconds(GATHER_INTERVAL, TimerMode::Repeating) });
                             }

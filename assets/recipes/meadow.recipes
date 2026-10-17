@@ -1,0 +1,27 @@
+# Ozbound recipes: what can be made from what.
+#
+# Each recipe is a [recipe id] section with these fields:
+#   name   = text shown in the crafting panel
+#   input  = item_key amount     (one line per ingredient; at least one)
+#   output = item_key amount     (exactly one line)
+# Item keys: moonpetal, timber, copper_ore, meadowmint, honeyberry, mint_tea,
+# walking_staff, copper_charm. Lines starting with '#' are comments.
+#
+# Crafting is all or nothing: it needs every ingredient in the bag and room for the result.
+
+[recipe walking_staff]
+name = Walking staff
+input = timber 3
+output = walking_staff 1
+
+[recipe copper_charm]
+name = Copper charm
+input = copper_ore 2
+input = timber 1
+output = copper_charm 1
+
+[recipe mint_tea]
+name = Mint tea
+input = meadowmint 2
+input = honeyberry 1
+output = mint_tea 1

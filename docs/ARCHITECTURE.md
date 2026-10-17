@@ -14,7 +14,8 @@ src/
 ├── animation.rs     # Visual-only: limb swings, floating collectables
 ├── camera_rig.rs    # Orbit camera that follows the player
 ├── menu.rs          # INPUT + UI: right-click menu open/choose, draws the panel
-├── hud.rs           # UI: objective, bag, journal, hover label
+├── hud.rs           # UI: objective, bag, equipment, journal, hover label
+├── pack_ui.rs       # INPUT + UI: C opens the crafting-and-gear panel, click/1-9 picks a row
 ├── lib.rs           # Public pure-Rust domain modules (library crate)
 ├── world.rs         # Tile positions, map bounds, walkability (all collision), 3D tile centers
 ├── pathfinding.rs   # BFS routes, no corner cutting, Adjacent/OnTile approach
@@ -22,7 +23,10 @@ src/
 ├── task.rs          # Route + pending interaction; step and facing helpers
 ├── orbit.rs         # Orbit-camera angles, clamps, zoom
 ├── interaction.rs   # Interaction kinds, hover text, per-kind approach, `in_reach` range rule
-├── inventory.rs     # Item IDs, stacks, slot capacity
+├── inventory.rs     # Item IDs, stack sizes, slot capacity, all-or-nothing add/remove
+├── equipment.rs     # Equipment slots; equip/unequip/swap between bag and slots
+├── crafting.rs      # Recipes (parsed/validated), all-or-nothing crafting, recipe file loading
+├── pack.rs          # Crafting-and-gear panel as data: rows, applying a row, bag/equipment lines
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
@@ -42,7 +46,7 @@ src/
 ## Boundaries
 
 - The **library crate** (`lib.rs` and the modules it lists) is pure Rust: no Bevy types, fully unit-tested without a window. The **binary crate** (`main.rs` and its modules) renders, reads input, and connects the two.
-- System modules have one job each, and they run in this order every frame: **input** (`pointer`, `menu::menu_input`) turns the mouse into orders; **movement** (`movement::follow_route`) walks the route; **world interaction** (`interact::interact`, `interact::respawn_nodes`) acts on arrival; **animation** is cosmetic; **UI** (`menu::sync_menu_ui`, `dialogue_ui`, `hud`) draws state; `persist::persist_quests` saves the quest log when it changes. A conversation is modal: while `TalkState` is open, `pointer` and `menu` stand aside, `dialogue_ui::dialogue_input` takes clicks and 1-9, and Esc or walking away closes it. Only input writes the player's `Task`; only `interact` changes the inventory, quest, and nodes.
+- System modules have one job each, and they run in this order every frame: **input** (`pointer`, `menu::menu_input`) turns the mouse into orders; **movement** (`movement::follow_route`) walks the route; **world interaction** (`interact::interact`, `interact::respawn_nodes`) acts on arrival; **animation** is cosmetic; **UI** (`menu::sync_menu_ui`, `dialogue_ui`, `hud`) draws state; `persist::persist_quests` saves the quest log when it changes. A conversation is modal: while `TalkState` is open, `pointer` and `menu` stand aside, `dialogue_ui::dialogue_input` takes clicks and 1-9, and Esc or walking away closes it. The crafting panel (`PackState`, toggled with C by `pack_ui::pack_input`) owns the mouse the same way, closes on C or Esc, and gives way to a conversation. Only input writes the player's `Task`; only `interact` changes quest state and nodes; the inventory changes in `interact` (gathering, hand-ins) and in `pack_ui` (crafting, equipping), both through the tested pure modules.
 - Input flow: `pointer.rs` turns the cursor into a ray, `picking::pick` says what it hits, `pathfinding::plan_route` plans a route, and `Task` stores it. `actions.rs` glides the player along the route and runs the interaction on arrival.
 - World space is 3D, Y-up. One tile is one world unit (`TILE_SIZE` = 1.0). Map tile `(x, y)` sits at world `(x, h, -y)`: map "north" is Bevy's forward direction (`-z`). Use `WorldMap::tile_center_3d` and `picking::ground_to_tile` to convert; text maps list the top row first.
 - Gameplay is tile-based: walkability, routes, and interaction ranges ("stand on or orthogonally beside the target tile") are decided on tiles. Smooth motion is display only: the logical `Player.tile` updates as each tile is reached.
@@ -54,12 +58,23 @@ src/
 - Gathering attempts add the yield to inventory before decrementing node availability, so a full inventory never consumes a resource. Repeat gathering stops when `should_keep_gathering` says so (spent node, full bag, or any failure) or when the player starts walking.
 - Spent trees and veins get a `Respawning` timer the moment an action empties them; when it finishes `GatheringNode::restock` refills them and their visual is shown again.
 - Right-click opens a menu that owns the mouse while open (`pointer` skips input), so one click never both picks a row and walks. Row geometry comes from `MenuMetrics`, shared by the UI layout and the click test.
-- Inventory capacity counts distinct occupied item stacks. Adding more of an existing item uses its existing slot.
+- Inventory capacity counts occupied slots. One slot holds up to `ItemId::max_stack()` of one item (99 for ordinary items, 1 for equipment), so a pile of 150 timber takes two slots. Adding more of an item uses the spare room in its last stack first.
+- Full-bag, depleted-node, crafting, and equipment rules (every failure changes nothing and says why):
+
+  | Situation | Result |
+  | --- | --- |
+  | Node is spent | `GatherError::Depleted`, checked before the bag, so "make room" is never suggested for a spent plant. It restocks when its respawn timer finishes. |
+  | Bag has no room for the yield | `GatherError::Inventory(Full)`; the node keeps its supply. A stack with spare room still takes more of its item. |
+  | Craft is missing ingredients | `CraftError::Missing` lists every shortfall; nothing is taken. |
+  | Craft result does not fit | `CraftError::NoRoom`; nothing is taken. Inputs the craft uses may free the slot it needs, so this is decided on a copy of the bag. |
+  | Equip into an occupied slot | Swap; the old item returns to the bag. Equipment never stacks, so this cannot fail for room. |
+  | Unequip with a full bag | `EquipError::BagFull`; the item stays equipped. |
 - Visuals are generated in code (flat-shaded primitives), so there are no external assets or licences to track. The world is described by a plain-text level file (`assets/maps/meadow.map`, parsed by `level.rs`); a copy is compiled in as a fallback for when the file is not found. An invalid level file stops startup with a file/line error rather than falling back.
 
 - Quests and dialogue are plain-text content (`assets/quests/*.quest`, `assets/dialogue/*.dialogue`) parsed by pure modules. Every parser error carries a line number, and loading validates the whole file before anything is used, so a bad file never half-loads. Dialogue is also checked against the quest file (`DialogueBook::check_against`).
 - Quest state changes are all-or-nothing. `QuestLog::complete` works on a copy of the bag and only commits if the items are there and the rewards fit; a failed hand-in changes nothing and the quest stays ready. Quest progress comes only from `QuestEvent`s (items gathered, NPC spoken to), never from what happens to be in the bag.
 - A conversation can never trap the player: content validation requires an always-available choice on every node and an unconditional route to the end from everywhere. Dialogue effects that fail (for example a full bag at hand-in) are returned in `Outcome::failures`, and content routes those cases with the `can_complete` condition.
+- Recipes are plain text too (`assets/recipes/*.recipes`, `crafting::RecipeBook::parse`) and load like the other content files (`crafting::load`). Plants that grow on open ground (herbs, berries) are `InteractionKind::Forage` with `Approach::OnTile`; level validation checks their own tile is reachable.
 - Saves are text with a version header. `QuestLog::from_text` refuses states that play could not have produced and never loads partially. Where and how the text is written to disk is left to the M6 save system.
 
 ## Testing strategy

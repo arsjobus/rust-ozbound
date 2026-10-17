@@ -58,6 +58,8 @@ pub struct Kit {
     pub bloom: Handle<Mesh>,
     pub petal: Handle<Mesh>,
     pub stem_green: Handle<StandardMaterial>,
+    pub berry: Handle<Mesh>,
+    pub berry_red: Handle<StandardMaterial>,
     pub bloom_glow: Handle<StandardMaterial>,
     pub petal_glow: Handle<StandardMaterial>,
 
@@ -106,6 +108,8 @@ impl Kit {
             bloom: meshes.add(flat(Sphere::new(0.09).mesh().ico(1).expect("ico(1) is valid"))),
             petal: meshes.add(Cuboid::new(0.17, 0.02, 0.07)),
             stem_green: material(materials, 0.25, 0.55, 0.28),
+            berry: meshes.add(flat(Sphere::new(0.07).mesh().ico(1).expect("ico(1) is valid"))),
+            berry_red: material(materials, 0.78, 0.16, 0.30),
             bloom_glow: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.80, 0.74, 0.98),
                 emissive: LinearRgba::rgb(0.55, 0.45, 1.1),
@@ -162,6 +166,42 @@ pub fn spawn_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale:
     }
     commands.entity(root).add_children(&[trunk, crown]);
     (root, crown)
+}
+
+/// A patch of meadowmint: a bare soil patch (always visible, so the player can see where it
+/// regrows) with a tuft of leafy stems. Returns `(root, plants)`; hiding `plants` leaves the soil.
+pub fn spawn_herb_patch(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let soil = commands.spawn(part(&kit.cube, &kit.path[1], Transform::from_xyz(0.0, 0.02, 0.0).with_scale(Vec3::new(0.7, 0.04, 0.7)))).id();
+    let plants = commands.spawn(pivot(Transform::IDENTITY)).id();
+    // (x, z, lean about x, lean about z, height scale)
+    let tuft = [(0.0, 0.0, 0.0, 0.0, 1.3), (0.18, 0.05, 0.0, -0.3, 1.0), (-0.17, 0.08, 0.1, 0.3, 1.1), (0.05, -0.2, -0.3, 0.1, 0.9), (-0.08, -0.15, -0.2, -0.1, 1.0)];
+    for (x, z, lean_x, lean_z, tall) in tuft {
+        let stem = commands
+            .spawn(part(&kit.stem, &kit.stem_green, Transform::from_xyz(x, 0.15 * tall + 0.04, z).with_rotation(Quat::from_euler(EulerRot::XYZ, lean_x, 0.0, lean_z)).with_scale(Vec3::new(1.4, tall, 1.4))))
+            .id();
+        let leaf = commands
+            .spawn(part(&kit.petal, &kit.leaves[1], Transform::from_xyz(x, 0.3 * tall + 0.04, z).with_rotation(Quat::from_euler(EulerRot::XYZ, lean_x, x * 9.0, lean_z))))
+            .id();
+        commands.entity(plants).add_children(&[stem, leaf]);
+    }
+    commands.entity(root).add_children(&[soil, plants]);
+    (root, plants)
+}
+
+/// A honeyberry bush: a low leafy mound dotted with berries. Returns `(root, berries)`;
+/// hiding `berries` leaves the bare bush.
+pub fn spawn_berry_bush(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let mound = commands.spawn(part(&kit.rock, &kit.leaves[1], Transform::from_xyz(0.0, 0.28, 0.0).with_scale(Vec3::new(1.05, 0.62, 0.95)))).id();
+    let berries = commands.spawn(pivot(Transform::IDENTITY)).id();
+    let dots = [(0.25, 0.45, 0.22), (-0.28, 0.40, 0.18), (0.05, 0.56, -0.12), (-0.12, 0.34, -0.34), (0.32, 0.30, -0.18), (-0.02, 0.38, 0.38)];
+    for (x, y, z) in dots {
+        let berry = commands.spawn(part(&kit.berry, &kit.berry_red, Transform::from_xyz(x, y, z))).id();
+        commands.entity(berries).add_child(berry);
+    }
+    commands.entity(root).add_children(&[mound, berries]);
+    (root, berries)
 }
 
 /// One tile of fence: a post in the middle with two rails reaching toward each linked

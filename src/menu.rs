@@ -33,9 +33,11 @@ pub fn menu_input(
     mut menu: ResMut<ContextMenuState>,
     mut progress: ResMut<GameProgress>,
     talk: Res<TalkState>,
+    pack: Res<PackState>,
 ) {
-    // A conversation owns the mouse; a menu that was open when it began is dismissed.
-    if talk.0.is_some() {
+    // A conversation or the crafting panel owns the mouse; a menu that was open when it
+    // began is dismissed.
+    if talk.0.is_some() || pack.0 {
         if menu.0.is_some() {
             menu.0 = None;
         }

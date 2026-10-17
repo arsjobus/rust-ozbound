@@ -1,12 +1,15 @@
 pub mod content;
 pub mod context_menu;
+pub mod crafting;
 pub mod dialogue;
+pub mod equipment;
 pub mod gathering;
 pub mod interaction;
 pub mod inventory;
 pub mod journal;
 pub mod level;
 pub mod orbit;
+pub mod pack;
 pub mod pathfinding;
 pub mod picking;
 pub mod quest;
