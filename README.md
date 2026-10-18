@@ -152,4 +152,10 @@ These are tested without a window, including a full play-through of the moonpeta
 - `pack.rs`: the crafting-and-gear panel as data (rows, what choosing one does, the bag and equipment lines), so it is tested without a window.
 - New gatherables in the meadow: meadowmint patches and honeyberry bushes. They grow back after about 20 to 25 seconds.
 
-The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/ARCHITECTURE.md`. Bag contents and equipment are not saved yet (that arrives with M6), and equipment has no gameplay effect until skills (M4).
+The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/ARCHITECTURE.md`. Bag contents and equipment are not saved yet (that arrives with M6).
+
+## Skills and progression (M4)
+
+- `skills.rs`: Foraging, Woodcraft, Herbalism, and Wayfinding, levels 1-10. XP to reach level L is `30 x (L-1)^2` (30, 120, 270, ... 2430). Gathering, crafting, and walking teach XP, and each source stops teaching at a ceiling level so easy repetition cannot max a skill.
+- Recipes can say `require = woodcraft 3` and `xp = woodcraft 40 6`; dialogue can say `skill herbalism at_least 2` (or `below 2`). The copper charm needs Woodcraft 3, mint tea needs Herbalism 2, and the guide's mint quest needs Herbalism 2.
+- The HUD and the `C` panel show your skill levels and progress. The game refuses to start if content asks for a level nothing can teach. Skills are not saved yet (M6).

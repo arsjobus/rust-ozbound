@@ -116,12 +116,19 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Not yet: the bag and equipment are not saved (that is M6), and equipment has no gameplay effect yet (skills and stats are M4).
 
 ## M4 — Skills and progression
-- [ ] Add skills such as Foraging, Woodcraft, Herbalism, and Wayfinding.
-- [ ] Use a documented, deterministic XP curve.
-- [ ] Gate selected recipes and quest options behind skills.
-- [ ] Keep progression useful but avoid grind for its own sake.
-- [ ] Test XP thresholds, level-ups, caps, and skill requirements.
+- [x] Add skills such as Foraging, Woodcraft, Herbalism, and Wayfinding.
+  - Done: `skills.rs` (pure Rust) holds the four skills and a `Skills` value (XP per skill; level follows from XP). Gathering teaches Foraging (moonpetals, honeyberries), Herbalism (meadowmint), and Woodcraft (trees, copper ore); each craft teaches the skill named in its recipe; every tile walked counts toward Wayfinding. The HUD and the `C` panel show a `Skills:` line with levels and progress. `GameProgress` owns the skills.
+- [x] Use a documented, deterministic XP curve.
+  - Done: total XP to reach level L is `30 x (L-1)^2`, levels 1-10 (0, 30, 120, 270, 480, 750, 1080, 1470, 1920, 2430), tabulated in the `skills.rs` docs. XP is capped at the level-10 total. No randomness, timers, or bonuses.
+- [x] Gate selected recipes and quest options behind skills.
+  - Done: recipe files take `require = skill level` (copper charm needs Woodcraft 3, mint tea needs Herbalism 2); a locked recipe stays in the panel with what it needs and is refused before ingredients are checked. Dialogue takes `skill <id> at_least|below <n>`. The guide offers the new "Mint for the Apothecary" quest only at Herbalism 2 (and says what to practise before then), and an "anywhere worth exploring?" option at Wayfinding 2. `skills::check_gates` runs at startup and refuses content that asks for a level nothing teaches.
+- [x] Keep progression useful but avoid grind for its own sake.
+  - Done: every XP source has an `until` level and stops teaching once the skill reaches it (trees stop at Woodcraft 4, meadowmint at Herbalism 4, walking at Wayfinding 3), so higher levels need the gated recipes, and repeating one easy action cannot max a skill. Gates are checked for reachability. No skill points, decay, or daily limits.
+- [x] Test XP thresholds, level-ups, caps, and skill requirements.
   - Acceptance: skill progression can be simulated and tested without rendering.
+  - Done: unit tests for the curve table and round trips, level-up reporting (single and multi-level), the XP cap and overflow, per-skill tracking, requirement parsing and errors, the no-grind ceiling, walking XP in bulk and one tile at a time, recipe and dialogue gating, reachability chains, and gate-check errors. `tests/progression_playthrough.rs` plays the unlocks through the public API.
+  - Manual check (needs a window): chop trees and watch the HUD `Skills:` line and a "Your Woodcraft level is now 2." message; press `C` and confirm the copper charm reads "needs Woodcraft level 3" until then; after the first quest, talk to the guide at Herbalism 1 and 2 and compare the options; walk around and confirm Wayfinding creeps up.
+  - Not yet: skills are not saved (M6), and equipment still has no gameplay effect.
 
 ## M5 — World content vertical slice
 - [ ] Build an original starting village and nearby meadow/forest.

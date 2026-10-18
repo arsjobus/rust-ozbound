@@ -9,7 +9,7 @@
 #   takes = <item> <n>      optional: handed over (removed from the bag) when the quest is completed
 #   reward = <item> <n>     optional: given when the quest is completed
 #
-# Items: moonpetal, timber, copper_ore
+# Items: moonpetal, timber, copper_ore, meadowmint, honeyberry, mint_tea, walking_staff, copper_charm
 
 [quest moonpetals]
 title = Moonpetals for the Apothecary
@@ -17,3 +17,11 @@ summary = The village apothecary is short of moonpetals, which glow in the meado
 objective = collect moonpetal 3
 takes = moonpetal 3
 reward = timber 2
+
+[quest apothecary_mint]
+title = Mint for the Apothecary
+summary = The apothecary only trusts a forager who knows their herbs. Gather two meadowmint and bring them to the village guide.
+requires = moonpetals
+objective = collect meadowmint 2
+takes = meadowmint 2
+reward = mint_tea 1

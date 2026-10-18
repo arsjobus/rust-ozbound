@@ -53,10 +53,10 @@ pub fn pack_input(
     let from_click = buttons.iter().find(|(interaction, _)| **interaction == Interaction::Pressed).map(|(_, row)| row.0);
     let Some(index) = from_key.or(from_click) else { return };
 
-    let rows = pack::rows(&recipes.0, &progress.inventory, &progress.equipment);
+    let rows = pack::rows(&recipes.0, &progress.inventory, &progress.equipment, &progress.skills);
     let Some(row) = rows.get(index) else { return };
     let progress = &mut *progress;
-    progress.journal = pack::apply(&row.action, &recipes.0, &mut progress.inventory, &mut progress.equipment);
+    progress.journal = pack::apply(&row.action, &recipes.0, &mut progress.inventory, &mut progress.equipment, &mut progress.skills);
 }
 
 /// Shows or hides the panel, rebuilds its rows when the bag, gear, or open state changes, and
@@ -75,7 +75,7 @@ pub fn sync_pack_ui(
         commands.entity(panel).despawn_descendants();
         if state.0 {
             *visibility = Visibility::Inherited;
-            let listed: Vec<PackRow> = pack::rows(&recipes.0, &progress.inventory, &progress.equipment);
+            let listed: Vec<PackRow> = pack::rows(&recipes.0, &progress.inventory, &progress.equipment, &progress.skills);
             commands.entity(panel).with_children(|panel| {
                 panel.spawn((
                     Text::new("CRAFTING & GEAR (C or Esc to close)"),
@@ -83,7 +83,12 @@ pub fn sync_pack_ui(
                     TextColor(Color::srgb(1.0, 0.92, 0.5)),
                 ));
                 panel.spawn((
-                    Text::new(format!("{}\n{}", pack::bag_line(&progress.inventory), pack::equipment_line(&progress.equipment))),
+                    Text::new(format!(
+                        "{}\n{}\n{}",
+                        pack::bag_line(&progress.inventory),
+                        pack::equipment_line(&progress.equipment),
+                        progress.skills.summary_line()
+                    )),
                     TextFont { font_size: 17.0, ..default() },
                     TextColor(Color::srgb(0.8, 0.85, 0.9)),
                     Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },

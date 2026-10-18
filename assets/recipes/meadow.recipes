@@ -1,27 +1,39 @@
 # Ozbound recipes: what can be made from what.
 #
 # Each recipe is a [recipe id] section with these fields:
-#   name   = text shown in the crafting panel
-#   input  = item_key amount     (one line per ingredient; at least one)
-#   output = item_key amount     (exactly one line)
+#   name    = text shown in the crafting panel
+#   input   = item_key amount     (one line per ingredient; at least one)
+#   output  = item_key amount     (exactly one line)
+#   require = skill level         (optional; one line per skill, level 2-10: the recipe stays
+#                                  locked until the player's skill is at least that level)
+#   xp      = skill amount until  (optional; each successful craft teaches this much, until the
+#                                  skill reaches the `until` level, then it teaches nothing more)
 # Item keys: moonpetal, timber, copper_ore, meadowmint, honeyberry, mint_tea,
-# walking_staff, copper_charm. Lines starting with '#' are comments.
+# walking_staff, copper_charm. Skills: foraging, woodcraft, herbalism, wayfinding.
+# Lines starting with '#' are comments.
 #
 # Crafting is all or nothing: it needs every ingredient in the bag and room for the result.
+# A locked recipe cannot be made even with every ingredient. The game refuses to start if a
+# requirement asks for a level that nothing in the game can teach (see src/skills.rs).
 
 [recipe walking_staff]
 name = Walking staff
 input = timber 3
 output = walking_staff 1
+xp = woodcraft 25 5
 
 [recipe copper_charm]
 name = Copper charm
 input = copper_ore 2
 input = timber 1
 output = copper_charm 1
+require = woodcraft 3
+xp = woodcraft 40 6
 
 [recipe mint_tea]
 name = Mint tea
 input = meadowmint 2
 input = honeyberry 1
 output = mint_tea 1
+require = herbalism 2
+xp = herbalism 20 5

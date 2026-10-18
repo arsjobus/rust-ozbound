@@ -1,5 +1,5 @@
-//! Data-driven dialogue: conversations made of nodes and choices, with conditions on quest and
-//! bag state and effects that start or complete quests.
+//! Data-driven dialogue: conversations made of nodes and choices, with conditions on quest,
+//! bag, and skill state and effects that start or complete quests.
 //!
 //! Pure Rust (no Bevy). Conversations are validated content (`DialogueBook`, usually parsed
 //! from `assets/dialogue/*.dialogue`). A `DialogueSession` walks one conversation; it holds
@@ -21,6 +21,7 @@
 use std::collections::BTreeSet;
 
 use crate::inventory::{Inventory, ItemId};
+use crate::skills::{parse_level, parse_skill, SkillId, SkillRequirement, Skills};
 use crate::quests::{
     CompleteError, QuestBook, QuestEvent, QuestLog, QuestStatus, QuestUpdate, StartError,
 };
@@ -41,6 +42,9 @@ pub enum Condition {
     Has { item: ItemId, quantity: u32 },
     /// `can_complete <id>`: the quest is ready and its items and rewards fit the bag.
     CanComplete { id: String },
+    /// `skill <skill> at_least <n>` (or `below <n>` when `below`): the player's skill level.
+    /// Levels run 2 to 10; level 1 is where everyone starts, so `at_least 1` would always hold.
+    Skill { skill: SkillId, level: u32, below: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,6 +136,30 @@ impl DialogueBook {
         self.conversations.is_empty()
     }
 
+    /// Every skill level the dialogue asks for with `at_least`, with the line of the entry or
+    /// choice that asks. `below` conditions are not requirements (they hold for newcomers).
+    pub fn skill_requirements(&self) -> Vec<(usize, SkillRequirement)> {
+        let mut out = Vec::new();
+        let mut collect = |list: &[Condition], line: usize| {
+            for condition in list {
+                if let Condition::Skill { skill, level, below: false } = condition {
+                    out.push((line, SkillRequirement { skill: *skill, level: *level }));
+                }
+            }
+        };
+        for conv in &self.conversations {
+            for entry in &conv.entries {
+                collect(&entry.when, entry.line);
+            }
+            for node in &conv.nodes {
+                for choice in &node.choices {
+                    collect(&choice.when, choice.line);
+                }
+            }
+        }
+        out
+    }
+
     /// Checks that every quest named in a condition or effect exists in `quests`.
     pub fn check_against(&self, quests: &QuestBook) -> Result<(), ContentError> {
         let known = |id: &str, line: usize| {
@@ -145,7 +173,7 @@ impl DialogueBook {
             for c in list {
                 match c {
                     Condition::Quest { id, .. } | Condition::CanComplete { id } => known(id, line)?,
-                    Condition::Has { .. } => {}
+                    Condition::Has { .. } | Condition::Skill { .. } => {}
                 }
             }
             Ok(())
@@ -357,9 +385,16 @@ fn parse_condition(line: usize, text: &str) -> Result<Condition, ContentError> {
             check_id(line, "quest id", id)?;
             Ok(Condition::CanComplete { id: (*id).to_string() })
         }
+        ["skill", skill, verb @ ("at_least" | "below"), level] => Ok(Condition::Skill {
+            skill: parse_skill(line, skill)?,
+            level: parse_level(line, "the skill level", level, 2)?,
+            below: *verb == "below",
+        }),
         _ => Err(ContentError::at(
             line,
-            format!("condition `{text}` must be `quest <id> is|not <status>`, `has <item> <n>`, or `can_complete <id>`"),
+            format!(
+                "condition `{text}` must be `quest <id> is|not <status>`, `has <item> <n>`, `can_complete <id>`, or `skill <skill> at_least|below <level>`"
+            ),
         )),
     }
 }
@@ -522,6 +557,7 @@ pub struct QuestContext<'a> {
     pub quests: &'a QuestBook,
     pub log: &'a mut QuestLog,
     pub inventory: &'a mut Inventory,
+    pub skills: &'a Skills,
 }
 
 impl QuestContext<'_> {
@@ -530,6 +566,7 @@ impl QuestContext<'_> {
             Condition::Quest { id, status, negate } => (self.log.status(id) == *status) != *negate,
             Condition::Has { item, quantity } => self.inventory.count(*item) >= *quantity,
             Condition::CanComplete { id } => self.log.can_complete(self.quests, id, self.inventory),
+            Condition::Skill { skill, level, below } => (self.skills.level(*skill) >= *level) != *below,
         })
     }
 }
@@ -1039,6 +1076,7 @@ choice = Bye -> end
             quests: q,
             log,
             inventory: bag,
+            skills: &Skills::default(),
         };
         DialogueSession::begin(d, "guide", &mut ctx).unwrap()
     }
@@ -1054,6 +1092,7 @@ choice = Bye -> end
             quests: q,
             log,
             inventory: bag,
+            skills: &Skills::default(),
         };
         s.view(d, &ctx).unwrap()
     }
@@ -1082,6 +1121,7 @@ choice = Bye -> end
                     quests: &q,
                     log: &mut log,
                     inventory: &mut bag,
+                    skills: &Skills::default(),
                 },
             )
             .unwrap();
@@ -1100,6 +1140,7 @@ choice = Bye -> end
                     quests: &q,
                     log: &mut log,
                     inventory: &mut bag,
+                    skills: &Skills::default(),
                 },
             )
             .unwrap();
@@ -1112,7 +1153,8 @@ choice = Bye -> end
                 &mut QuestContext {
                     quests: &q,
                     log: &mut log,
-                    inventory: &mut bag
+                    inventory: &mut bag,
+                    skills: &Skills::default(),
                 }
             ),
             Err(DialogueError::Ended)
@@ -1168,7 +1210,8 @@ choice = Bye -> end
                     &QuestContext {
                         quests: &q,
                         log: &mut log,
-                        inventory: &mut bag
+                        inventory: &mut bag,
+                        skills: &Skills::default(),
                     }
                 )
                 .is_none()
@@ -1185,6 +1228,7 @@ choice = Bye -> end
                     quests: &q,
                     log: &mut log,
                     inventory: &mut bag,
+                    skills: &Skills::default(),
                 },
             )
             .unwrap();
@@ -1240,6 +1284,7 @@ choice = Bye -> end
                 quests: &q,
                 log: &mut log,
                 inventory: &mut bag,
+                skills: &Skills::default(),
             },
         )
         .unwrap();
@@ -1269,6 +1314,7 @@ choice = Bye -> end
             quests: &q,
             log: &mut log,
             inventory: &mut bag,
+            skills: &Skills::default(),
         };
         assert_eq!(
             s.choose(&d, 2, &mut ctx),
@@ -1297,5 +1343,162 @@ choice = Bye -> end
             view(&s, &d, &q, &mut log, &mut bag).choices,
             vec!["Bye", "Ask again"]
         );
+    }
+
+    // ---- skill conditions ----
+
+    const SKILL_TALK: &str = "\
+[conversation guide]\nnpc = guide\nspeaker = G\nentry = hub\n\n\
+[node hub]\ntext = Hello.\n\
+choice = Show me the herbs. -> herbs if skill herbalism at_least 3\n\
+choice = I am still learning. -> learn if skill herbalism below 3\n\
+choice = Bye. -> end\n\n\
+[node herbs]\ntext = Gather round.\nchoice = Thanks. -> end\n\n\
+[node learn]\ntext = Keep at it.\nchoice = Thanks. -> end\n";
+
+    fn offered(skills: &Skills) -> Vec<String> {
+        let d = DialogueBook::parse(SKILL_TALK).unwrap();
+        let q = QuestBook::parse("[quest a]\ntitle = A\nsummary = A.\nobjective = talk guide\n").unwrap();
+        let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
+        let mut ctx = QuestContext { quests: &q, log: &mut log, inventory: &mut bag, skills };
+        let (session, _) = DialogueSession::begin(&d, "guide", &mut ctx).unwrap();
+        session.view(&d, &ctx).unwrap().choices
+    }
+
+    #[test]
+    fn skill_conditions_parse_into_at_least_and_below() {
+        let d = DialogueBook::parse(SKILL_TALK).unwrap();
+        let hub = d.conversation("guide").unwrap().node("hub").unwrap();
+        assert_eq!(
+            hub.choices[0].when,
+            vec![Condition::Skill { skill: SkillId::Herbalism, level: 3, below: false }]
+        );
+        assert_eq!(
+            hub.choices[1].when,
+            vec![Condition::Skill { skill: SkillId::Herbalism, level: 3, below: true }]
+        );
+    }
+
+    #[test]
+    fn a_skill_gated_choice_appears_only_at_the_level() {
+        assert_eq!(offered(&Skills::new()), ["I am still learning.", "Bye."]);
+        assert_eq!(offered(&Skills::at_level(2)), ["I am still learning.", "Bye."]);
+        assert_eq!(offered(&Skills::at_level(3)), ["Show me the herbs.", "Bye."]);
+        assert_eq!(offered(&Skills::at_level(10)), ["Show me the herbs.", "Bye."]);
+    }
+
+    #[test]
+    fn exactly_one_of_at_least_and_below_holds_at_every_level() {
+        for level in 1..=crate::skills::MAX_LEVEL {
+            let shown = offered(&Skills::at_level(level));
+            assert_eq!(shown.len(), 2, "level {level}: {shown:?}");
+        }
+    }
+
+    #[test]
+    fn only_the_named_skill_counts_for_a_condition() {
+        let mut skills = Skills::new();
+        skills.add_xp(SkillId::Woodcraft, crate::skills::MAX_XP);
+        assert_eq!(offered(&skills), ["I am still learning.", "Bye."]);
+        skills.add_xp(SkillId::Herbalism, crate::skills::xp_for_level(3));
+        assert_eq!(offered(&skills), ["Show me the herbs.", "Bye."]);
+    }
+
+    #[test]
+    fn a_choice_hidden_by_skill_cannot_be_picked_by_index() {
+        let d = DialogueBook::parse(SKILL_TALK).unwrap();
+        let q = QuestBook::parse("[quest a]\ntitle = A\nsummary = A.\nobjective = talk guide\n").unwrap();
+        let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
+        let skills = Skills::new();
+        let mut ctx = QuestContext { quests: &q, log: &mut log, inventory: &mut bag, skills: &skills };
+        let (mut session, _) = DialogueSession::begin(&d, "guide", &mut ctx).unwrap();
+        // Offered: "I am still learning." (0) and "Bye." (1); index 2 would be the hidden herbs choice.
+        assert!(session.choose(&d, 2, &mut ctx).is_err());
+        assert!(!session.is_finished());
+    }
+
+    #[test]
+    fn a_skill_condition_can_choose_the_opening_node() {
+        let text = "\
+[conversation guide]\nnpc = guide\nspeaker = G\nentry = expert if skill woodcraft at_least 4\nentry = hello\n\n\
+[node expert]\ntext = Master.\nchoice = Hi. -> end\n\n[node hello]\ntext = Hello.\nchoice = Hi. -> end\n";
+        let d = DialogueBook::parse(text).unwrap();
+        let q = QuestBook::parse("[quest a]\ntitle = A\nsummary = A.\nobjective = talk guide\n").unwrap();
+        for (skills, expected) in [(Skills::new(), "Hello."), (Skills::at_level(4), "Master.")] {
+            let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
+            let mut ctx = QuestContext { quests: &q, log: &mut log, inventory: &mut bag, skills: &skills };
+            let (session, _) = DialogueSession::begin(&d, "guide", &mut ctx).unwrap();
+            assert_eq!(session.view(&d, &ctx).unwrap().text, expected);
+        }
+    }
+
+    #[test]
+    fn skill_conditions_combine_with_quest_and_item_conditions() {
+        let text = "\
+[conversation guide]\nnpc = guide\nspeaker = G\nentry = hub\n\n\
+[node hub]\ntext = Hi.\nchoice = Trade. -> end if has timber 1 and skill woodcraft at_least 2 and quest a is not_started\nchoice = Bye. -> end\n";
+        let d = DialogueBook::parse(text).unwrap();
+        assert!(matches!(
+            d.conversation("guide").unwrap().node("hub").unwrap().choices[0].when.as_slice(),
+            [Condition::Has { .. }, Condition::Skill { .. }, Condition::Quest { .. }]
+        ));
+    }
+
+    #[test]
+    fn bad_skill_conditions_are_rejected_with_the_line() {
+        let wrap = |cond: &str| {
+            format!("[conversation g]\nnpc = g\nspeaker = G\nentry = hi\n\n[node hi]\ntext = Hi.\nchoice = X. -> end if {cond}\nchoice = Bye. -> end\n")
+        };
+        for (cond, needle) in [
+            ("skill carving at_least 2", "unknown skill `carving`"),
+            ("skill herbalism at_least 1", "from 2 to 10"),
+            ("skill herbalism below 1", "from 2 to 10"),
+            ("skill herbalism at_least 11", "from 2 to 10"),
+            ("skill herbalism at_least x", "from 2 to 10"),
+            ("skill herbalism at_most 3", "must be"),
+            ("skill herbalism 3", "must be"),
+            ("skill herbalism at_least", "must be"),
+        ] {
+            let error = DialogueBook::parse(&wrap(cond)).unwrap_err();
+            assert_eq!(error.line, Some(8), "{cond}: {error}");
+            assert!(error.message.contains(needle), "{cond}: {error}");
+        }
+    }
+
+    #[test]
+    fn the_condition_error_lists_the_skill_form() {
+        let text = "[conversation g]\nnpc = g\nspeaker = G\nentry = hi if bogus\n\n[node hi]\ntext = Hi.\nchoice = Bye. -> end\n";
+        let error = DialogueBook::parse(text).unwrap_err();
+        assert!(error.message.contains("skill <skill> at_least|below <level>"), "{error}");
+    }
+
+    #[test]
+    fn a_node_whose_every_choice_is_skill_gated_is_refused() {
+        let text = "[conversation g]\nnpc = g\nspeaker = G\nentry = hi\n\n[node hi]\ntext = Hi.\nchoice = A. -> end if skill herbalism at_least 2\nchoice = B. -> end if skill herbalism below 2\n";
+        let error = DialogueBook::parse(text).unwrap_err();
+        assert!(error.message.contains("needs a `choice` with no `if`"), "{error}");
+        assert_eq!(error.line, Some(6), "names the node header");
+    }
+
+    #[test]
+    fn skill_requirements_lists_at_least_gates_with_lines_and_skips_below() {
+        let d = DialogueBook::parse(SKILL_TALK).unwrap();
+        let found = d.skill_requirements();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, SkillRequirement { skill: SkillId::Herbalism, level: 3 });
+        assert_eq!(found[0].0, 8, "the line of the gated choice");
+        let entry_gate = "[conversation g]\nnpc = g\nspeaker = G\nentry = a if skill woodcraft at_least 4\nentry = b\n\n[node a]\ntext = A.\nchoice = X. -> end\n\n[node b]\ntext = B.\nchoice = X. -> end\n";
+        let found = DialogueBook::parse(entry_gate).unwrap().skill_requirements();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0], (4, SkillRequirement { skill: SkillId::Woodcraft, level: 4 }));
+    }
+
+    #[test]
+    fn the_shipped_guide_gates_the_mint_quest_on_herbalism_and_exploring_on_wayfinding() {
+        let d = DialogueBook::parse(DEFAULT_DIALOGUE).unwrap();
+        let mut gates: Vec<_> = d.skill_requirements().into_iter().map(|(_, r)| (r.skill, r.level)).collect();
+        gates.sort();
+        gates.dedup();
+        assert_eq!(gates, [(SkillId::Herbalism, 2), (SkillId::Wayfinding, 2)]);
     }
 }

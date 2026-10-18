@@ -9,16 +9,25 @@ use ozbound::inventory::{Inventory, InventoryError, ItemId};
 use ozbound::level::Level;
 use ozbound::pack::{self, PackAction};
 use ozbound::scene::DEFAULT_LEVEL;
+use ozbound::skills::{Skills, MAX_LEVEL};
 
 struct Game {
     book: RecipeBook,
     bag: Inventory,
     gear: Equipment,
+    skills: Skills,
 }
 
 impl Game {
+    /// A veteran crafter: these tests are about bag and gear rules, so no recipe is skill-locked
+    /// here (`tests/progression_playthrough.rs` covers the skills).
     fn new(slots: usize) -> Self {
-        Self { book: RecipeBook::builtin().unwrap(), bag: Inventory::new(slots), gear: Equipment::new() }
+        Self {
+            book: RecipeBook::builtin().unwrap(),
+            bag: Inventory::new(slots),
+            gear: Equipment::new(),
+            skills: Skills::at_level(MAX_LEVEL),
+        }
     }
     fn gather_all(&mut self, node: &mut GatheringNode) -> u32 {
         let mut total = 0;
@@ -28,7 +37,7 @@ impl Game {
         total
     }
     fn act(&mut self, action: PackAction) -> String {
-        pack::apply(&action, &self.book, &mut self.bag, &mut self.gear)
+        pack::apply(&action, &self.book, &mut self.bag, &mut self.gear, &mut self.skills)
     }
 }
 

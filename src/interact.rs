@@ -11,6 +11,7 @@ use ozbound::{
     journal::describe_update,
     quests::{QuestBook, QuestEvent, QuestLog, QuestUpdate},
     respawn::RespawnTimer,
+    skills::XpGain,
     talk::Talk,
 };
 
@@ -37,6 +38,14 @@ fn gather_message(kind: ResourceKind, outcome: &Result<u32, GatherError>, remain
 /// (nothing when no active quest wants the item).
 fn record_gathered(book: &QuestBook, log: &mut QuestLog, item: ItemId, quantity: u32) -> Vec<QuestUpdate> {
     log.record(book, &QuestEvent::Gathered { item, quantity })
+}
+
+/// `base`, followed by the level-up line when the XP just earned raised a skill level.
+fn with_level_up(base: String, gain: Option<XpGain>) -> String {
+    match gain.and_then(|g| g.message()) {
+        Some(line) => format!("{base} {line}"),
+        None => base,
+    }
 }
 
 /// `base`, followed by one sentence per quest update.
@@ -75,7 +84,7 @@ pub fn interact(
                     InteractionKind::TalkTo => {
                         let progress = &mut *progress;
                         let started = match npc {
-                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, npc.0),
+                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, npc.0),
                             None => Err("They have nothing to say right now.".to_string()),
                         };
                         match started {
@@ -100,7 +109,9 @@ pub fn interact(
                             commands.entity(target).despawn_recursive();
                             let progress = &mut *progress;
                             let updates = record_gathered(&content.0.quests, &mut progress.log, ItemId::Moonpetal, 1);
-                            progress.journal = with_updates("You gathered a moonpetal.".into(), &content.0.quests, &updates);
+                            let xp = progress.skills.gathered(ResourceKind::Moonpetal);
+                            let message = with_updates("You gathered a moonpetal.".into(), &content.0.quests, &updates);
+                            progress.journal = with_level_up(message, xp);
                         } else {
                             progress.journal = "Your inventory is full. Make room before gathering more.".into();
                         }
@@ -153,6 +164,7 @@ pub fn interact(
             if let Ok(amount) = outcome {
                 let updates = record_gathered(&content.0.quests, &mut progress.log, kind.item(), amount);
                 message = with_updates(message, &content.0.quests, &updates);
+                message = with_level_up(message, progress.skills.gathered(kind));
             }
             progress.journal = message;
             if outcome.is_ok() && node.0.is_depleted() {

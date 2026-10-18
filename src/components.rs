@@ -14,6 +14,7 @@ use ozbound::{
     level::Level,
     pathfinding::Approach,
     quests::QuestLog,
+    skills::Skills,
     respawn::RespawnTimer,
     talk::Talk,
     task::Task,
@@ -40,6 +41,8 @@ pub struct GameProgress {
     pub journal: String,
     pub inventory: Inventory,
     pub equipment: Equipment,
+    /// Skill XP and levels (not saved yet; see M6).
+    pub skills: Skills,
 }
 
 /// The validated recipes for this session.

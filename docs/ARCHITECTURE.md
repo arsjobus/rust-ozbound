@@ -27,6 +27,7 @@ src/
 ├── equipment.rs     # Equipment slots; equip/unequip/swap between bag and slots
 ├── crafting.rs      # Recipes (parsed/validated), all-or-nothing crafting, recipe file loading
 ├── pack.rs          # Crafting-and-gear panel as data: rows, applying a row, bag/equipment lines
+├── skills.rs        # Skills, XP curve, level requirements, XP sources, reachability check
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
@@ -65,6 +66,7 @@ src/
   | --- | --- |
   | Node is spent | `GatherError::Depleted`, checked before the bag, so "make room" is never suggested for a spent plant. It restocks when its respawn timer finishes. |
   | Bag has no room for the yield | `GatherError::Inventory(Full)`; the node keeps its supply. A stack with spare room still takes more of its item. |
+  | Craft needs a skill level the player lacks | `CraftError::SkillTooLow` lists every unmet requirement; checked before ingredients; nothing is taken and no XP is given. |
   | Craft is missing ingredients | `CraftError::Missing` lists every shortfall; nothing is taken. |
   | Craft result does not fit | `CraftError::NoRoom`; nothing is taken. Inputs the craft uses may free the slot it needs, so this is decided on a copy of the bag. |
   | Equip into an occupied slot | Swap; the old item returns to the bag. Equipment never stacks, so this cannot fail for room. |

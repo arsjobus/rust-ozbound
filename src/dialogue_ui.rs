@@ -41,7 +41,7 @@ pub fn dialogue_input(
         return;
     }
     let progress = &mut *progress;
-    let (messages, open) = active.choose(&content.0, &mut progress.log, &mut progress.inventory, index);
+    let (messages, open) = active.choose(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, index);
     if !messages.is_empty() {
         progress.journal = messages.join(" ");
     }

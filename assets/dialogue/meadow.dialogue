@@ -14,10 +14,18 @@
 #   quest <id> is|not not_started|active|ready|completed
 #   has <item> <n>
 #   can_complete <id>       the quest is ready and its items/rewards fit in the bag
+#   skill <skill> at_least <n>   the player's skill level is n or more (n from 2 to 10)
+#   skill <skill> below <n>      the player's skill level is under n
+# Skills: foraging, woodcraft, herbalism, wayfinding. The game refuses to start when a choice
+# asks for a level nothing in the game can teach (see src/skills.rs).
 
 [conversation guide]
 npc = guide
 speaker = Village Guide
+entry = mint_turn_in if can_complete apothecary_mint
+entry = mint_bag_full if quest apothecary_mint is ready
+entry = mint_waiting if quest apothecary_mint is active
+entry = mint_thanks if quest apothecary_mint is completed
 entry = turn_in if can_complete moonpetals
 entry = bag_full if quest moonpetals is ready
 entry = waiting if quest moonpetals is active
@@ -49,4 +57,43 @@ choice = I'll make some room. -> end
 
 [node thanks]
 text = Thank you again for the moonpetals.
+choice = Is there anything else I can do? -> mint_offer if quest apothecary_mint is not_started and skill herbalism at_least 2
+choice = Is there anything else I can do? -> mint_not_yet if quest apothecary_mint is not_started and skill herbalism below 2
+choice = Is there anywhere worth exploring? -> explore if skill wayfinding at_least 2
 choice = Take care. -> end
+
+[node mint_offer]
+text = You handle herbs like someone who has spent time among them. The apothecary could use fresh meadowmint, and I would trust you to pick it well.
+choice = I'll gather some. -> mint_accept
+choice = Maybe later. -> end
+
+[node mint_accept]
+effect = start apothecary_mint
+text = Wonderful. Please bring me two meadowmint from the patches in the grass.
+choice = I'll be back soon. -> end
+
+[node mint_not_yet]
+text = The apothecary is particular about herbs, and they only trust someone who knows meadowmint well. Spend some time gathering it from the patches in the grass first (Herbalism level 2), then come and see me.
+choice = I'll practise. -> end
+
+[node mint_waiting]
+text = Two meadowmint, please. The patches in the grass are the best place to look.
+choice = I'm on it. -> end
+
+[node mint_turn_in]
+effect = complete apothecary_mint
+text = Fresh meadowmint, and well picked. The apothecary brewed you a cup of mint tea for your trouble.
+choice = Glad to help. -> end
+
+[node mint_bag_full]
+text = I can't take the meadowmint and hand over your tea just now. Do you have both sprigs, and is there room in your bag?
+choice = I'll make some room. -> end
+
+[node mint_thanks]
+text = That mint was exactly what the apothecary needed. Thank you.
+choice = Is there anywhere worth exploring? -> explore if skill wayfinding at_least 2
+choice = Take care. -> end
+
+[node explore]
+text = You have walked these paths well. Few travellers notice the fence by the pond, or the old copper rocks round the edges of the meadow. Follow the path east and the village is not far.
+choice = Thank you. -> end

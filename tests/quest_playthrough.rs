@@ -6,6 +6,7 @@ use ozbound::dialogue::{DialogueBook, DialogueSession, QuestContext, DEFAULT_DIA
 use ozbound::gathering::{GatheringNode, ResourceKind};
 use ozbound::inventory::{Inventory, ItemId};
 use ozbound::journal::Journal;
+use ozbound::skills::Skills;
 use ozbound::quests::{QuestBook, QuestEvent, QuestLog, QuestStatus, QuestUpdate, DEFAULT_QUESTS};
 
 struct Game {
@@ -37,6 +38,7 @@ impl Game {
             quests: &self.quests,
             log: &mut self.log,
             inventory: &mut self.bag,
+            skills: &Skills::new(),
         };
         let (mut session, outcome) =
             DialogueSession::begin(&self.dialogue, "guide", &mut ctx).unwrap();

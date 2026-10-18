@@ -11,6 +11,7 @@ pub use crate::dialogue::DialogueView;
 use crate::inventory::Inventory;
 use crate::journal::outcome_messages;
 use crate::quests::QuestLog;
+use crate::skills::Skills;
 
 #[derive(Debug, Clone)]
 pub struct Talk {
@@ -25,6 +26,7 @@ impl Talk {
         content: &Content,
         log: &mut QuestLog,
         inventory: &mut Inventory,
+        skills: &Skills,
         npc: &str,
     ) -> Result<(Self, Vec<String>), String> {
         let conversation = content
@@ -32,7 +34,7 @@ impl Talk {
             .conversation_for_npc(npc)
             .ok_or_else(|| "They have nothing to say right now.".to_string())?;
         let id = conversation.id.clone();
-        let mut ctx = QuestContext { quests: &content.quests, log, inventory };
+        let mut ctx = QuestContext { quests: &content.quests, log, inventory, skills };
         let (session, outcome) = DialogueSession::begin(&content.dialogue, &id, &mut ctx)
             .map_err(|e| format!("The conversation could not start: {e:?}"))?;
         let messages = outcome_messages(&content.quests, &outcome);
@@ -54,9 +56,10 @@ impl Talk {
         content: &Content,
         log: &mut QuestLog,
         inventory: &mut Inventory,
+        skills: &Skills,
         index: usize,
     ) -> (Vec<String>, bool) {
-        let mut ctx = QuestContext { quests: &content.quests, log, inventory };
+        let mut ctx = QuestContext { quests: &content.quests, log, inventory, skills };
         match self.session.choose(&content.dialogue, index, &mut ctx) {
             Ok(outcome) => {
                 let messages = outcome_messages(&content.quests, &outcome);
@@ -86,7 +89,7 @@ mod tests {
     #[test]
     fn unknown_npcs_have_nothing_to_say() {
         let content = content();
-        let error = Talk::start(&content, &mut QuestLog::new(), &mut Inventory::default(), "nobody").unwrap_err();
+        let error = Talk::start(&content, &mut QuestLog::new(), &mut Inventory::default(), &Skills::default(), "nobody").unwrap_err();
         assert_eq!(error, "They have nothing to say right now.");
     }
 
@@ -94,18 +97,18 @@ mod tests {
     fn first_meeting_offers_the_quest_and_accepting_starts_it() {
         let content = content();
         let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
-        let (mut talk, opening) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (mut talk, opening) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         assert!(opening.is_empty());
         assert_eq!(talk.view().speaker, "Village Guide");
         assert_eq!(talk.view().choices, ["I can gather some.", "Not right now."]);
 
-        let (messages, open) = talk.choose(&content, &mut log, &mut bag, 0);
+        let (messages, open) = talk.choose(&content, &mut log, &mut bag, &Skills::default(), 0);
         assert!(open);
         assert_eq!(messages, ["New quest: Moonpetals for the Apothecary."]);
         assert_eq!(log.status("moonpetals"), QuestStatus::Active);
         assert!(talk.view().text.starts_with("Wonderful."));
 
-        let (messages, open) = talk.choose(&content, &mut log, &mut bag, 0);
+        let (messages, open) = talk.choose(&content, &mut log, &mut bag, &Skills::default(), 0);
         assert!(messages.is_empty());
         assert!(!open, "the last choice ends the conversation");
     }
@@ -114,8 +117,8 @@ mod tests {
     fn declining_ends_the_talk_and_starts_nothing() {
         let content = content();
         let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
-        let (mut talk, _) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
-        let (messages, open) = talk.choose(&content, &mut log, &mut bag, 1);
+        let (mut talk, _) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
+        let (messages, open) = talk.choose(&content, &mut log, &mut bag, &Skills::default(), 1);
         assert!(messages.is_empty());
         assert!(!open);
         assert_eq!(log.status("moonpetals"), QuestStatus::NotStarted);
@@ -125,9 +128,9 @@ mod tests {
     fn a_choice_that_is_not_offered_changes_nothing() {
         let content = content();
         let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
-        let (mut talk, _) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (mut talk, _) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         let before = talk.view().clone();
-        let (messages, open) = talk.choose(&content, &mut log, &mut bag, 7);
+        let (messages, open) = talk.choose(&content, &mut log, &mut bag, &Skills::default(), 7);
         assert!(messages.is_empty());
         assert!(open);
         assert_eq!(talk.view(), &before);
@@ -139,7 +142,7 @@ mod tests {
         let content = content();
         let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
         log.start(&content.quests, "moonpetals").unwrap();
-        let (talk, _) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (talk, _) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         assert!(talk.view().text.starts_with("Three moonpetals, please"));
     }
 
@@ -153,16 +156,16 @@ mod tests {
         }
         log.record(&content.quests, &QuestEvent::Gathered { item: ItemId::Moonpetal, quantity: 3 });
 
-        let (mut talk, opening) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (mut talk, opening) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         assert_eq!(
             opening,
             ["Quest complete: Moonpetals for the Apothecary. You received 2 timber."]
         );
         assert_eq!(bag.count(ItemId::Moonpetal), 0);
         assert_eq!(bag.count(ItemId::Timber), 2);
-        talk.choose(&content, &mut log, &mut bag, 0);
+        talk.choose(&content, &mut log, &mut bag, &Skills::default(), 0);
 
-        let (talk, opening) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (talk, opening) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         assert!(opening.is_empty());
         assert!(talk.view().text.starts_with("Thank you again"));
         assert_eq!(bag.count(ItemId::Timber), 2);
@@ -178,7 +181,7 @@ mod tests {
         let content = Content { quests, dialogue };
         let (mut log, mut bag) = (QuestLog::new(), Inventory::default());
         log.start(&content.quests, "hello").unwrap();
-        let (_, messages) = Talk::start(&content, &mut log, &mut bag, "guide").unwrap();
+        let (_, messages) = Talk::start(&content, &mut log, &mut bag, &Skills::default(), "guide").unwrap();
         assert_eq!(
             messages,
             ["Say hello: Talk to guide - done.", "Say hello is ready to hand in."]

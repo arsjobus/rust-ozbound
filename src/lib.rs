@@ -18,6 +18,7 @@ pub mod quest_save;
 pub mod quests;
 pub mod respawn;
 pub mod scene;
+pub mod skills;
 pub mod talk;
 pub mod task;
 pub mod textdata;

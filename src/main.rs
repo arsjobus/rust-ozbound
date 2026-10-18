@@ -28,6 +28,7 @@ use ozbound::{
     quest_store,
     quests::QuestLog,
     scene,
+    skills,
 };
 
 use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, QuestSave, Recipes, TalkState};
@@ -117,6 +118,11 @@ fn main() {
         std::process::exit(1);
     });
     let recipes = load_recipes().unwrap_or_else(|message| {
+        eprintln!("error: {message}");
+        std::process::exit(1);
+    });
+    // Refuse recipes or dialogue that ask for a skill level nothing in the game can teach.
+    skills::check_gates(&recipes, &content.dialogue).unwrap_or_else(|message| {
         eprintln!("error: {message}");
         std::process::exit(1);
     });

@@ -16,7 +16,12 @@ const WALK_SPEED: f32 = 3.4;
 const TURN_RATE: f32 = 14.0;
 
 /// Glides the player toward the next tile on their route and turns to face it.
-pub fn follow_route(time: Res<Time>, meadow: Res<Meadow>, mut players: Query<(&mut Player, &mut Transform)>) {
+pub fn follow_route(
+    time: Res<Time>,
+    meadow: Res<Meadow>,
+    mut progress: ResMut<GameProgress>,
+    mut players: Query<(&mut Player, &mut Transform)>,
+) {
     let Ok((mut player, mut transform)) = players.get_single_mut() else { return };
     let Some(step) = player.task.next_step() else { return };
     let dest = meadow.0.tile_center_3d(step, 0.0);
@@ -33,6 +38,10 @@ pub fn follow_route(time: Res<Time>, meadow: Res<Meadow>, mut players: Query<(&m
     if arrived {
         player.task.complete_step();
         player.tile = step;
+        // Every tile walked counts toward Wayfinding (it stops teaching at level 3).
+        if let Some(line) = progress.skills.walked(1).and_then(|gain| gain.message()) {
+            progress.journal = line;
+        }
     }
 }
 

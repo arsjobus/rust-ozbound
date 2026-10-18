@@ -6,6 +6,10 @@ use crate::world::{MapError, Tile, TilePos, WorldMap};
 pub enum ResourceKind { Moonpetal, Tree, CopperVein, HerbPatch, BerryBush }
 
 impl ResourceKind {
+    /// Every resource kind (used by tests and by progression rules that must cover them all).
+    pub const ALL: [ResourceKind; 5] =
+        [Self::Moonpetal, Self::Tree, Self::CopperVein, Self::HerbPatch, Self::BerryBush];
+
     pub fn item(self) -> ItemId {
         match self {
             Self::Moonpetal => ItemId::Moonpetal,
