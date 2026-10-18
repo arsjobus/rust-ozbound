@@ -6,6 +6,7 @@
 use std::f32::consts::TAU;
 
 use bevy::prelude::*;
+use ozbound::appearance::{Appearance, Rgb};
 
 use crate::components::Limb;
 
@@ -23,6 +24,21 @@ fn material(materials: &mut Assets<StandardMaterial>, r: f32, g: f32, b: f32) ->
         reflectance: 0.05,
         ..default()
     })
+}
+
+fn shade_of(materials: &mut Assets<StandardMaterial>, color: Rgb) -> Handle<StandardMaterial> {
+    material(materials, f32::from(color[0]) / 255.0, f32::from(color[1]) / 255.0, f32::from(color[2]) / 255.0)
+}
+
+/// Builds the 3D look of a character from the same `Appearance` its portrait is drawn from.
+fn look_from(materials: &mut Assets<StandardMaterial>, a: &Appearance) -> Look {
+    Look {
+        skin: shade_of(materials, a.skin),
+        tunic: shade_of(materials, a.tunic),
+        legs: shade_of(materials, a.legs),
+        hat: shade_of(materials, a.hat),
+        wide_brim: a.wide_brim,
+    }
 }
 
 /// Colours and hat style of one character.
@@ -69,11 +85,12 @@ pub struct Kit {
     pub dark: Handle<StandardMaterial>,
     pub traveller: Look,
     pub guide: Look,
+    /// One look per named appearance (`Appearance::KEYS`), for the villagers.
+    pub npc_looks: Vec<(&'static str, Look)>,
 }
 
 impl Kit {
     pub fn new(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
-        let skin = material(materials, 0.93, 0.74, 0.58);
         Self {
             slab: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
             grass: [
@@ -127,20 +144,12 @@ impl Kit {
             hat_cone: meshes.add(flat(Cone::new(0.21, 0.32).mesh().resolution(8).into())),
             brim: meshes.add(flat(Cylinder::new(0.34, 0.04).mesh().resolution(8).into())),
             dark: material(materials, 0.12, 0.10, 0.10),
-            traveller: Look {
-                skin: skin.clone(),
-                tunic: material(materials, 0.24, 0.50, 0.82),
-                legs: material(materials, 0.30, 0.24, 0.20),
-                hat: material(materials, 0.70, 0.30, 0.22),
-                wide_brim: false,
-            },
-            guide: Look {
-                skin,
-                tunic: material(materials, 0.80, 0.62, 0.22),
-                legs: material(materials, 0.28, 0.30, 0.34),
-                hat: material(materials, 0.34, 0.26, 0.46),
-                wide_brim: true,
-            },
+            traveller: look_from(materials, &Appearance::from_key("traveller").expect("known appearance")),
+            guide: look_from(materials, &Appearance::from_key("guide").expect("known appearance")),
+            npc_looks: Appearance::KEYS
+                .iter()
+                .map(|key| (*key, look_from(materials, &Appearance::from_key(key).expect("listed appearance"))))
+                .collect(),
         }
     }
 }
@@ -308,5 +317,58 @@ pub fn spawn_humanoid(commands: &mut Commands, kit: &Kit, look: &Look, at: Vec3,
         commands.entity(hinge).add_child(shape);
         commands.entity(root).add_child(hinge);
     }
+    root
+}
+
+impl Kit {
+    /// The look for a named appearance, falling back to the traveller's.
+    pub fn look_for(&self, key: &str) -> &Look {
+        self.npc_looks.iter().find(|(k, _)| *k == key).map_or(&self.traveller, |(_, look)| look)
+    }
+}
+
+/// A standing stone with a faintly glowing cap: the marker for a named place.
+pub fn spawn_waymark(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let stone = commands.spawn(part(&kit.cube, &kit.stone[1], Transform::from_xyz(0.0, 0.5, 0.0).with_scale(Vec3::new(0.30, 1.0, 0.22)))).id();
+    let cap = commands.spawn(part(&kit.bloom, &kit.bloom_glow, Transform::from_xyz(0.0, 1.1, 0.0))).id();
+    commands.entity(root).add_children(&[stone, cap]);
+    root
+}
+
+/// A creature standing at `at`. Each bestiary id has its own small model; an id without one gets
+/// a plain furry lump, so new bestiary entries still show up in the world. Returns the root.
+pub fn spawn_creature(commands: &mut Commands, kit: &Kit, id: &str, at: Vec3, yaw: f32) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let mut children = Vec::new();
+    let mut add = |mesh: &Handle<Mesh>, material: &Handle<StandardMaterial>, transform: Transform| {
+        children.push(commands.spawn(part(mesh, material, transform)).id());
+    };
+    match id {
+        "meadow_hare" => {
+            add(&kit.rock, &kit.plank, Transform::from_xyz(0.0, 0.22, 0.0).with_scale(Vec3::new(0.34, 0.28, 0.5)));
+            add(&kit.rock, &kit.plank, Transform::from_xyz(0.0, 0.34, -0.26).with_scale(Vec3::splat(0.24)));
+            add(&kit.cube, &kit.plank, Transform::from_xyz(-0.06, 0.58, -0.27).with_rotation(Quat::from_rotation_x(-0.2)).with_scale(Vec3::new(0.05, 0.26, 0.04)));
+            add(&kit.cube, &kit.plank, Transform::from_xyz(0.06, 0.58, -0.27).with_rotation(Quat::from_rotation_x(-0.2)).with_scale(Vec3::new(0.05, 0.26, 0.04)));
+            add(&kit.rock, &kit.stone[0], Transform::from_xyz(0.0, 0.22, 0.28).with_scale(Vec3::splat(0.12)));
+            add(&kit.berry, &kit.dark, Transform::from_xyz(-0.07, 0.38, -0.40).with_scale(Vec3::splat(0.6)));
+            add(&kit.berry, &kit.dark, Transform::from_xyz(0.07, 0.38, -0.40).with_scale(Vec3::splat(0.6)));
+        }
+        "pond_heron" => {
+            add(&kit.cube, &kit.dark, Transform::from_xyz(-0.05, 0.35, 0.0).with_scale(Vec3::new(0.03, 0.7, 0.03)));
+            add(&kit.cube, &kit.dark, Transform::from_xyz(0.05, 0.35, 0.0).with_scale(Vec3::new(0.03, 0.7, 0.03)));
+            add(&kit.rock, &kit.stone[0], Transform::from_xyz(0.0, 0.85, 0.0).with_scale(Vec3::new(0.30, 0.34, 0.55)));
+            add(&kit.cube, &kit.stone[0], Transform::from_xyz(0.0, 1.15, -0.22).with_scale(Vec3::new(0.06, 0.50, 0.06)));
+            add(&kit.rock, &kit.stone[0], Transform::from_xyz(0.0, 1.42, -0.27).with_scale(Vec3::splat(0.16)));
+            add(&kit.cube, &kit.plank, Transform::from_xyz(0.0, 1.41, -0.46).with_scale(Vec3::new(0.04, 0.04, 0.28)));
+        }
+        "lantern_moth" => {
+            add(&kit.cube, &kit.dark, Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::new(0.06, 0.06, 0.26)));
+            add(&kit.cube, &kit.petal_glow, Transform::from_xyz(-0.26, 0.04, 0.0).with_rotation(Quat::from_rotation_z(0.35)).with_scale(Vec3::new(0.46, 0.02, 0.34)));
+            add(&kit.cube, &kit.petal_glow, Transform::from_xyz(0.26, 0.04, 0.0).with_rotation(Quat::from_rotation_z(-0.35)).with_scale(Vec3::new(0.46, 0.02, 0.34)));
+        }
+        _ => add(&kit.rock, &kit.plank, Transform::from_xyz(0.0, 0.2, 0.0).with_scale(Vec3::new(0.45, 0.35, 0.5))),
+    }
+    commands.entity(root).add_children(&children);
     root
 }

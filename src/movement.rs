@@ -4,6 +4,8 @@
 
 use bevy::prelude::*;
 use ozbound::{
+    journal::describe_update,
+    quests::QuestEvent,
     task::{facing_yaw, step_toward},
     world::{TilePos, WorldMap},
 };
@@ -19,6 +21,8 @@ const TURN_RATE: f32 = 14.0;
 pub fn follow_route(
     time: Res<Time>,
     meadow: Res<Meadow>,
+    level: Res<LevelData>,
+    content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
     mut players: Query<(&mut Player, &mut Transform)>,
 ) {
@@ -41,6 +45,19 @@ pub fn follow_route(
         // Every tile walked counts toward Wayfinding (it stops teaching at level 3).
         if let Some(line) = progress.skills.walked(1).and_then(|gain| gain.message()) {
             progress.journal = line;
+        }
+        // Reaching a named place tells the quest log (only a `visit` objective that is current counts).
+        if let Some(place) = level.0.places.iter().find(|place| place.tile == step) {
+            let progress = &mut *progress;
+            let updates = progress.log.record(&content.0.quests, &QuestEvent::Visited { place: place.id.clone() });
+            if !updates.is_empty() {
+                let mut text = format!("You reach {}.", place.name);
+                for update in &updates {
+                    text.push(' ');
+                    text.push_str(&describe_update(&content.0.quests, update));
+                }
+                progress.journal = text;
+            }
         }
     }
 }

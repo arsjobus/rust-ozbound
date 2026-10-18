@@ -1,3 +1,6 @@
+pub mod ambient;
+pub mod appearance;
+pub mod bestiary;
 pub mod content;
 pub mod context_menu;
 pub mod crafting;
@@ -19,6 +22,7 @@ pub mod quests;
 pub mod respawn;
 pub mod scene;
 pub mod skills;
+pub mod village;
 pub mod talk;
 pub mod task;
 pub mod textdata;

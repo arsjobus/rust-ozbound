@@ -5,6 +5,7 @@
 
 use bevy::prelude::*;
 use ozbound::{
+    bestiary::{approach as approach_creature, Encounter},
     gathering::{should_keep_gathering, GatherError, ResourceKind},
     interaction::{in_reach, InteractionKind},
     inventory::{InventoryError, ItemId},
@@ -67,6 +68,10 @@ pub fn interact(
     content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
     mut talk: ResMut<TalkState>,
+    portraits: Res<Portraits>,
+    mut portrait: ResMut<TalkPortrait>,
+    mut wildlife: ResMut<Wildlife>,
+    creatures: Query<&Creature>,
     mut players: Query<(&mut Player, &mut Transform)>,
     interactables: Query<(&Interactable, Option<&SignText>, Option<&Npc>)>,
     mut nodes: Query<(&mut ResourceNode, &SpentVisual)>,
@@ -84,7 +89,7 @@ pub fn interact(
                     InteractionKind::TalkTo => {
                         let progress = &mut *progress;
                         let started = match npc {
-                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, npc.0),
+                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, &npc.0),
                             None => Err("They have nothing to say right now.".to_string()),
                         };
                         match started {
@@ -93,6 +98,7 @@ pub fn interact(
                                     progress.journal = messages.join(" ");
                                 }
                                 talk.0 = Some(opened);
+                                portrait.0 = npc.and_then(|n| portraits.0.get(&n.0).cloned());
                             }
                             Err(message) => progress.journal = message,
                         }
@@ -101,6 +107,26 @@ pub fn interact(
                         progress.journal = match sign {
                             Some(text) => format!("The signpost reads: \"{}\"", text.0),
                             None => "The signpost is too weathered to read.".into(),
+                        };
+                    }
+                    InteractionKind::Approach => {
+                        let progress = &mut *progress;
+                        let wildlife = &mut *wildlife;
+                        progress.journal = match creatures.get(target) {
+                            Ok(Creature(id)) => match approach_creature(&wildlife.bestiary, &mut wildlife.notes, &mut progress.inventory, id) {
+                                Ok(Encounter::Befriended { creature, taken, gift, text }) => {
+                                    let mut line = format!("{text} (You gave {} {}", taken.quantity, taken.item.label());
+                                    if let Some(gift) = gift {
+                                        line.push_str(&format!("; you received {} {}", gift.quantity, gift.item.label()));
+                                    }
+                                    line.push_str(".)");
+                                    let updates = progress.log.record(&content.0.quests, &QuestEvent::Befriended { creature });
+                                    with_updates(line, &content.0.quests, &updates)
+                                }
+                                Ok(other) => other.text().to_string(),
+                                Err(_) => "Nothing happens.".to_string(),
+                            },
+                            Err(_) => "Nothing happens.".to_string(),
                         };
                     }
                     InteractionKind::Pick => {

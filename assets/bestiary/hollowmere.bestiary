@@ -1,0 +1,40 @@
+# Creatures of Hollowmere. Format (see src/bestiary.rs):
+#
+#   [creature <id>]            ids use lower-case letters, digits, and underscores
+#   name = <text>              shown above the text and in the field notes
+#   description = <text>       what the player sees when they examine it
+#   likes = <item> <amount>    the offering that wins it over (taken from the bag)
+#   gift = <item> <amount>     optional: handed over when it is befriended
+#   hint = <text>              said when approached without the offering
+#   thanks = <text>            said when it is befriended
+#   settled = <text>           said when approached again afterwards
+#
+# There is no combat. Every encounter is optional, and approaching a creature never harms it
+# or the player. A full bag never loses the offering: nothing is taken unless the gift fits.
+
+[creature meadow_hare]
+name = Meadow hare
+description = A long-eared hare sitting very still in the clover, one ear turned toward you.
+likes = honeyberry 1
+gift = moonpetal 1
+hint = The hare sniffs the air and edges closer. It seems to like honeyberries.
+thanks = The hare nibbles the berry, thumps its foot twice, and nudges a glowing petal toward you.
+settled = The hare blinks at you sleepily and goes back to the clover.
+
+[creature pond_heron]
+name = Pond heron
+description = A grey heron standing in the shallows, so still it could be a post.
+likes = meadowmint 1
+gift = honeyberry 1
+hint = The heron eyes your hands, then looks away. Perhaps it would take a sprig of something fresh.
+thanks = The heron accepts the mint with a dignified bow and leaves a honeyberry on the bank for you.
+settled = The heron stands on one leg and pretends not to know you.
+
+[creature lantern_moth]
+name = Lantern moth
+description = A moth as big as your palm, its wings glowing softly like two small lanterns.
+likes = moonpetal 1
+gift = meadowmint 1
+hint = The moth circles you, drawn to something you do not seem to be carrying.
+thanks = The moth settles on the petal, glows brightly for a moment, and shakes a pinch of mint from its wings.
+settled = The moth flutters around your head once and drifts off.

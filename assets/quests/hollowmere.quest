@@ -1,0 +1,54 @@
+# Quest definitions for Hollowmere (the guide's two quests from the meadow, plus three village quests). Format (see src/quests.rs):
+#
+#   [quest <id>]            ids use lower-case letters, digits, and underscores
+#   title = <text>          shown in the journal
+#   summary = <text>        one or two sentences for the journal
+#   requires = <id>, <id>   optional: quests that must be completed first
+#   objective = talk <npc>            done in order, one at a time
+#   objective = collect <item> <n>    counts items gathered while this objective is current
+#   objective = craft <item> <n>      counts items crafted while this objective is current
+#   objective = visit <place>         done on reaching a place from the level's [places] section
+#   objective = befriend <creature>   done by winning over a creature from the bestiary
+#   takes = <item> <n>      optional: handed over (removed from the bag) when the quest is completed
+#   reward = <item> <n>     optional: given when the quest is completed
+#
+# Items: moonpetal, timber, copper_ore, meadowmint, honeyberry, mint_tea, walking_staff, copper_charm
+
+[quest moonpetals]
+title = Moonpetals for the Apothecary
+summary = The village apothecary is short of moonpetals, which glow in the meadow grass after dusk. Gather three and bring them to the village guide.
+objective = collect moonpetal 3
+takes = moonpetal 3
+reward = timber 2
+
+[quest apothecary_mint]
+title = Mint for the Apothecary
+summary = The apothecary only trusts a forager who knows their herbs. Gather two meadowmint and bring them to the village guide.
+requires = moonpetals
+objective = collect meadowmint 2
+takes = meadowmint 2
+reward = mint_tea 1
+
+[quest bridge_staff]
+title = A Staff for the Bridgewarden
+summary = Tamsin keeps the bridge over the river and her old staff has split. Craft her a walking staff from timber and hand it to her.
+objective = craft walking_staff 1
+takes = walking_staff 1
+reward = copper_ore 2
+
+[quest waymarks]
+title = Waymarks of Hollowmere
+summary = Ivo the surveyor is drawing a map and needs someone who can find their way. Visit the Standing Stone, Heron Landing, and the Hollowmere Lookout, then report back to him.
+objective = visit standing_stone
+objective = visit heron_landing
+objective = visit lookout
+objective = talk surveyor
+reward = honeyberry 2
+
+[quest shy_hare]
+title = The Shy Hare
+summary = Mistress Pell has seen a hare in the meadow that glows faintly at dusk, and she would love a petal it has touched. Win the hare's trust with a honeyberry, then tell her what happened.
+requires = moonpetals
+objective = befriend meadow_hare
+objective = talk apothecary
+reward = mint_tea 1

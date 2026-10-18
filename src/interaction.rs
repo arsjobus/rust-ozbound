@@ -12,6 +12,8 @@ pub enum InteractionKind {
     /// Gathering from a plant patch or bush that grows back (herbs, berries).
     Forage,
     Read,
+    /// Walk up to a creature from the bestiary (see `bestiary::approach`).
+    Approach,
 }
 
 impl InteractionKind {
@@ -23,6 +25,7 @@ impl InteractionKind {
             Self::Pick => "Pick",
             Self::Forage => "Forage",
             Self::Read => "Read",
+            Self::Approach => "Approach",
         }
     }
 
@@ -33,7 +36,7 @@ impl InteractionKind {
     pub fn approach(self) -> Approach {
         match self {
             Self::Pick | Self::Forage => Approach::OnTile,
-            Self::TalkTo | Self::ChopDown | Self::Mine | Self::Read => Approach::Adjacent,
+            Self::TalkTo | Self::ChopDown | Self::Mine | Self::Read | Self::Approach => Approach::Adjacent,
         }
     }
 }
@@ -59,6 +62,7 @@ impl InteractionKind {
             Self::Pick => "A moonpetal, glowing faintly in the grass.",
             Self::Forage => "Wild plants that grow back each season. Worth gathering.",
             Self::Read => "A weathered wooden signpost with a few words painted on it.",
+            Self::Approach => "A shy creature of the countryside. Approach gently, and perhaps bring something it likes.",
         }
     }
 }
@@ -108,13 +112,14 @@ mod tests {
     use crate::scene::meadow_level;
     use crate::pathfinding::plan_route;
 
-    const ALL_KINDS: [InteractionKind; 6] = [
+    const ALL_KINDS: [InteractionKind; 7] = [
         InteractionKind::TalkTo,
         InteractionKind::ChopDown,
         InteractionKind::Mine,
         InteractionKind::Pick,
         InteractionKind::Forage,
         InteractionKind::Read,
+        InteractionKind::Approach,
     ];
     #[test]
     fn includes_boundary_and_excludes_outside() {
@@ -166,8 +171,11 @@ mod tests {
         assert_eq!(hover_text(InteractionKind::Forage, "meadowmint patch"), "Forage meadowmint patch");
     }
     #[test]
-    fn hover_text_for_signposts() {
+    fn hover_text_for_signposts_and_creatures() {
         assert_eq!(hover_text(InteractionKind::Read, "signpost"), "Read signpost");
+        assert_eq!(hover_text(InteractionKind::Approach, "Meadow hare"), "Approach Meadow hare");
+        // Creatures stand on open ground, but are approached from beside, never trampled.
+        assert_eq!(InteractionKind::Approach.approach(), Approach::Adjacent);
     }
 
     #[test]

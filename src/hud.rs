@@ -43,6 +43,7 @@ pub fn update_journal_panel(
     keys: Res<ButtonInput<KeyCode>>,
     progress: Res<GameProgress>,
     content: Res<GameContent>,
+    wildlife: Res<Wildlife>,
     mut panel: Query<(&mut Text, &mut Visibility), With<JournalPanel>>,
 ) {
     let Ok((mut text, mut visibility)) = panel.get_single_mut() else { return };
@@ -50,6 +51,8 @@ pub fn update_journal_panel(
         *visibility = if *visibility == Visibility::Hidden { Visibility::Inherited } else { Visibility::Hidden };
     }
     if *visibility != Visibility::Hidden {
-        text.0 = format!("JOURNAL (J to close)\n\n{}", Journal::build(&content.0.quests, &progress.log).render());
+        let notes = wildlife.notes.render(&wildlife.bestiary);
+        let notes = if notes.is_empty() { notes } else { format!("\n\n{notes}") };
+        text.0 = format!("JOURNAL (J to close)\n\n{}{notes}", Journal::build(&content.0.quests, &progress.log).render());
     }
 }

@@ -3,9 +3,16 @@
 use std::collections::HashMap;
 use std::f32::consts::TAU;
 
+use bevy::image::ImageSampler;
 use bevy::pbr::{CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::prelude::*;
+use bevy::render::{
+    render_asset::RenderAssetUsages,
+    render_resource::{Extent3d, TextureDimension, TextureFormat},
+};
 use ozbound::{
+    ambient,
+    appearance::{portrait_rgba, Appearance, PORTRAIT_SIZE},
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
     interaction::InteractionKind,
     level::{NodeSpawn, SignSpawn},
@@ -35,8 +42,12 @@ pub fn setup(
     mut commands: Commands,
     meadow: Res<Meadow>,
     level: Res<LevelData>,
+    wildlife: Res<Wildlife>,
+    mut portraits: ResMut<Portraits>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut sounds: ResMut<Assets<AudioSource>>,
 ) {
     let map = &meadow.0;
     let level = &level.0;
@@ -193,9 +204,69 @@ pub fn setup(
     let (pick_min, pick_max) = pick_box(map, level.guide, 0.4, 1.95);
     commands.entity(guide).insert((
         Guide,
-        Npc("guide"),
+        Npc(ozbound::level::GUIDE_ID.to_string()),
         Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: level.guide, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
     ));
+
+    // Portraits for every person who can be talked to (the guide uses the guide's look).
+    let portrait_for = |key: &str, images: &mut Assets<Image>| {
+        let look = Appearance::from_key(key).or_else(|| Appearance::from_key("traveller")).expect("traveller exists");
+        let mut image = Image::new(
+            Extent3d { width: PORTRAIT_SIZE as u32, height: PORTRAIT_SIZE as u32, depth_or_array_layers: 1 },
+            TextureDimension::D2,
+            portrait_rgba(&look),
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        image.sampler = ImageSampler::nearest();
+        images.add(image)
+    };
+    portraits.0.insert(ozbound::level::GUIDE_ID.to_string(), portrait_for("guide", &mut images));
+
+    // The other villagers, each facing the player's starting tile like the guide does.
+    // Interactable names are `&'static str`; the few names in the level file are leaked once
+    // at startup, which is simpler than threading a lifetime through every system.
+    for npc in &level.npcs {
+        let at = vec3(map.tile_center_3d(npc.tile, 0.0));
+        let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
+        let body = models::spawn_humanoid(&mut commands, &kit, kit.look_for(npc.look.key().unwrap_or("traveller")), at, toward);
+        let (pick_min, pick_max) = pick_box(map, npc.tile, 0.4, 1.95);
+        let name: &'static str = Box::leak(npc.name.clone().into_boxed_str());
+        commands.entity(body).insert((
+            Npc(npc.id.clone()),
+            Interactable { kind: InteractionKind::TalkTo, name, tile: npc.tile, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
+        ));
+        portraits.0.insert(npc.id.clone(), portrait_for(npc.look.key().unwrap_or("traveller"), &mut images));
+    }
+
+    // Named places are marked by a standing stone, so the player can see where to walk to.
+    for place in &level.places {
+        let at = vec3(map.tile_center_3d(place.tile, 0.0));
+        models::spawn_waymark(&mut commands, &kit, at, scene::tile_noise(place.tile, 11) * TAU);
+    }
+
+    // Creatures stand on open ground and are approached from beside, never clicked through.
+    for (i, spawn) in level.creatures.iter().enumerate() {
+        let Some(creature) = wildlife.bestiary.get(&spawn.id) else { continue };
+        let moth = spawn.id == "lantern_moth";
+        let at = vec3(map.tile_center_3d(spawn.tile, if moth { 0.8 } else { 0.0 }));
+        let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
+        let body = models::spawn_creature(&mut commands, &kit, &spawn.id, at, toward);
+        let (pick_min, pick_max) = pick_box(map, spawn.tile, 0.45, if moth { 1.3 } else { 1.6 });
+        let name: &'static str = Box::leak(creature.name.clone().into_boxed_str());
+        commands.entity(body).insert((
+            Creature(spawn.id.clone()),
+            Interactable { kind: InteractionKind::Approach, name, tile: spawn.tile, approach: InteractionKind::Approach.approach(), pick_min, pick_max },
+        ));
+        if moth {
+            commands.entity(body).insert(Floaty { base_y: at.y, phase: i as f32 * 1.7 });
+        }
+    }
+
+    // Ambient sound: wind and distant birds, generated in code and looped quietly.
+    let wav = ambient::meadow_loop_wav(24);
+    let ambience = sounds.add(AudioSource { bytes: wav.into() });
+    commands.spawn((AudioPlayer::new(ambience), PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::new(0.35))));
 
     // The player.
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, start_at, 0.0);

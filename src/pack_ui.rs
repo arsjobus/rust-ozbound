@@ -7,7 +7,11 @@
 //! conversation closes it, so the player can never be trapped.
 
 use bevy::prelude::*;
-use ozbound::pack::{self, PackRow};
+use ozbound::{
+    journal::describe_update,
+    pack::{self, PackAction, PackRow},
+    quests::QuestEvent,
+};
 
 use crate::components::*;
 
@@ -31,6 +35,7 @@ pub fn pack_input(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Query<(&Interaction, &PackRowButton), Changed<Interaction>>,
     recipes: Res<Recipes>,
+    content: Res<GameContent>,
     talk: Res<TalkState>,
     mut progress: ResMut<GameProgress>,
     mut state: ResMut<PackState>,
@@ -56,7 +61,23 @@ pub fn pack_input(
     let rows = pack::rows(&recipes.0, &progress.inventory, &progress.equipment, &progress.skills);
     let Some(row) = rows.get(index) else { return };
     let progress = &mut *progress;
-    progress.journal = pack::apply(&row.action, &recipes.0, &mut progress.inventory, &mut progress.equipment, &mut progress.skills);
+    // A craft is reported to the quest log by what actually arrived in the bag.
+    let crafted = match &row.action {
+        PackAction::Craft(id) => recipes.0.get(id).map(|recipe| (recipe.output.item, progress.inventory.count(recipe.output.item))),
+        _ => None,
+    };
+    let mut message = pack::apply(&row.action, &recipes.0, &mut progress.inventory, &mut progress.equipment, &mut progress.skills);
+    if let Some((item, before)) = crafted {
+        let made = progress.inventory.count(item).saturating_sub(before);
+        if made > 0 {
+            let updates = progress.log.record(&content.0.quests, &QuestEvent::Crafted { item, quantity: made });
+            for update in &updates {
+                message.push(' ');
+                message.push_str(&describe_update(&content.0.quests, update));
+            }
+        }
+    }
+    progress.journal = message;
 }
 
 /// Shows or hides the panel, rebuilds its rows when the bag, gear, or open state changes, and

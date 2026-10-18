@@ -54,6 +54,7 @@ pub fn dialogue_input(
 pub fn sync_dialogue_ui(
     mut commands: Commands,
     talk: Res<TalkState>,
+    portrait: Res<TalkPortrait>,
     mut panels: Query<(Entity, &mut Visibility), With<DialoguePanel>>,
     mut rows: Query<(&Interaction, &mut BackgroundColor), With<ChoiceRow>>,
 ) {
@@ -66,17 +67,25 @@ pub fn sync_dialogue_ui(
                 *visibility = Visibility::Inherited;
                 let view = active.view();
                 commands.entity(panel).with_children(|panel| {
-                    panel.spawn((
-                        Text::new(view.speaker.clone()),
-                        TextFont { font_size: 21.0, ..default() },
-                        TextColor(Color::srgb(1.0, 0.92, 0.5)),
-                    ));
-                    panel.spawn((
-                        Text::new(view.text.clone()),
-                        TextFont { font_size: 19.0, ..default() },
-                        TextColor(Color::WHITE),
-                        Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
-                    ));
+                    // Portrait on the left, speaker and words on the right.
+                    panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(14.0), ..default() }).with_children(|row| {
+                        if let Some(image) = portrait.0.clone() {
+                            row.spawn((ImageNode::new(image), Node { width: Val::Px(96.0), height: Val::Px(96.0), flex_shrink: 0.0, ..default() }));
+                        }
+                        row.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), flex_shrink: 1.0, ..default() }).with_children(|words| {
+                            words.spawn((
+                                Text::new(view.speaker.clone()),
+                                TextFont { font_size: 21.0, ..default() },
+                                TextColor(Color::srgb(1.0, 0.92, 0.5)),
+                            ));
+                            words.spawn((
+                                Text::new(view.text.clone()),
+                                TextFont { font_size: 19.0, ..default() },
+                                TextColor(Color::WHITE),
+                                Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
+                            ));
+                        });
+                    });
                     for (index, choice) in view.choices.iter().enumerate() {
                         panel
                             .spawn((

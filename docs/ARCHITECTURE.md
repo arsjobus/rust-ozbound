@@ -31,7 +31,11 @@ src/
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
-├── level.rs         # Level data file parser/validator: map, player, guide, moonpetals, nodes, signs
+├── level.rs         # Level data file parser/validator: map, player, guide, moonpetals, nodes, signs, npcs, places, creatures
+├── village.rs       # Loads level + quests + dialogue + bestiary + recipes together and cross-checks them
+├── bestiary.rs      # Creatures, field notes, and the non-lethal, all-or-nothing `approach` encounter
+├── appearance.rs    # Character looks as data, plus the 16x16 dialogue portrait drawn from them
+├── ambient.rs       # Generates the looping ambient WAV in code
 ├── textdata.rs      # Shared reader for plain-text content files (sections, fields, ids, line-numbered errors)
 ├── quests.rs        # Quest definitions (parsed/validated), QuestLog transitions, events and updates
 ├── dialogue.rs      # Dialogue conversations/nodes/choices, conditions and effects, DialogueSession
@@ -78,6 +82,9 @@ src/
 - A conversation can never trap the player: content validation requires an always-available choice on every node and an unconditional route to the end from everywhere. Dialogue effects that fail (for example a full bag at hand-in) are returned in `Outcome::failures`, and content routes those cases with the `can_complete` condition.
 - Recipes are plain text too (`assets/recipes/*.recipes`, `crafting::RecipeBook::parse`) and load like the other content files (`crafting::load`). Plants that grow on open ground (herbs, berries) are `InteractionKind::Forage` with `Approach::OnTile`; level validation checks their own tile is reachable.
 - Saves are text with a version header. `QuestLog::from_text` refuses states that play could not have produced and never loads partially. Where and how the text is written to disk is left to the M6 save system.
+
+- The Hollowmere world is several files that must agree, so `village::check` validates them together after each parses on its own: every person in the level has a conversation and vice versa, `talk`/`visit`/`befriend` targets exist, every quest has a dialogue node that starts it and one that hands it in, and every item a quest collects, crafts, or takes can actually be had (ignoring quest rewards, so a quest never depends on its own reward). Quest events come from the Bevy layer and nowhere else: `interact` (gathered, befriended), `pack_ui` (crafted, from what actually arrived in the bag), and `movement` (visited, when a tile is reached).
+- Portraits and 3D models share one `Appearance`, and the ambient sound is synthesised, so the game still ships no art or audio files. Creature approaches and quest events never change anything unless the pure rule says so (`bestiary::approach` takes the offering only if the gift fits).
 
 ## Testing strategy
 

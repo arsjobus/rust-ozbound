@@ -63,7 +63,7 @@ pub fn rows(book: &RecipeBook, bag: &Inventory, gear: &Equipment, skills: &Skill
             enabled,
         });
     }
-    for (item, _) in bag.stacks() {
+    for item in bag.stacks().keys() {
         if let Some(slot) = item.equip_slot() {
             out.push(PackRow {
                 action: PackAction::Equip(*item),

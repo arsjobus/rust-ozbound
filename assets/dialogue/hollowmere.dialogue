@@ -1,0 +1,252 @@
+# Dialogue for Hollowmere: the guide (unchanged from the meadow) plus four villagers. Format (see src/dialogue.rs):
+#
+#   [conversation <id>]
+#   npc = <npc id>          talking starts this NPC's "talk" objectives
+#   speaker = <name shown above the text>
+#   entry = <node> [if <conditions>]     first matching entry starts the talk; the last has no `if`
+#
+#   [node <id>]
+#   text = <line>           repeat for more lines
+#   effect = start <quest> | complete <quest>      runs when the node is reached
+#   choice = <text> -> <node or end> [if <conditions>]
+#
+# Conditions are joined with ` and `:
+#   quest <id> is|not not_started|active|ready|completed
+#   has <item> <n>
+#   can_complete <id>       the quest is ready and its items/rewards fit in the bag
+#   skill <skill> at_least <n>   the player's skill level is n or more (n from 2 to 10)
+#   skill <skill> below <n>      the player's skill level is under n
+# Skills: foraging, woodcraft, herbalism, wayfinding. The game refuses to start when a choice
+# asks for a level nothing in the game can teach (see src/skills.rs).
+
+[conversation guide]
+npc = guide
+speaker = Village Guide
+entry = mint_turn_in if can_complete apothecary_mint
+entry = mint_bag_full if quest apothecary_mint is ready
+entry = mint_waiting if quest apothecary_mint is active
+entry = mint_thanks if quest apothecary_mint is completed
+entry = turn_in if can_complete moonpetals
+entry = bag_full if quest moonpetals is ready
+entry = waiting if quest moonpetals is active
+entry = thanks if quest moonpetals is completed
+entry = greeting
+
+[node greeting]
+text = Welcome to the meadow, traveller. The moonpetals glow after dusk, and the village apothecary is running short of them.
+choice = I can gather some. -> accept
+choice = Not right now. -> end
+
+[node accept]
+effect = start moonpetals
+text = Wonderful. Please gather three moonpetals and bring them back to me.
+choice = I'll be back soon. -> end
+
+[node waiting]
+text = Three moonpetals, please. They are lying in the grass around the meadow.
+choice = I'm on it. -> end
+
+[node turn_in]
+effect = complete moonpetals
+text = These are lovely. The apothecary will be delighted. Please take some timber for your trouble.
+choice = Glad to help. -> end
+
+[node bag_full]
+text = I can't take the moonpetals and hand over your reward just now. Do you have all three, and is there room in your bag?
+choice = I'll make some room. -> end
+
+[node thanks]
+text = Thank you again for the moonpetals.
+choice = Is there anything else I can do? -> mint_offer if quest apothecary_mint is not_started and skill herbalism at_least 2
+choice = Is there anything else I can do? -> mint_not_yet if quest apothecary_mint is not_started and skill herbalism below 2
+choice = Is there anywhere worth exploring? -> explore if skill wayfinding at_least 2
+choice = Who lives across the bridge? -> village
+choice = Take care. -> end
+
+[node mint_offer]
+text = You handle herbs like someone who has spent time among them. The apothecary could use fresh meadowmint, and I would trust you to pick it well.
+choice = I'll gather some. -> mint_accept
+choice = Maybe later. -> end
+
+[node mint_accept]
+effect = start apothecary_mint
+text = Wonderful. Please bring me two meadowmint from the patches in the grass.
+choice = I'll be back soon. -> end
+
+[node mint_not_yet]
+text = The apothecary is particular about herbs, and they only trust someone who knows meadowmint well. Spend some time gathering it from the patches in the grass first (Herbalism level 2), then come and see me.
+choice = I'll practise. -> end
+
+[node mint_waiting]
+text = Two meadowmint, please. The patches in the grass are the best place to look.
+choice = I'm on it. -> end
+
+[node mint_turn_in]
+effect = complete apothecary_mint
+text = Fresh meadowmint, and well picked. The apothecary brewed you a cup of mint tea for your trouble.
+choice = Glad to help. -> end
+
+[node mint_bag_full]
+text = I can't take the meadowmint and hand over your tea just now. Do you have both sprigs, and is there room in your bag?
+choice = I'll make some room. -> end
+
+[node mint_thanks]
+text = That mint was exactly what the apothecary needed. Thank you.
+choice = Is there anywhere worth exploring? -> explore if skill wayfinding at_least 2
+choice = Who lives across the bridge? -> village
+choice = Take care. -> end
+
+[node explore]
+text = You have walked these paths well. Few travellers notice the fence by the pond, or the old copper rocks round the edges of the meadow. Follow the path east and the village is not far.
+choice = Thank you. -> end
+
+[node village]
+text = Mistress Pell the apothecary has her garden north of the street, Brae the woodcutter has his yard to the east, and Ivo the surveyor wanders wherever the land is interesting. Tamsin keeps the bridge itself. Each of them has an errand for a willing traveller.
+choice = Thank you. -> end
+
+[conversation apothecary]
+npc = apothecary
+speaker = Mistress Pell
+entry = hare_turn_in if can_complete shy_hare
+entry = hare_bag_full if quest shy_hare is ready
+entry = hare_waiting if quest shy_hare is active
+entry = hare_thanks if quest shy_hare is completed
+entry = greeting
+
+[node greeting]
+text = Mind the garden gate, traveller. I am Pell, and I mix the village's remedies when the meadow lets me.
+choice = Is there anything I can do for you? -> offer if quest moonpetals is completed and quest shy_hare is not_started
+choice = Is there anything I can do for you? -> not_yet if quest moonpetals not completed
+choice = Goodbye. -> end
+
+[node not_yet]
+text = Not just yet. Moonpetals are what I am short of; the guide on the meadow side of the bridge is collecting them. Come back when that is settled.
+choice = I will. -> end
+
+[node offer]
+text = Since you brought the petals, I have been watching a hare at the edge of the meadow. It glows a little at dusk, and I would dearly love a petal it has touched. It is shy, but hares are fond of honeyberries.
+choice = I will see what I can do. -> accept
+choice = Maybe later. -> end
+
+[node accept]
+effect = start shy_hare
+text = Thank you. Offer it a honeyberry, gently, and then come and tell me what happened.
+choice = I will be gentle. -> end
+
+[node hare_waiting]
+text = Have you found the hare yet? Walk up slowly and bring a honeyberry. It will not take a thing from anyone in a hurry.
+choice = I am working on it. -> end
+
+[node hare_turn_in]
+effect = complete shy_hare
+text = It took the berry from your hand? Marvellous! Here is a cup of mint tea for your trouble. You have a gift with shy things.
+choice = Glad to help. -> end
+
+[node hare_bag_full]
+text = I would give you your tea, but your bag looks full. Make a little room and come back.
+choice = I will make room. -> end
+
+[node hare_thanks]
+text = The garden has been calmer since you spoke to the hare. Thank you again.
+choice = Goodbye. -> end
+
+[conversation woodcutter]
+npc = woodcutter
+speaker = Brae the Woodcutter
+entry = greeting
+
+[node greeting]
+text = Trees do not mind being cut if you take the right ones and leave the rest. Timber, staffs, charms: all of it begins with a sharp axe and some patience.
+choice = Any advice for a traveller? -> advice
+choice = Goodbye. -> end
+
+[node advice]
+text = Chop trees in the forest and along the road, and they will grow back. Three timber makes a walking staff. A copper charm needs a steadier hand: copper ore and timber, and some practice at woodcraft first. Press C to see what you can make.
+choice = Thanks, Brae. -> end
+
+[conversation ferrywoman]
+npc = ferrywoman
+speaker = Tamsin the Bridgewarden
+entry = staff_turn_in if can_complete bridge_staff
+entry = staff_bag_full if quest bridge_staff is ready
+entry = staff_waiting if quest bridge_staff is active
+entry = staff_thanks if quest bridge_staff is completed
+entry = greeting
+
+[node greeting]
+text = I keep the bridge, and I see everyone who crosses it. You look like someone who does not mind a bit of honest work.
+choice = What do you need? -> offer if quest bridge_staff is not_started
+choice = Goodbye. -> end
+
+[node offer]
+text = My old walking staff split in two last week, and the planks are slippery in the mornings. Brae the woodcutter would sell me one, but he is stubborn about the price. If you made me one yourself, I would be in your debt.
+choice = I will make you a staff. -> accept
+choice = Maybe later. -> end
+
+[node accept]
+effect = start bridge_staff
+text = Bless you. Three timber from the trees will do it; press C when you have them. Bring the staff to me when it is done.
+choice = I will be back. -> end
+
+[node staff_waiting]
+text = Timber from the trees, three pieces, and then the crafting panel. Press C. I am not in a hurry, but my knees are.
+choice = I am working on it. -> end
+
+[node staff_turn_in]
+effect = complete bridge_staff
+text = A fine staff, straight and well balanced! Here is some copper ore I fished from the river bank. It is of more use to you than to me.
+choice = Glad to help. -> end
+
+[node staff_bag_full]
+text = I cannot take the staff and hand over my thanks just now. Do you still have it with you?
+choice = I will check. -> end
+
+[node staff_thanks]
+text = The planks do not frighten me so much since I got the new staff. Thank you.
+choice = Goodbye. -> end
+
+[conversation surveyor]
+npc = surveyor
+speaker = Ivo the Surveyor
+entry = waymarks_turn_in if can_complete waymarks
+entry = waymarks_bag_full if quest waymarks is ready
+entry = waymarks_waiting if quest waymarks is active
+entry = waymarks_thanks if quest waymarks is completed
+entry = greeting
+
+[node greeting]
+text = Ah, a walker. I draw maps, but my feet are not what they were. A good surveyor needs a good pair of legs.
+choice = Can I help with the map? -> offer if quest waymarks is not_started and skill wayfinding at_least 2
+choice = Can I help with the map? -> not_yet if quest waymarks is not_started and skill wayfinding below 2
+choice = Goodbye. -> end
+
+[node not_yet]
+text = You are new to these roads, I think. Walk around a little first, the meadow, the bridge, the village street, and come back when you know them (Wayfinding level 2).
+choice = I will. -> end
+
+[node offer]
+text = You know the roads. I need three spots confirmed: the Standing Stone in the meadow's north, Heron Landing by the pond, and the Hollowmere Lookout north of the village. Walk to each, then tell me what you saw.
+choice = I will walk them. -> accept
+choice = Maybe later. -> end
+
+[node accept]
+effect = start waymarks
+text = Wonderful. The stone is north of the pond, the landing is on its east shore, and the lookout stands on the high ground by the village's northern fence.
+choice = I will be back. -> end
+
+[node waymarks_waiting]
+text = The Standing Stone, Heron Landing, the Lookout. Walk up to each, and then come and find me.
+choice = I am on it. -> end
+
+[node waymarks_turn_in]
+effect = complete waymarks
+text = You have walked them all! Splendid. Here are a couple of honeyberries to keep your strength up. My map is nearly finished.
+choice = Glad to help. -> end
+
+[node waymarks_bag_full]
+text = I have something for you, but your bag is full. Make room and I will hand it over.
+choice = I will make room. -> end
+
+[node waymarks_thanks]
+text = The map is a little more honest, thanks to you.
+choice = Goodbye. -> end

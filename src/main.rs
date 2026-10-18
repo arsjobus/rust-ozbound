@@ -22,71 +22,45 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use ozbound::{
-    content::{self, Content},
-    crafting::{self, RecipeBook},
-    level::{Level, LoadError},
+    content::Content,
     quest_store,
     quests::QuestLog,
-    scene,
     skills,
+    village::{self, World as Hollowmere},
 };
 
-use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, QuestSave, Recipes, TalkState};
+use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, Portraits, QuestSave, Recipes, TalkPortrait, TalkState, Wildlife};
 
-/// Where the game looks for its level, relative to the working directory.
-const LEVEL_PATH: &str = "assets/maps/meadow.map";
-/// Set this to play a different level file; a missing or invalid file is then an error.
-const LEVEL_ENV: &str = "OZBOUND_MAP";
-
-/// Loads the level from disk. A custom path (`OZBOUND_MAP`) must load. The default file is
-/// used when it exists; if it is simply absent (the game was started from another
-/// directory) the identical built-in copy is used instead. An existing file that is
-/// invalid is never papered over: the error says which file and line to fix.
-fn load_level() -> Result<Level, String> {
-    if let Some(custom) = std::env::var_os(LEVEL_ENV) {
-        return Level::load(&custom).map_err(|e| e.to_string());
-    }
-    match Level::load(LEVEL_PATH) {
-        Err(LoadError::Io { error, .. }) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!("note: {LEVEL_PATH} not found; using the built-in meadow");
-            scene::meadow_level().map_err(|e| format!("built-in meadow is invalid: {e}"))
-        }
-        other => other.map_err(|e| e.to_string()),
-    }
-}
-
-/// Set these to play other quest or dialogue files; a missing or invalid file is then an error.
+/// Set these to play other files; a missing or invalid file is then an error. Without them the
+/// shipped Hollowmere files are used, or the identical built-in copies when the game is started
+/// from another directory.
+const MAP_ENV: &str = "OZBOUND_MAP";
 const QUESTS_ENV: &str = "OZBOUND_QUESTS";
 const DIALOGUE_ENV: &str = "OZBOUND_DIALOGUE";
+const BESTIARY_ENV: &str = "OZBOUND_BESTIARY";
+const RECIPES_ENV: &str = "OZBOUND_RECIPES";
 /// Where quest progress is saved (override with `OZBOUND_QUEST_SAVE`).
 const QUEST_SAVE_PATH: &str = "saves/quests.txt";
 const QUEST_SAVE_ENV: &str = "OZBOUND_QUEST_SAVE";
 
-/// Loads the quest and dialogue files with the same rules as the level: custom paths must
-/// load, absent default files fall back to the built-in copies, and an invalid file stops
-/// startup with its name and line.
-fn load_content() -> Result<Content, String> {
-    let loaded = content::load_with_custom(
-        std::env::var_os(QUESTS_ENV).map(PathBuf::from),
-        std::env::var_os(DIALOGUE_ENV).map(PathBuf::from),
-    )?;
+/// Loads the level, quests, dialogue, bestiary, and recipes, and checks that they fit
+/// together (see `ozbound::village`). An invalid file stops startup with its name and line.
+fn load_world() -> Result<Hollowmere, String> {
+    let env_path = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let (map, quests, dialogue, bestiary, recipes) =
+        (env_path(MAP_ENV), env_path(QUESTS_ENV), env_path(DIALOGUE_ENV), env_path(BESTIARY_ENV), env_path(RECIPES_ENV));
+    let loaded = village::load(&village::Sources {
+        map_custom: map.as_deref(),
+        quests_custom: quests.as_deref(),
+        dialogue_custom: dialogue.as_deref(),
+        bestiary_custom: bestiary.as_deref(),
+        recipes_custom: recipes.as_deref(),
+        ..village::Sources::defaults()
+    })?;
     for note in &loaded.notes {
         eprintln!("{note}");
     }
-    Ok(loaded.content)
-}
-
-/// Set this to play other recipes; a missing or invalid file is then an error.
-const RECIPES_ENV: &str = "OZBOUND_RECIPES";
-
-/// Loads the recipe file with the same rules as the other content files.
-fn load_recipes() -> Result<RecipeBook, String> {
-    let custom = std::env::var_os(RECIPES_ENV).map(PathBuf::from);
-    let loaded = crafting::load(custom.as_deref(), std::path::Path::new(crafting::RECIPES_PATH))?;
-    if let Some(note) = &loaded.note {
-        eprintln!("{note}");
-    }
-    Ok(loaded.book)
+    Ok(loaded.world)
 }
 
 /// Restores saved quest progress. An unreadable or invalid save is reported and left alone:
@@ -109,37 +83,38 @@ fn restore_quests(content: &Content) -> (QuestLog, QuestSave, String) {
 }
 
 fn main() {
-    let level = load_level().unwrap_or_else(|message| {
-        eprintln!("error: {message}");
-        std::process::exit(1);
-    });
-    let content = load_content().unwrap_or_else(|message| {
-        eprintln!("error: {message}");
-        std::process::exit(1);
-    });
-    let recipes = load_recipes().unwrap_or_else(|message| {
+    let world = load_world().unwrap_or_else(|message| {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
     // Refuse recipes or dialogue that ask for a skill level nothing in the game can teach.
-    skills::check_gates(&recipes, &content.dialogue).unwrap_or_else(|message| {
+    skills::check_gates(&world.recipes, &world.content.dialogue).unwrap_or_else(|message| {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
-    let (log, quest_save, welcome) = restore_quests(&content);
+    let (log, quest_save, welcome) = restore_quests(&world.content);
+    let Hollowmere { level, content, bestiary, recipes } = world;
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Ozbound — A Fairytale RPG".into(),
-                resolution: (1100.0, 720.0).into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Ozbound — A Fairytale RPG".into(),
+                        resolution: (1100.0, 720.0).into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                // Portraits are 16x16 pixel art: keep them crisp instead of blurred.
+                .set(ImagePlugin::default_nearest()),
+        )
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
         .insert_resource(GameProgress { log, journal: welcome, ..default() })
         .insert_resource(GameContent(content))
         .insert_resource(Recipes(recipes))
+        .insert_resource(Wildlife { bestiary, notes: Default::default() })
+        .insert_resource(Portraits::default())
+        .insert_resource(TalkPortrait::default())
         .insert_resource(PackState::default())
         .insert_resource(quest_save)
         .insert_resource(TalkState::default())

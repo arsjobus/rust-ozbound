@@ -5,6 +5,6 @@ edition = "2021"
 description = "A RuneScape-inspired, single-player RPG set in an original interpretation of Baum's public-domain Oz."
 
 [dependencies]
-bevy = "0.15"
+bevy = { version = "0.15", features = ["wav"] }
 
 [dev-dependencies]

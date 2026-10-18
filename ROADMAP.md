@@ -131,12 +131,24 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Not yet: skills are not saved (M6), and equipment still has no gameplay effect.
 
 ## M5 — World content vertical slice
-- [ ] Build an original starting village and nearby meadow/forest.
-- [ ] Add 3–5 short quests with different objective types.
-- [ ] Add a small bestiary and non-lethal/optional encounters as appropriate to the tone.
-- [ ] Add readable original low-poly NPC models, portraits for dialogue, and ambient sound.
-- [ ] Test each quest path, item reward, and key progression gate.
-  - Acceptance: a new player can complete a 30–60 minute local adventure without blockers.
+- [x] Build an original starting village and nearby meadow/forest.
+  - Done: `assets/maps/hollowmere.map` (40 x 24): the meadow in the south-west, a river with a one-tile bridge on the main road, a village east of it (fenced apothecary garden, woodcutter's yard, notice boards, a village street), and a forest along the north edge with gatherable trees. The level format gained `[npcs]` (id, tile, appearance, name), `[places]` (named spots for `visit` objectives), and `[creatures]`; each is validated for valid unique ids, walkable and reachable tiles, and no two things on one tile. The game now starts in Hollowmere; `meadow.map` and its quest/dialogue files stay as the small, fully tested tutorial fixtures.
+  - Not yet: the village has no buildings (only fences, signs, standing stones, and people); a cottage tile and model belong to the polish pass.
+- [x] Add 3–5 short quests with different objective types.
+  - Done: five quests in `assets/quests/hollowmere.quest` using five objective types: *Moonpetals for the Apothecary* and *Mint for the Apothecary* (`collect`, the latter gated on Herbalism 2), *A Staff for the Bridgewarden* (`craft`), *Waymarks of Hollowmere* (`visit` x3 then `talk`, gated on Wayfinding 2), and *The Shy Hare* (`befriend` then `talk`). New objectives: `craft <item> <n>`, `visit <place>`, `befriend <creature>`, fed by `QuestEvent::{Crafted, Visited, Befriended}`.
+  - Tests: parsing and every malformed form with its line number, journal wording, events counting only while the objective is current, wrong item/place/creature ignored, zero amounts ignored, hand-in of crafted items.
+- [x] Add a small bestiary and non-lethal/optional encounters as appropriate to the tone.
+  - Done: `bestiary.rs` + `assets/bestiary/hollowmere.bestiary`: a meadow hare, a pond heron, and a lantern moth. There is no combat. Approaching a creature marks it seen; offering what it likes (taken from the bag) befriends it once and may give a gift, and nothing is taken unless the gift fits. Creatures are optional apart from the one quest that asks for the hare. The journal (J) lists field notes.
+  - Tests: parsing and errors, no-offering/too-few/right-offering paths, one befriending per creature, atomic gift-room rule (including the slot freed by the offering), unknown creatures, field-notes text.
+- [x] Add readable original low-poly NPC models, portraits for dialogue, and ambient sound.
+  - Done: `appearance.rs` holds each person's colours and hat shape as data; the 3D model and a 16 x 16 pixel-art dialogue portrait are both built from it, so a character matches their portrait. Four villagers join the guide (apothecary, woodcutter, bridgewarden, surveyor), each with a distinct look; creatures and standing-stone waymarks have small original models. `ambient.rs` generates a looping wind-and-birdsong WAV in code (no audio files to license) that plays quietly.
+  - Tests: every appearance key known and distinct, portrait size/opacity/colours/silhouette, WAV header and length, deterministic, quiet but audible, silent edges so repeats do not click.
+- [x] Test each quest path, item reward, and key progression gate.
+  - Done: `village.rs` loads the level, quests, dialogue, bestiary, and recipes together and refuses a world that does not hold together: an NPC without a conversation, a conversation for someone absent, a `visit` to an unknown place, a `befriend` for a creature missing from the bestiary or the level, a quest nobody offers or can hand in, and quests that ask for items the world never supplies. `tests/village_playthrough.rs` plays every shipped quest through the public API on the real map, including real routes to every person, place, and creature.
+  - Acceptance (not yet met in full): a new player can complete a 30–60 minute local adventure without blockers.
+  - Done toward it: all quests are completable in one session in tests, and nothing is unreachable on foot. Wayfinding 2 (needed for the surveyor) takes about 300 tiles of walking.
+  - Not yet: no one has played the slice for 30–60 minutes in a window, so the length and pacing are unverified.
+  - Manual check (needs a window; not covered by unit tests): `cargo run` and confirm the village, people, portraits in conversation, standing stones, and creatures appear; talk to every villager; approach the hare without and with a honeyberry; craft a walking staff and hand it to Tamsin; walk to the three waymarks and report to Ivo after reaching Wayfinding 2; open the journal (J) and confirm field notes; confirm the ambient sound plays and that a machine with no audio device still runs.
 
 ## M6 — Local save/load
 - [ ] Define a versioned save schema.

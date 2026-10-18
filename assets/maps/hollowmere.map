@@ -1,0 +1,99 @@
+; Ozbound level data: Hollowmere, the vertical-slice world (meadow, village, forest).
+;
+; Same format as assets/maps/meadow.map, plus three optional sections for the village slice.
+; Lines starting with ';' are comments. Blank lines are ignored. Sections may appear in any
+; order, each at most once. Required: [map], [player], [guide].
+; Optional: [moonpetals], [nodes], [signs], [npcs], [places], [creatures].
+;
+; Coordinates are "x y" in tiles. x counts right from the left edge; y counts UP from the
+; BOTTOM row of [map] (the last row listed is y = 0).
+;
+; [npcs]      id x y appearance Display name    (the guide is NOT listed here; id `guide` is reserved)
+;             appearances: traveller, guide, apothecary, woodcutter, ferrywoman, surveyor
+; [places]    id x y Display name               (targets for `visit <id>` quest objectives)
+; [creatures] id x y                            (ids come from assets/bestiary/*.bestiary)
+;
+; Geography: a meadow in the south-west, a river at x = 20-21 crossed by the one-tile bridge
+; on the main road (y = 9), a village east of the river, and a forest along the north edge.
+
+[map]
+; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost.
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT....TT....T....TT~~T....T.T.TT..TTT.T
+T.TTT..T.T...TT..T..~~TTTT.....T...TT.TT
+T......TT.T..T.TTT..~~T.T.TT.T.T..TTT.TT
+T..TTT...TTTT.......~~T.TTTT..T....T.T.T
+T...TTTT...T.T....TT~~TT.TT.T.TT...T...T
+T...................~~........=........T
+T...................~~........=...S....T
+T..#......~~~.......~~..FFFFF.=........T
+T.........~~~.......~~..F...F.=........T
+T...................~~..F...F.=........T
+T...................~~..FF.FF.=........T
+T....S..............~~.......S=........T
+T======================================T
+T..................S~~........=........T
+T...................~~........=....FFF.T
+T...................~~........=....F...T
+T...................~~........=....F...T
+T...................~~........=........T
+T...............#...~~........=......#.T
+T...................~~........=........T
+T...................~~.................T
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+
+[player]
+4 3
+
+[guide]
+17 10
+
+[moonpetals]
+14 2
+8 12
+16 6
+5 15
+
+[nodes]
+; kind x y actions yield_per_action
+tree 6 17 3 1
+tree 11 17 3 1
+tree 13 17 3 1
+tree 25 17 3 1
+tree 28 17 3 1
+tree 35 17 3 1
+tree 9 18 3 1
+copper 3 14 2 1
+copper 16 3 2 1
+copper 37 3 2 1
+herb 4 6 3 1
+herb 15 13 3 1
+herb 27 5 3 1
+herb 33 12 3 1
+berry 7 3 3 1
+berry 17 12 3 1
+berry 31 6 3 1
+berry 33 17 3 1
+
+[signs]
+5 10 Hollowmere lies east across the bridge. The road is the pale line through the grass; follow it and you cannot lose your way.
+19 8 Bridge ahead. The river is deeper than it looks, so keep to the planks.
+29 10 Hollowmere village: apothecary's garden to the north, the woodcutter's yard to the east, and the forest road beyond.
+34 15 The forest edge. Quiet folk and quieter creatures live here; walk gently.
+
+[npcs]
+apothecary 26 12 apothecary Mistress Pell
+woodcutter 33 6 woodcutter Brae the Woodcutter
+ferrywoman 19 10 ferrywoman Tamsin the Bridgewarden
+surveyor 32 13 surveyor Ivo the Surveyor
+
+[places]
+standing_stone 8 17 The Standing Stone
+heron_landing 13 12 Heron Landing
+lookout 32 18 Hollowmere Lookout
+
+[creatures]
+meadow_hare 6 6
+pond_heron 9 13
+lantern_moth 27 16

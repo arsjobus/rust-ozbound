@@ -10,9 +10,11 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use crate::appearance::Appearance;
 use crate::gathering::{validate_node_placement, PlacementError, ResourceKind};
 use crate::pathfinding::Approach;
 use crate::quest::MoonpetalQuest;
+use crate::textdata::is_valid_id;
 use crate::world::{MapError, Tile, TilePos, WorldMap};
 
 /// A gatherable resource standing on a specific tile.
@@ -31,6 +33,32 @@ pub struct SignSpawn {
     pub text: String,
 }
 
+/// A villager other than the guide, standing on a walkable tile. `id` is the `npc = ...` name
+/// used in the dialogue file and in `talk` objectives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NpcSpawn {
+    pub id: String,
+    pub tile: TilePos,
+    pub look: Appearance,
+    /// Shown when hovering ("Talk to Mistress Pell").
+    pub name: String,
+}
+
+/// A named place the player can reach, for `visit` objectives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaceSpawn {
+    pub id: String,
+    pub tile: TilePos,
+    pub name: String,
+}
+
+/// A creature from the bestiary standing on a walkable tile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatureSpawn {
+    pub id: String,
+    pub tile: TilePos,
+}
+
 /// Everything the world needs to be built: the tile map plus what stands on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Level {
@@ -42,10 +70,28 @@ pub struct Level {
     pub nodes: Vec<NodeSpawn>,
     /// Readable signposts. An `S` tile with no entry here is plain scenery.
     pub signs: Vec<SignSpawn>,
+    /// Villagers besides the guide (the guide is always the NPC with id `guide`).
+    pub npcs: Vec<NpcSpawn>,
+    /// Named places for `visit` objectives.
+    pub places: Vec<PlaceSpawn>,
+    /// Creatures to meet (see `bestiary.rs`).
+    pub creatures: Vec<CreatureSpawn>,
+}
+
+/// The id the guide always has in dialogue and quests.
+pub const GUIDE_ID: &str = "guide";
+
+impl Level {
+    /// Every NPC as `(id, tile, display name)`, the guide first.
+    pub fn npc_list(&self) -> Vec<(&str, TilePos, &str)> {
+        let mut all = vec![(GUIDE_ID, self.guide, "Village Guide")];
+        all.extend(self.npcs.iter().map(|n| (n.id.as_str(), n.tile, n.name.as_str())));
+        all
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs }
+enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs, Npcs, Places, Creatures }
 
 impl Section {
     fn from_name(name: &str) -> Option<Self> {
@@ -56,6 +102,9 @@ impl Section {
             "moonpetals" => Self::Moonpetals,
             "nodes" => Self::Nodes,
             "signs" => Self::Signs,
+            "npcs" => Self::Npcs,
+            "places" => Self::Places,
+            "creatures" => Self::Creatures,
             _ => return None,
         })
     }
@@ -67,6 +116,9 @@ impl Section {
             Self::Moonpetals => "moonpetals",
             Self::Nodes => "nodes",
             Self::Signs => "signs",
+            Self::Npcs => "npcs",
+            Self::Places => "places",
+            Self::Creatures => "creatures",
         }
     }
 }
@@ -99,6 +151,14 @@ pub enum LevelErrorKind {
     /// A node that would never give anything (zero actions or zero yield).
     NeverYields { tile: TilePos },
     NotEnoughMoonpetals { have: usize, need: usize },
+    /// An NPC, place, or creature id that is not lower-case letters, digits, and underscores.
+    InvalidId { what: &'static str, id: String },
+    /// The id `guide` belongs to the `[guide]` entry.
+    ReservedId(String),
+    DuplicateId { what: &'static str, id: String },
+    UnknownAppearance(String),
+    /// Two things stand on the same tile (an NPC on a place, a creature on a moonpetal, ...).
+    Overlap { what: &'static str, other: &'static str, tile: TilePos },
 }
 
 /// A level-data problem, with the 1-based line of the file it belongs to when there is one.
@@ -121,7 +181,7 @@ impl fmt::Display for LevelError {
             ContentBeforeSection => write!(f, "content before the first [section] header"),
             UnknownSection(name) => write!(
                 f,
-                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes] or [signs])"
+                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes], [signs], [npcs], [places] or [creatures])"
             ),
             DuplicateSection(name) => write!(f, "section [{name}] appears more than once"),
             MissingSection(name) => write!(f, "required section [{name}] is missing"),
@@ -161,6 +221,17 @@ impl fmt::Display for LevelError {
             }
             NotEnoughMoonpetals { have, need } => {
                 write!(f, "the quest needs {need} moonpetals but the level has only {have}")
+            }
+            InvalidId { what, id } => {
+                write!(f, "{what} id {id:?} must use only lower-case letters, digits, and underscores")
+            }
+            ReservedId(id) => write!(f, "the id {id:?} is reserved for the [guide] entry"),
+            DuplicateId { what, id } => write!(f, "{what} id {id:?} is used twice"),
+            UnknownAppearance(name) => {
+                write!(f, "unknown appearance {name:?} (use {})", Appearance::KEYS.join(", "))
+            }
+            Overlap { what, other, tile } => {
+                write!(f, "{what} at ({}, {}) stands on the same tile as a {other}", tile.x, tile.y)
             }
         }
     }
@@ -239,6 +310,51 @@ fn parse_sign(text: &str, line: usize) -> Result<SignSpawn, LevelError> {
     Ok(SignSpawn { tile: TilePos::new(x, y), text: message.to_string() })
 }
 
+/// `id x y appearance name...`: an NPC. The name may contain spaces.
+fn parse_npc(text: &str, line: usize) -> Result<NpcSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"id x y appearance name\" for an NPC", found: text.to_string() });
+    let mut parts = text.splitn(5, char::is_whitespace);
+    let id = parts.next().filter(|t| !t.is_empty()).ok_or_else(malformed)?;
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let look_key = parts.next().ok_or_else(malformed)?;
+    let name = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "npc", id: id.to_string() }));
+    }
+    let look = Appearance::from_key(look_key)
+        .ok_or_else(|| LevelError::at(line, LevelErrorKind::UnknownAppearance(look_key.to_string())))?;
+    Ok(NpcSpawn { id: id.to_string(), tile: TilePos::new(x, y), look, name: name.to_string() })
+}
+
+/// `id x y name...`: a named place. The name may contain spaces.
+fn parse_place(text: &str, line: usize) -> Result<PlaceSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"id x y name\" for a place", found: text.to_string() });
+    let mut parts = text.splitn(4, char::is_whitespace);
+    let id = parts.next().filter(|t| !t.is_empty()).ok_or_else(malformed)?;
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let name = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "place", id: id.to_string() }));
+    }
+    Ok(PlaceSpawn { id: id.to_string(), tile: TilePos::new(x, y), name: name.to_string() })
+}
+
+/// `id x y`: a creature.
+fn parse_creature(text: &str, line: usize) -> Result<CreatureSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"id x y\" for a creature", found: text.to_string() });
+    let tokens: Vec<&str> = text.split_whitespace().collect();
+    let [id, x, y] = tokens.as_slice() else { return Err(malformed()) };
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "creature", id: (*id).to_string() }));
+    }
+    Ok(CreatureSpawn {
+        id: (*id).to_string(),
+        tile: TilePos::new(x.parse().map_err(|_| malformed())?, y.parse().map_err(|_| malformed())?),
+    })
+}
+
 fn check_walkable(map: &WorldMap, what: &'static str, tile: TilePos, line: usize) -> Result<(), LevelError> {
     match map.tile_at(tile) {
         Err(_) => Err(LevelError::at(line, LevelErrorKind::OffMap { what, tile })),
@@ -268,6 +384,9 @@ impl Level {
         let mut moonpetals: Vec<Entry<TilePos>> = Vec::new();
         let mut nodes: Vec<Entry<NodeSpawn>> = Vec::new();
         let mut signs: Vec<Entry<SignSpawn>> = Vec::new();
+        let mut npcs: Vec<Entry<NpcSpawn>> = Vec::new();
+        let mut places: Vec<Entry<PlaceSpawn>> = Vec::new();
+        let mut creatures: Vec<Entry<CreatureSpawn>> = Vec::new();
 
         for (index, raw) in text.lines().enumerate() {
             let line_no = index + 1;
@@ -305,6 +424,9 @@ impl Level {
                 Section::Moonpetals => moonpetals.push(Entry { line: line_no, value: parse_tile(line, line_no)? }),
                 Section::Nodes => nodes.push(Entry { line: line_no, value: parse_node(line, line_no)? }),
                 Section::Signs => signs.push(Entry { line: line_no, value: parse_sign(line, line_no)? }),
+                Section::Npcs => npcs.push(Entry { line: line_no, value: parse_npc(line, line_no)? }),
+                Section::Places => places.push(Entry { line: line_no, value: parse_place(line, line_no)? }),
+                Section::Creatures => creatures.push(Entry { line: line_no, value: parse_creature(line, line_no)? }),
             }
         }
 
@@ -402,6 +524,64 @@ impl Level {
             }
         }
 
+
+        // Villagers, places, and creatures. Each needs a valid unique id, a walkable and
+        // reachable tile, and a tile of its own, so nothing is hidden under or blocks another.
+        let mut occupied: Vec<(&'static str, TilePos)> = vec![("player start", player_start), ("guide", guide_tile)];
+        occupied.extend(moonpetals.iter().map(|e| ("moonpetal", e.value)));
+        occupied.extend(nodes.iter().filter(|e| e.value.kind.interaction().approach() == Approach::OnTile).map(|e| ("plant", e.value.tile)));
+        let mut claim = |what: &'static str, tile: TilePos, line: usize| -> Result<(), LevelError> {
+            if let Some((other, _)) = occupied.iter().find(|(_, t)| *t == tile) {
+                return Err(LevelError::at(line, LevelErrorKind::Overlap { what, other, tile }));
+            }
+            occupied.push((what, tile));
+            Ok(())
+        };
+        for (i, entry) in npcs.iter().enumerate() {
+            let npc = &entry.value;
+            if npc.id == GUIDE_ID {
+                return Err(LevelError::at(entry.line, LevelErrorKind::ReservedId(npc.id.clone())));
+            }
+            if npcs[..i].iter().any(|other| other.value.id == npc.id) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::DuplicateId { what: "npc", id: npc.id.clone() }));
+            }
+            check_walkable(&map, "npc", npc.tile, entry.line)?;
+            if !map.is_reachable(player_start, npc.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what: "npc", tile: npc.tile }));
+            }
+            claim("npc", npc.tile, entry.line)?;
+        }
+        for (i, entry) in places.iter().enumerate() {
+            let place = &entry.value;
+            if places[..i].iter().any(|other| other.value.id == place.id) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::DuplicateId { what: "place", id: place.id.clone() }));
+            }
+            check_walkable(&map, "place", place.tile, entry.line)?;
+            if !map.is_reachable(player_start, place.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what: "place", tile: place.tile }));
+            }
+            // A place may share a tile with a moonpetal or plant, but not with a person: the
+            // visit would then happen while talking, which is confusing to read about.
+            if let Some((other, _)) = occupied.iter().find(|(what, t)| *t == place.tile && matches!(*what, "npc" | "guide" | "creature" | "place")) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Overlap { what: "place", other, tile: place.tile }));
+            }
+            occupied.push(("place", place.tile));
+        }
+        for (i, entry) in creatures.iter().enumerate() {
+            let creature = &entry.value;
+            if creatures[..i].iter().any(|other| other.value.id == creature.id) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::DuplicateId { what: "creature", id: creature.id.clone() }));
+            }
+            check_walkable(&map, "creature", creature.tile, entry.line)?;
+            if !has_reachable_neighbour(&map, player_start, creature.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what: "creature", tile: creature.tile }));
+            }
+            if let Some((other, _)) = occupied.iter().find(|(what, t)| *t == creature.tile && *what != "place") {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Overlap { what: "creature", other, tile: creature.tile }));
+            }
+            occupied.push(("creature", creature.tile));
+        }
+
         Ok(Self {
             map,
             player_start,
@@ -409,6 +589,9 @@ impl Level {
             moonpetals: moonpetals.into_iter().map(|e| e.value).collect(),
             nodes: nodes.into_iter().map(|e| e.value).collect(),
             signs: signs.into_iter().map(|e| e.value).collect(),
+            npcs: npcs.into_iter().map(|e| e.value).collect(),
+            places: places.into_iter().map(|e| e.value).collect(),
+            creatures: creatures.into_iter().map(|e| e.value).collect(),
         })
     }
 
@@ -936,5 +1119,204 @@ copper 1 1 2 1
             let route = plan_route(&level.map, level.player_start, node.tile, Approach::OnTile).expect("route");
             assert_eq!(route.last().copied().unwrap_or(level.player_start), node.tile);
         }
+    }
+}
+
+#[cfg(test)]
+mod village_section_tests {
+    use super::*;
+
+    /// Same shape as the small test level: 6 x 4, player (0, 0), guide (5, 0), petals on (0, 2),
+    /// (2, 2), (3, 3), a tree on (5, 3) and copper on (1, 1). y counts up from the bottom row.
+    const BASE: &str = "\
+[map]
+.....T
+......
+.#....
+......
+
+[player]
+0 0
+
+[guide]
+5 0
+
+[moonpetals]
+0 2
+2 2
+3 3
+
+[nodes]
+tree 5 3 3 1
+copper 1 1 2 1
+";
+
+    fn with(extra: &str) -> String {
+        format!("{BASE}\n{extra}\n")
+    }
+
+    fn err(extra: &str) -> LevelError {
+        Level::parse(&with(extra)).expect_err("level should be rejected")
+    }
+
+    #[test]
+    fn a_level_without_the_new_sections_has_none() {
+        let level = Level::parse(BASE).unwrap();
+        assert!(level.npcs.is_empty() && level.places.is_empty() && level.creatures.is_empty());
+        assert_eq!(level.npc_list(), vec![("guide", TilePos::new(5, 0), "Village Guide")]);
+    }
+
+    #[test]
+    fn npcs_places_and_creatures_parse() {
+        let level = Level::parse(&with(
+            "[npcs]\nmiller 3 0 woodcutter Old Miller Brae\n\n[places]\nold_mill 4 2 The Old Mill\n\n[creatures]\nmeadow_hare 1 3\n",
+        ))
+        .unwrap();
+        let miller = &level.npcs[0];
+        assert_eq!(miller.id, "miller");
+        assert_eq!(miller.tile, TilePos::new(3, 0));
+        assert_eq!(miller.name, "Old Miller Brae");
+        assert_eq!(Some(miller.look), Appearance::from_key("woodcutter"));
+        assert_eq!(level.places, vec![PlaceSpawn { id: "old_mill".into(), tile: TilePos::new(4, 2), name: "The Old Mill".into() }]);
+        assert_eq!(level.creatures, vec![CreatureSpawn { id: "meadow_hare".into(), tile: TilePos::new(1, 3) }]);
+        let list = level.npc_list();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].0, "guide");
+        assert_eq!(list[1], ("miller", TilePos::new(3, 0), "Old Miller Brae"));
+    }
+
+    #[test]
+    fn comments_and_blank_lines_are_ignored_in_the_new_sections() {
+        let level = Level::parse(&with("[npcs]\n; the miller\n\nmiller 3 0 woodcutter Miller\n")).unwrap();
+        assert_eq!(level.npcs.len(), 1);
+    }
+
+    #[test]
+    fn malformed_lines_name_their_line() {
+        let base_lines = BASE.lines().count() + 2; // blank line from `with`, then the header
+        for (extra, what) in [
+            ("[npcs]\nmiller 3 0 woodcutter", "npc"),
+            ("[npcs]\nmiller x 0 woodcutter Miller", "npc"),
+            ("[npcs]\nmiller 3 0", "npc"),
+            ("[places]\nold_mill 4 2", "place"),
+            ("[places]\nold_mill four 2 Mill", "place"),
+            ("[creatures]\nhare 1", "creature"),
+            ("[creatures]\nhare 1 3 4", "creature"),
+        ] {
+            let e = err(extra);
+            assert_eq!(e.line, Some(base_lines + 1), "{extra:?}");
+            assert!(matches!(e.kind, LevelErrorKind::Malformed { .. }), "{extra:?}: {e}");
+            assert!(e.to_string().to_lowercase().contains(what), "{extra:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn ids_must_be_valid_unique_and_not_the_guide() {
+        assert!(matches!(err("[npcs]\nBad-Id 3 0 woodcutter Miller").kind, LevelErrorKind::InvalidId { what: "npc", .. }));
+        assert!(matches!(err("[places]\nOld_Mill 4 2 Mill").kind, LevelErrorKind::InvalidId { what: "place", .. }));
+        assert!(matches!(err("[creatures]\nHare 1 3").kind, LevelErrorKind::InvalidId { what: "creature", .. }));
+        assert_eq!(err("[npcs]\nguide 3 0 woodcutter Miller").kind, LevelErrorKind::ReservedId("guide".into()));
+        let twice = err("[npcs]\nmiller 3 0 woodcutter A\nmiller 4 0 woodcutter B");
+        assert_eq!(twice.kind, LevelErrorKind::DuplicateId { what: "npc", id: "miller".into() });
+        let twice = err("[places]\nmill 4 2 A\nmill 3 2 B");
+        assert_eq!(twice.kind, LevelErrorKind::DuplicateId { what: "place", id: "mill".into() });
+        let twice = err("[creatures]\nhare 1 3\nhare 2 3");
+        assert_eq!(twice.kind, LevelErrorKind::DuplicateId { what: "creature", id: "hare".into() });
+    }
+
+    #[test]
+    fn unknown_appearances_list_the_valid_ones() {
+        let e = err("[npcs]\nmiller 3 0 wizard Miller");
+        assert_eq!(e.kind, LevelErrorKind::UnknownAppearance("wizard".into()));
+        let text = e.to_string();
+        assert!(text.contains("wizard") && text.contains("apothecary") && text.contains("ferrywoman"), "{text}");
+    }
+
+    #[test]
+    fn everything_must_stand_on_reachable_walkable_ground() {
+        // (1, 1) is rock, (5, 3) is a tree, (9, 9) is off the map.
+        assert!(matches!(err("[npcs]\nmiller 1 1 woodcutter M").kind, LevelErrorKind::NotWalkable { what: "npc", .. }));
+        assert!(matches!(err("[places]\nmill 5 3 Mill").kind, LevelErrorKind::NotWalkable { what: "place", .. }));
+        assert!(matches!(err("[creatures]\nhare 5 3").kind, LevelErrorKind::NotWalkable { what: "creature", .. }));
+        assert!(matches!(err("[npcs]\nmiller 9 9 woodcutter M").kind, LevelErrorKind::OffMap { what: "npc", .. }));
+        assert!(matches!(err("[places]\nmill 9 9 Mill").kind, LevelErrorKind::OffMap { what: "place", .. }));
+        assert!(matches!(err("[creatures]\nhare 9 9").kind, LevelErrorKind::OffMap { what: "creature", .. }));
+    }
+
+    #[test]
+    fn walled_off_things_are_unreachable() {
+        // A wall of rock across the middle row: row y=1 fully rock splits the map in two.
+        let walled = "\
+[map]
+......
+######
+......
+
+[player]
+0 0
+
+[guide]
+5 0
+
+[moonpetals]
+1 0
+2 0
+3 0
+";
+        let ok = |extra: &str| Level::parse(&format!("{walled}\n{extra}\n"));
+        assert!(matches!(ok("[npcs]\nmiller 3 2 woodcutter M").unwrap_err().kind, LevelErrorKind::Unreachable { what: "npc", .. }));
+        assert!(matches!(ok("[places]\nmill 3 2 Mill").unwrap_err().kind, LevelErrorKind::Unreachable { what: "place", .. }));
+        assert!(matches!(ok("[creatures]\nhare 3 2").unwrap_err().kind, LevelErrorKind::Unreachable { what: "creature", .. }));
+        assert!(ok("[npcs]\nmiller 4 0 woodcutter M").is_ok());
+    }
+
+    #[test]
+    fn people_and_creatures_never_share_a_tile_with_something_else() {
+        // On the player start, the guide, a moonpetal, another npc.
+        assert!(matches!(err("[npcs]\nmiller 0 0 woodcutter M").kind, LevelErrorKind::Overlap { what: "npc", other: "player start", .. }));
+        assert!(matches!(err("[npcs]\nmiller 5 0 woodcutter M").kind, LevelErrorKind::Overlap { what: "npc", other: "guide", .. }));
+        assert!(matches!(err("[npcs]\nmiller 2 2 woodcutter M").kind, LevelErrorKind::Overlap { what: "npc", other: "moonpetal", .. }));
+        assert!(matches!(
+            err("[npcs]\na 3 0 woodcutter A\nb 3 0 surveyor B").kind,
+            LevelErrorKind::Overlap { what: "npc", other: "npc", .. }
+        ));
+        assert!(matches!(err("[creatures]\nhare 0 0").kind, LevelErrorKind::Overlap { what: "creature", other: "player start", .. }));
+        assert!(matches!(err("[creatures]\nhare 2 2").kind, LevelErrorKind::Overlap { what: "creature", other: "moonpetal", .. }));
+        assert!(matches!(
+            err("[npcs]\nmiller 3 0 woodcutter M\n[creatures]\nhare 3 0").kind,
+            LevelErrorKind::Overlap { what: "creature", other: "npc", .. }
+        ));
+        assert!(matches!(
+            err("[creatures]\na 1 3\nb 1 3").kind,
+            LevelErrorKind::Overlap { what: "creature", other: "creature", .. }
+        ));
+        assert!(matches!(
+            err("[npcs]\nmiller 3 0 woodcutter M\n[places]\nmill 3 0 Mill").kind,
+            LevelErrorKind::Overlap { what: "place", other: "npc", .. }
+        ));
+        assert!(matches!(
+            err("[places]\na 4 2 A\nb 4 2 B").kind,
+            LevelErrorKind::Overlap { what: "place", other: "place", .. }
+        ));
+    }
+
+    #[test]
+    fn a_place_may_sit_on_a_moonpetal_and_a_creature_may_stand_on_a_place() {
+        // Walking over a moonpetal's tile is harmless, and a place is just a spot on the ground.
+        assert!(Level::parse(&with("[places]\nmill 2 2 Mill")).is_ok());
+        assert!(Level::parse(&with("[places]\nmill 4 2 Mill\n[creatures]\nhare 4 2")).is_ok());
+    }
+
+    #[test]
+    fn a_duplicate_new_section_is_refused() {
+        let e = err("[places]\nmill 4 2 Mill\n[places]\nmill2 3 2 Mill");
+        assert_eq!(e.kind, LevelErrorKind::DuplicateSection("places"));
+    }
+
+    #[test]
+    fn unknown_section_message_lists_the_new_sections() {
+        let e = err("[monsters]\nx");
+        let text = e.to_string();
+        assert!(text.contains("[npcs]") && text.contains("[places]") && text.contains("[creatures]"), "{text}");
     }
 }

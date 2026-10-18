@@ -159,3 +159,12 @@ The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/A
 - `skills.rs`: Foraging, Woodcraft, Herbalism, and Wayfinding, levels 1-10. XP to reach level L is `30 x (L-1)^2` (30, 120, 270, ... 2430). Gathering, crafting, and walking teach XP, and each source stops teaching at a ceiling level so easy repetition cannot max a skill.
 - Recipes can say `require = woodcraft 3` and `xp = woodcraft 40 6`; dialogue can say `skill herbalism at_least 2` (or `below 2`). The copper charm needs Woodcraft 3, mint tea needs Herbalism 2, and the guide's mint quest needs Herbalism 2.
 - The HUD and the `C` panel show your skill levels and progress. The game refuses to start if content asks for a level nothing can teach. Skills are not saved yet (M6).
+
+## v0.5 Hollowmere vertical slice
+
+The game now starts in **Hollowmere** (`assets/maps/hollowmere.map`): the meadow, a bridge over the river, a village with four villagers besides the guide, and a forest. There are five short quests (collect, craft, visit, befriend, and talk objectives), three gentle creatures you can approach (no combat), dialogue portraits, and quiet ambient sound that is generated in code.
+
+- Talk to villagers, hand in quests, and press `J` for the journal (quests and field notes) and `C` for crafting.
+- Approach a creature with something it likes to win its trust; it is always optional and harmless.
+- `OZBOUND_MAP`, `OZBOUND_QUESTS`, `OZBOUND_DIALOGUE`, `OZBOUND_BESTIARY`, and `OZBOUND_RECIPES` play other files. The older meadow files remain as the small tutorial fixtures used by the tests.
+- At startup the whole world is cross-checked (`src/village.rs`), so a content mistake stops the game with a plain message instead of leaving a quest that cannot be finished.

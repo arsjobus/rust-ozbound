@@ -1,9 +1,11 @@
 //! Bevy components and resources shared by the game systems.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
 use ozbound::{
+    bestiary::{Bestiary, FieldNotes},
     content::Content,
     context_menu::MenuEntry,
     crafting::RecipeBook,
@@ -77,7 +79,26 @@ pub struct QuestSave {
 
 /// Who a character is in the dialogue file (`npc = ...`).
 #[derive(Component)]
-pub struct Npc(pub &'static str);
+pub struct Npc(pub String);
+
+/// Which bestiary entry a creature in the world is (`id` from `[creatures]`).
+#[derive(Component)]
+pub struct Creature(pub String);
+
+/// The bestiary and what the player has met so far (kept in memory; saving is M6).
+#[derive(Resource)]
+pub struct Wildlife {
+    pub bestiary: Bestiary,
+    pub notes: FieldNotes,
+}
+
+/// Dialogue portraits by NPC id, drawn once at startup from each NPC's appearance.
+#[derive(Resource, Default)]
+pub struct Portraits(pub HashMap<String, Handle<Image>>);
+
+/// The portrait of the person the open conversation is with.
+#[derive(Resource, Default)]
+pub struct TalkPortrait(pub Option<Handle<Image>>);
 
 /// The panel that shows the current line of dialogue and its choices.
 #[derive(Component)]

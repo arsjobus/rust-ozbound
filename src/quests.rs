@@ -10,6 +10,12 @@
 //! - `Collect` counts items *gathered* (`QuestEvent::Gathered`) after the objective became
 //!   current. Surplus from one event is not carried over, and quest rewards never count as
 //!   gathering. Items already in the bag do not count.
+//! - `Craft` counts items *crafted* (`QuestEvent::Crafted`) the same way: only crafts made
+//!   while the objective is current count, and items already in the bag do not.
+//! - `Visit` is done when the player reaches a named place (`QuestEvent::Visited`); places
+//!   are listed in the level file. Walking there earlier does not count.
+//! - `Befriend` is done by winning over a named creature (`QuestEvent::Befriended`); see
+//!   `bestiary.rs`. Encounters are optional and never harm anything.
 //! - When the last objective is done the quest is `ReadyToTurnIn`. `complete` then takes the
 //!   `takes` items, grants the `reward` items, and marks it `Completed`, all or nothing: if the
 //!   bag lacks the items or has no room for the rewards, nothing changes and the quest stays
@@ -35,14 +41,20 @@ pub enum Objective {
     TalkTo { npc: String },
     /// Gather `count` of an item.
     Collect { item: ItemId, count: u32 },
+    /// Craft `count` of an item (see `QuestEvent::Crafted`).
+    Craft { item: ItemId, count: u32 },
+    /// Reach a named place from the level's `[places]` section.
+    Visit { place: String },
+    /// Win the trust of a named creature from the bestiary.
+    Befriend { creature: String },
 }
 
 impl Objective {
-    /// How many steps the objective needs: 1 for talking, `count` for collecting.
+    /// How many steps the objective needs: `count` for collecting and crafting, 1 otherwise.
     pub fn needed(&self) -> u32 {
         match self {
-            Self::TalkTo { .. } => 1,
-            Self::Collect { count, .. } => *count,
+            Self::TalkTo { .. } | Self::Visit { .. } | Self::Befriend { .. } => 1,
+            Self::Collect { count, .. } | Self::Craft { count, .. } => *count,
         }
     }
 
@@ -51,6 +63,9 @@ impl Objective {
         match self {
             Self::TalkTo { npc } => format!("Talk to {}", npc.replace('_', " ")),
             Self::Collect { item, .. } => format!("Collect {}", item.label()),
+            Self::Craft { item, .. } => format!("Craft {}", item.label()),
+            Self::Visit { place } => format!("Visit {}", place.replace('_', " ")),
+            Self::Befriend { creature } => format!("Befriend {}", creature.replace('_', " ")),
         }
     }
 }
@@ -185,9 +200,27 @@ fn parse_objective(line: usize, value: &str) -> Result<Objective, ContentError> 
             item: parse_item(line, item)?,
             count: parse_positive(line, "the collect amount", count)?,
         }),
+        ["craft", item, count] => Ok(Objective::Craft {
+            item: parse_item(line, item)?,
+            count: parse_positive(line, "the craft amount", count)?,
+        }),
+        ["visit", place] => {
+            check_id(line, "place id", place)?;
+            Ok(Objective::Visit {
+                place: (*place).to_string(),
+            })
+        }
+        ["befriend", creature] => {
+            check_id(line, "creature id", creature)?;
+            Ok(Objective::Befriend {
+                creature: (*creature).to_string(),
+            })
+        }
         _ => Err(ContentError::at(
             line,
-            format!("objective `{value}` must be `talk <npc>` or `collect <item> <amount>`"),
+            format!(
+                "objective `{value}` must be `talk <npc>`, `collect <item> <amount>`, `craft <item> <amount>`, `visit <place>` or `befriend <creature>`"
+            ),
         )),
     }
 }
@@ -326,6 +359,12 @@ impl QuestStatus {
 pub enum QuestEvent {
     Gathered { item: ItemId, quantity: u32 },
     SpokeTo { npc: String },
+    /// Something was made at the crafting panel.
+    Crafted { item: ItemId, quantity: u32 },
+    /// The player reached a named place.
+    Visited { place: String },
+    /// A creature accepted the player's offering.
+    Befriended { creature: String },
 }
 
 /// What a state change means for the player; the UI turns these into journal messages.
@@ -457,7 +496,10 @@ impl QuestLog {
     /// Feeds a world event to every active quest and reports what changed.
     pub fn record(&mut self, book: &QuestBook, event: &QuestEvent) -> Vec<QuestUpdate> {
         let mut updates = Vec::new();
-        if matches!(event, QuestEvent::Gathered { quantity: 0, .. }) {
+        if matches!(
+            event,
+            QuestEvent::Gathered { quantity: 0, .. } | QuestEvent::Crafted { quantity: 0, .. }
+        ) {
             return updates;
         }
         for (id, stage) in &mut self.entries {
@@ -479,6 +521,22 @@ impl QuestLog {
                         quantity,
                     },
                 ) if item == got => *quantity,
+                (
+                    Objective::Craft { item, .. },
+                    QuestEvent::Crafted {
+                        item: made,
+                        quantity,
+                    },
+                ) if item == made => *quantity,
+                (Objective::Visit { place }, QuestEvent::Visited { place: reached })
+                    if place == reached =>
+                {
+                    1
+                }
+                (
+                    Objective::Befriend { creature },
+                    QuestEvent::Befriended { creature: won },
+                ) if creature == won => 1,
                 _ => continue,
             };
             let needed = current.needed();
@@ -996,5 +1054,207 @@ objective = talk guide
             .needed(),
             2
         );
+    }
+}
+
+#[cfg(test)]
+mod place_craft_befriend_tests {
+    use super::*;
+
+    const ERRANDS: &str = "\
+[quest errands]
+title = Errands
+objective = craft walking_staff 2
+objective = visit old_mill
+objective = befriend meadow_hare
+objective = talk miller
+takes = walking_staff 2
+reward = timber 1
+";
+
+    fn book() -> QuestBook {
+        QuestBook::parse(ERRANDS).unwrap()
+    }
+
+    fn started() -> QuestLog {
+        let mut log = QuestLog::new();
+        log.start(&book(), "errands").unwrap();
+        log
+    }
+
+    fn crafted(item: ItemId, quantity: u32) -> QuestEvent {
+        QuestEvent::Crafted { item, quantity }
+    }
+
+    fn visited(place: &str) -> QuestEvent {
+        QuestEvent::Visited {
+            place: place.into(),
+        }
+    }
+
+    fn befriended(creature: &str) -> QuestEvent {
+        QuestEvent::Befriended {
+            creature: creature.into(),
+        }
+    }
+
+    #[test]
+    fn parses_craft_visit_and_befriend_objectives() {
+        let quest = book().get("errands").unwrap().clone();
+        assert_eq!(
+            quest.objectives,
+            vec![
+                Objective::Craft {
+                    item: ItemId::WalkingStaff,
+                    count: 2
+                },
+                Objective::Visit {
+                    place: "old_mill".into()
+                },
+                Objective::Befriend {
+                    creature: "meadow_hare".into()
+                },
+                Objective::TalkTo {
+                    npc: "miller".into()
+                },
+            ]
+        );
+        assert_eq!(quest.objectives[0].needed(), 2);
+        assert_eq!(quest.objectives[1].needed(), 1);
+        assert_eq!(quest.objectives[2].needed(), 1);
+    }
+
+    #[test]
+    fn journal_wording_names_the_target() {
+        let quest = book().get("errands").unwrap().clone();
+        assert_eq!(quest.objectives[0].describe(), "Craft walking staff");
+        assert_eq!(quest.objectives[1].describe(), "Visit old mill");
+        assert_eq!(quest.objectives[2].describe(), "Befriend meadow hare");
+    }
+
+    #[test]
+    fn malformed_new_objectives_name_their_line() {
+        for (text, fragment) in [
+            ("objective = craft walking_staff", "must be"),
+            ("objective = craft walking_staff 0", "craft amount"),
+            ("objective = craft pebble 1", "unknown item"),
+            ("objective = visit", "must be"),
+            ("objective = visit Old-Mill", "place id"),
+            ("objective = befriend", "must be"),
+            ("objective = befriend two words", "must be"),
+        ] {
+            let source = format!("[quest q]\ntitle = Q\n{text}\n");
+            let error = QuestBook::parse(&source).unwrap_err();
+            assert_eq!(error.line, Some(3), "{text}");
+            assert!(error.to_string().contains(fragment), "{text}: {error}");
+        }
+    }
+
+    #[test]
+    fn crafting_counts_only_while_the_objective_is_current() {
+        let book = book();
+        let mut early = QuestLog::new();
+        // Crafting before the quest starts does nothing.
+        assert!(early
+            .record(&book, &crafted(ItemId::WalkingStaff, 1))
+            .is_empty());
+
+        let mut log = started();
+        let updates = log.record(&book, &crafted(ItemId::WalkingStaff, 1));
+        assert_eq!(
+            updates,
+            vec![QuestUpdate::Progress {
+                quest: "errands".into(),
+                objective: 0,
+                count: 1,
+                needed: 2
+            }]
+        );
+        // The wrong item and a zero quantity are ignored.
+        assert!(log.record(&book, &crafted(ItemId::CopperCharm, 1)).is_empty());
+        assert!(log.record(&book, &crafted(ItemId::WalkingStaff, 0)).is_empty());
+        // Gathering the item is not crafting it.
+        assert!(log
+            .record(
+                &book,
+                &QuestEvent::Gathered {
+                    item: ItemId::WalkingStaff,
+                    quantity: 1
+                }
+            )
+            .is_empty());
+        let updates = log.record(&book, &crafted(ItemId::WalkingStaff, 5));
+        assert_eq!(
+            updates[0],
+            QuestUpdate::ObjectiveDone {
+                quest: "errands".into(),
+                objective: 0
+            }
+        );
+        assert_eq!(log.current_objective("errands"), Some((1, 0)));
+    }
+
+    #[test]
+    fn places_and_creatures_only_count_when_current_and_named() {
+        let book = book();
+        let mut log = started();
+        // Out of order events are ignored: the mill is not the current objective yet.
+        assert!(log.record(&book, &visited("old_mill")).is_empty());
+        assert!(log.record(&book, &befriended("meadow_hare")).is_empty());
+        log.record(&book, &crafted(ItemId::WalkingStaff, 2));
+
+        assert!(log.record(&book, &visited("pond")).is_empty());
+        let updates = log.record(&book, &visited("old_mill"));
+        assert_eq!(
+            updates,
+            vec![QuestUpdate::ObjectiveDone {
+                quest: "errands".into(),
+                objective: 1
+            }]
+        );
+        assert!(log.record(&book, &visited("old_mill")).is_empty());
+
+        assert!(log.record(&book, &befriended("pond_heron")).is_empty());
+        log.record(&book, &befriended("meadow_hare"));
+        assert_eq!(log.current_objective("errands"), Some((3, 0)));
+        let updates = log.record(
+            &book,
+            &QuestEvent::SpokeTo {
+                npc: "miller".into(),
+            },
+        );
+        assert_eq!(
+            updates.last(),
+            Some(&QuestUpdate::ReadyToTurnIn {
+                quest: "errands".into()
+            })
+        );
+        assert_eq!(log.status("errands"), QuestStatus::ReadyToTurnIn);
+    }
+
+    #[test]
+    fn crafted_items_are_handed_in_like_any_other() {
+        let book = book();
+        let mut log = started();
+        log.record(&book, &crafted(ItemId::WalkingStaff, 2));
+        log.record(&book, &visited("old_mill"));
+        log.record(&book, &befriended("meadow_hare"));
+        log.record(
+            &book,
+            &QuestEvent::SpokeTo {
+                npc: "miller".into(),
+            },
+        );
+        // Ready, but the two staffs must actually be in the bag.
+        let mut bag = Inventory::default();
+        assert_eq!(
+            log.complete(&book, "errands", &mut bag),
+            Err(CompleteError::MissingItems(ItemId::WalkingStaff))
+        );
+        bag.add(ItemId::WalkingStaff, 2).unwrap();
+        let rewards = log.complete(&book, "errands", &mut bag).unwrap();
+        assert_eq!(rewards.len(), 1);
+        assert_eq!(bag.count(ItemId::WalkingStaff), 0);
+        assert_eq!(bag.count(ItemId::Timber), 1);
     }
 }
