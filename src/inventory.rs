@@ -116,6 +116,18 @@ impl Inventory {
         Self { capacity, stacks: BTreeMap::new() }
     }
 
+    /// Rebuilds a bag from saved totals (see `save.rs`). Every total must be positive and the
+    /// slots they need must fit `capacity`; the same item listed twice is added up like any
+    /// other pickup. Nothing is returned on failure, so a bad save never yields a bag that
+    /// play could not have produced.
+    pub fn from_stacks(capacity: usize, stacks: impl IntoIterator<Item = (ItemId, u32)>) -> Result<Self, InventoryError> {
+        let mut bag = Self::new(capacity);
+        for (item, quantity) in stacks {
+            bag.add(item, quantity)?;
+        }
+        Ok(bag)
+    }
+
     pub fn capacity(&self) -> usize { self.capacity }
     /// Slots in use (a stack of 150 timber counts as two).
     pub fn used_slots(&self) -> usize { self.stacks.iter().map(|(item, count)| slots_for(*item, *count)).sum() }
@@ -158,6 +170,23 @@ impl Default for Inventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_stacks_rebuilds_a_bag_and_adds_repeated_items() {
+        let bag = Inventory::from_stacks(5, [(ItemId::Timber, 150), (ItemId::Moonpetal, 2), (ItemId::Moonpetal, 1)]).unwrap();
+        assert_eq!(bag.count(ItemId::Timber), 150);
+        assert_eq!(bag.count(ItemId::Moonpetal), 3);
+        assert_eq!(bag.used_slots(), 3);
+        assert_eq!(bag.capacity(), 5);
+    }
+
+    #[test]
+    fn from_stacks_refuses_overfull_and_zero_totals() {
+        assert_eq!(Inventory::from_stacks(1, [(ItemId::Timber, 1), (ItemId::CopperOre, 1)]), Err(InventoryError::Full));
+        assert_eq!(Inventory::from_stacks(1, [(ItemId::Timber, 100)]), Err(InventoryError::Full));
+        assert_eq!(Inventory::from_stacks(3, [(ItemId::Timber, 0)]), Err(InventoryError::ZeroQuantity));
+        assert_eq!(Inventory::from_stacks(0, []).unwrap().used_slots(), 0);
+    }
 
     #[test]
     fn stacks_same_item_in_one_slot() {

@@ -174,7 +174,7 @@ fn parse_amount(line: usize, value: &str) -> Result<ItemAmount, ContentError> {
     }
 }
 
-/// What the player has met so far. Kept in memory for now; saving it belongs to M6.
+/// What the player has met so far. Part of the save file (`save.rs`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FieldNotes {
     seen: BTreeSet<String>,
@@ -184,6 +184,25 @@ pub struct FieldNotes {
 impl FieldNotes {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Rebuilds field notes from saved ids. Every befriended creature must also have been
+    /// seen (approaching one marks it seen first); ids are not checked against a bestiary here.
+    pub fn from_ids<S: Into<String>>(
+        seen: impl IntoIterator<Item = S>,
+        befriended: impl IntoIterator<Item = S>,
+    ) -> Result<Self, String> {
+        let seen: BTreeSet<String> = seen.into_iter().map(Into::into).collect();
+        let befriended: BTreeSet<String> = befriended.into_iter().map(Into::into).collect();
+        if let Some(id) = befriended.iter().find(|id| !seen.contains(*id)) {
+            return Err(format!("`{id}` is befriended but was never seen"));
+        }
+        Ok(Self { seen, befriended })
+    }
+
+    /// Ids of every creature met, in alphabetical order.
+    pub fn seen(&self) -> impl Iterator<Item = &str> {
+        self.seen.iter().map(String::as_str)
     }
 
     pub fn has_seen(&self, id: &str) -> bool {
@@ -295,6 +314,17 @@ impl GiftFits for Option<ItemAmount> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_notes_rebuild_from_ids_and_keep_befriended_implies_seen() {
+        let notes = FieldNotes::from_ids(["hare", "heron"], ["hare"]).unwrap();
+        assert!(notes.has_seen("heron") && !notes.is_befriended("heron"));
+        assert!(notes.is_befriended("hare"));
+        assert_eq!(notes.seen().collect::<Vec<_>>(), ["hare", "heron"]);
+        assert_eq!(FieldNotes::from_ids::<&str>([], []).unwrap(), FieldNotes::new());
+        let error = FieldNotes::from_ids(["heron"], ["hare"]).unwrap_err();
+        assert!(error.contains("hare"), "{error}");
+    }
 
     const SAMPLE: &str = "\
 # two creatures

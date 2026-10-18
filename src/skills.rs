@@ -26,7 +26,8 @@
 //!   the game can teach, so no recipe or dialogue choice is locked forever.
 //! - There are no skill points, decay, daily bonuses, or timers.
 //!
-//! Skills are not saved yet; save files are milestone M6.
+//! Skills are part of the save file (`save.rs`); `Skills::from_saved` rebuilds them and
+//! refuses values that play could not have produced.
 
 use std::fmt;
 
@@ -244,6 +245,30 @@ impl Skills {
         Self { xp: [xp_for_level(level); 4], walked: 0 }
     }
 
+    /// Rebuilds skills from saved XP and the tiles walked toward the next Wayfinding point.
+    /// XP may not exceed [`MAX_XP`]; the walked count must be below [`WALK_TILES_PER_XP`] and
+    /// is only kept while Wayfinding is below [`WALK_UNTIL`], exactly as `walked` keeps it.
+    pub fn from_saved(xp: [u32; 4], walked: u32) -> Result<Self, String> {
+        for skill in SkillId::ALL {
+            if xp[skill.index()] > MAX_XP {
+                return Err(format!("{} XP {} is above the maximum of {MAX_XP}", skill.label(), xp[skill.index()]));
+            }
+        }
+        if walked >= WALK_TILES_PER_XP {
+            return Err(format!("walked count {walked} must be below {WALK_TILES_PER_XP}"));
+        }
+        let skills = Self { xp, walked };
+        if walked > 0 && skills.level(walk_award().skill) >= WALK_UNTIL {
+            return Err(format!("a walked count of {walked} is not kept once Wayfinding has reached level {WALK_UNTIL}"));
+        }
+        Ok(skills)
+    }
+
+    /// Tiles walked toward the next point of Wayfinding XP (always below [`WALK_TILES_PER_XP`]).
+    pub fn walked_progress(&self) -> u32 {
+        self.walked
+    }
+
     pub fn xp(&self, skill: SkillId) -> u32 {
         self.xp[skill.index()]
     }
@@ -400,6 +425,29 @@ pub fn check_gates(recipes: &RecipeBook, dialogue: &DialogueBook) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn from_saved_round_trips_what_play_produces() {
+        let mut played = Skills::new();
+        played.add_xp(SkillId::Woodcraft, 130);
+        played.add_xp(SkillId::Foraging, 31);
+        played.walked(7);
+        let xp = SkillId::ALL.map(|s| played.xp(s));
+        let restored = Skills::from_saved(xp, played.walked_progress()).unwrap();
+        assert_eq!(restored, played);
+        assert_eq!(restored.walked_progress(), 7);
+    }
+
+    #[test]
+    fn from_saved_refuses_impossible_values() {
+        assert!(Skills::from_saved([MAX_XP + 1, 0, 0, 0], 0).unwrap_err().contains("Foraging"));
+        assert!(Skills::from_saved([0; 4], WALK_TILES_PER_XP).unwrap_err().contains("walked"));
+        // Wayfinding at its walking ceiling keeps no walked count.
+        let ceiling = xp_for_level(WALK_UNTIL);
+        assert!(Skills::from_saved([0, 0, 0, ceiling], 3).unwrap_err().contains("Wayfinding"));
+        assert!(Skills::from_saved([0, 0, 0, ceiling], 0).is_ok());
+        assert!(Skills::from_saved([MAX_XP; 4], 0).is_ok());
+    }
 
     fn book() -> RecipeBook {
         RecipeBook::builtin().unwrap()

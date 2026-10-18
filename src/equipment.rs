@@ -64,6 +64,10 @@ pub enum EquipError {
     SlotEmpty(EquipSlot),
     /// There is no bag room for the item that would come off.
     BagFull,
+    /// The item belongs in a different slot (only seen when restoring a save).
+    WrongSlot(ItemId, EquipSlot),
+    /// The slot is listed twice (only seen when restoring a save).
+    SlotTaken(EquipSlot),
 }
 
 impl EquipError {
@@ -74,6 +78,8 @@ impl EquipError {
             Self::NotInBag(item) => format!("You are not carrying a {}.", item.label()),
             Self::SlotEmpty(slot) => format!("Nothing is equipped in your {} slot.", slot.label().to_lowercase()),
             Self::BagFull => "Your inventory is full. Make room first.".to_string(),
+            Self::WrongSlot(item, slot) => format!("The {} cannot go in the {} slot.", item.label(), slot.label().to_lowercase()),
+            Self::SlotTaken(slot) => format!("The {} slot is listed twice.", slot.label().to_lowercase()),
         }
     }
 }
@@ -87,6 +93,24 @@ pub struct Equipment {
 impl Equipment {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Rebuilds equipment from saved `(slot, item)` pairs. Each item must belong in the slot it
+    /// is listed under and no slot may appear twice. The bag is not involved: a save stores
+    /// worn items separately from the bag.
+    pub fn from_items(items: impl IntoIterator<Item = (EquipSlot, ItemId)>) -> Result<Self, EquipError> {
+        let mut equipment = Self::new();
+        for (slot, item) in items {
+            match item.equip_slot() {
+                None => return Err(EquipError::NotEquippable(item)),
+                Some(right) if right != slot => return Err(EquipError::WrongSlot(item, slot)),
+                Some(_) => {}
+            }
+            if equipment.slots.insert(slot, item).is_some() {
+                return Err(EquipError::SlotTaken(slot));
+            }
+        }
+        Ok(equipment)
     }
 
     pub fn get(&self, slot: EquipSlot) -> Option<ItemId> {
@@ -143,6 +167,29 @@ mod tests {
             bag.add(*item, *n).unwrap();
         }
         bag
+    }
+
+    #[test]
+    fn from_items_rebuilds_worn_gear() {
+        let gear = Equipment::from_items([(EquipSlot::Hand, ItemId::WalkingStaff), (EquipSlot::Charm, ItemId::CopperCharm)]).unwrap();
+        assert_eq!(gear.get(EquipSlot::Hand), Some(ItemId::WalkingStaff));
+        assert_eq!(gear.get(EquipSlot::Charm), Some(ItemId::CopperCharm));
+        assert_eq!(Equipment::from_items([]).unwrap(), Equipment::new());
+    }
+
+    #[test]
+    fn from_items_refuses_impossible_gear() {
+        assert_eq!(Equipment::from_items([(EquipSlot::Hand, ItemId::Timber)]), Err(EquipError::NotEquippable(ItemId::Timber)));
+        assert_eq!(
+            Equipment::from_items([(EquipSlot::Head, ItemId::WalkingStaff)]),
+            Err(EquipError::WrongSlot(ItemId::WalkingStaff, EquipSlot::Head))
+        );
+        assert_eq!(
+            Equipment::from_items([(EquipSlot::Hand, ItemId::WalkingStaff), (EquipSlot::Hand, ItemId::WalkingStaff)]),
+            Err(EquipError::SlotTaken(EquipSlot::Hand))
+        );
+        assert!(!EquipError::WrongSlot(ItemId::WalkingStaff, EquipSlot::Head).message().is_empty());
+        assert!(!EquipError::SlotTaken(EquipSlot::Hand).message().is_empty());
     }
 
     #[test]

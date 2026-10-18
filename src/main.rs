@@ -22,14 +22,13 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use ozbound::{
-    content::Content,
-    quest_store,
-    quests::QuestLog,
+    save::{SaveContext, SaveGame},
+    save_store::{self, Loaded, Start},
     skills,
     village::{self, World as Hollowmere},
 };
 
-use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, Portraits, QuestSave, Recipes, TalkPortrait, TalkState, Wildlife};
+use components::{ContextMenuState, GameContent, GameProgress, HoverText, LevelData, Meadow, PackState, Portraits, Recipes, SaveState, StartingSave, TalkPortrait, TalkState, Wildlife};
 
 /// Set these to play other files; a missing or invalid file is then an error. Without them the
 /// shipped Hollowmere files are used, or the identical built-in copies when the game is started
@@ -39,9 +38,13 @@ const QUESTS_ENV: &str = "OZBOUND_QUESTS";
 const DIALOGUE_ENV: &str = "OZBOUND_DIALOGUE";
 const BESTIARY_ENV: &str = "OZBOUND_BESTIARY";
 const RECIPES_ENV: &str = "OZBOUND_RECIPES";
-/// Where quest progress is saved (override with `OZBOUND_QUEST_SAVE`).
-const QUEST_SAVE_PATH: &str = "saves/quests.txt";
-const QUEST_SAVE_ENV: &str = "OZBOUND_QUEST_SAVE";
+/// Where the game is saved (override with `OZBOUND_SAVE`, for example to keep a save per map).
+const SAVE_PATH: &str = "saves/game.txt";
+const SAVE_ENV: &str = "OZBOUND_SAVE";
+/// The quest-only save that earlier versions wrote. It is read once, when there is no full
+/// save yet, and left where it is (override with `OZBOUND_QUEST_SAVE`).
+const LEGACY_QUEST_SAVE_PATH: &str = "saves/quests.txt";
+const LEGACY_QUEST_SAVE_ENV: &str = "OZBOUND_QUEST_SAVE";
 
 /// Loads the level, quests, dialogue, bestiary, and recipes, and checks that they fit
 /// together (see `ozbound::village`). An invalid file stops startup with its name and line.
@@ -63,21 +66,36 @@ fn load_world() -> Result<Hollowmere, String> {
     Ok(loaded.world)
 }
 
-/// Restores saved quest progress. An unreadable or invalid save is reported and left alone:
-/// the game starts with a fresh log and does not save over the old file this session.
-fn restore_quests(content: &Content) -> (QuestLog, QuestSave, String) {
-    let path = std::env::var_os(QUEST_SAVE_ENV).map_or_else(|| PathBuf::from(QUEST_SAVE_PATH), PathBuf::from);
-    match quest_store::load(&path, &content.quests) {
-        Ok(Some(log)) => {
-            let message = if log.started().next().is_some() { "Welcome back. Press J to read your journal." } else { "" };
-            let save = QuestSave { path, enabled: true, saved: log.clone() };
-            (log, save, message.to_string())
+/// Restores the saved game (see `ozbound::save` for what it holds). An unreadable or invalid
+/// save is reported and left alone: the game starts fresh and does not save over the old file
+/// this session, so the player can still recover it.
+fn restore_game(world: &Hollowmere) -> (SaveGame, SaveState, String) {
+    let env_path = |name: &str, default: &str| std::env::var_os(name).map_or_else(|| PathBuf::from(default), PathBuf::from);
+    let path = env_path(SAVE_ENV, SAVE_PATH);
+    let legacy = env_path(LEGACY_QUEST_SAVE_ENV, LEGACY_QUEST_SAVE_PATH);
+    let ctx = SaveContext { level: &world.level, quests: &world.content.quests, bestiary: &world.bestiary };
+    match save_store::load(&path, Some(&legacy), &ctx) {
+        Ok(Loaded { game, start }) => {
+            if start == Start::Loaded {
+                // Keep the save that just loaded, in case a later session writes something worse.
+                if let Err(error) = save_store::back_up(&path) {
+                    eprintln!("warning: could not keep a backup of {}: {error}", path.display());
+                }
+            }
+            let message = match start {
+                Start::NewGame => "",
+                Start::Loaded => "Welcome back. Your progress was restored. Press J to read your journal.",
+                Start::MigratedQuests => "Welcome back. Your quest progress was carried over to the new save file.",
+            };
+            // A migrated game is not on disk in the new format yet, so it counts as unsaved.
+            let saved = if start == Start::MigratedQuests { SaveGame::new_game(&world.level) } else { game.clone() };
+            (game, SaveState { path, enabled: true, saved, idle: 0.0 }, message.to_string())
         }
-        Ok(None) => (QuestLog::new(), QuestSave { path, enabled: true, saved: QuestLog::new() }, String::new()),
         Err(error) => {
-            eprintln!("warning: {error}; starting with a fresh quest log and not saving this session");
-            let message = "Your quest save could not be read, so progress will not be saved this session. See the console.";
-            (QuestLog::new(), QuestSave { path, enabled: false, saved: QuestLog::new() }, message.to_string())
+            eprintln!("warning: {error}; starting a new game and not saving this session");
+            let message = "Your save could not be read, so progress will not be saved this session. See the console for how to recover it.";
+            let game = SaveGame::new_game(&world.level);
+            (game.clone(), SaveState { path, enabled: false, saved: game.clone(), idle: 0.0 }, message.to_string())
         }
     }
 }
@@ -92,7 +110,7 @@ fn main() {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
-    let (log, quest_save, welcome) = restore_quests(&world.content);
+    let (game, save_state, welcome) = restore_game(&world);
     let Hollowmere { level, content, bestiary, recipes } = world;
     App::new()
         .add_plugins(
@@ -109,20 +127,28 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
-        .insert_resource(GameProgress { log, journal: welcome, ..default() })
+        .insert_resource(GameProgress {
+            log: game.quests.clone(),
+            journal: welcome,
+            inventory: game.bag.clone(),
+            equipment: game.equipment.clone(),
+            skills: game.skills.clone(),
+        })
         .insert_resource(GameContent(content))
         .insert_resource(Recipes(recipes))
-        .insert_resource(Wildlife { bestiary, notes: Default::default() })
+        .insert_resource(Wildlife { bestiary, notes: game.notes.clone() })
         .insert_resource(Portraits::default())
         .insert_resource(TalkPortrait::default())
         .insert_resource(PackState::default())
-        .insert_resource(quest_save)
+        .insert_resource(save_state)
+        .insert_resource(StartingSave(game))
         .insert_resource(TalkState::default())
         .insert_resource(HoverText::default())
         .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(level.map.clone()))
         .insert_resource(LevelData(level))
         .add_systems(Startup, setup::setup)
+        .add_systems(Last, persist::save_on_exit)
         .add_systems(
             Update,
             (
@@ -133,7 +159,7 @@ fn main() {
                 movement::follow_route,
                 interact::interact,
                 interact::respawn_nodes,
-                persist::persist_quests,
+                persist::persist_game,
                 animation::animate_limbs,
                 animation::float_props,
                 pointer::fade_markers,

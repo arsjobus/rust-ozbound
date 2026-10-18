@@ -1,7 +1,7 @@
 //! Reading and writing the quest log file (`QuestLog::to_text` / `from_text`).
 //!
-//! Pure Rust (no Bevy). This is only the small file layer the game needs so quest progress
-//! survives a restart; the full save system (position, bag, skills, world changes) is M6.
+//! Pure Rust (no Bevy). This was the whole save system before M6; since then it only reads the
+//! old quest-only save so `save_store::load` can carry it into the full save (`save.rs`).
 //!
 //! Safety rules: a missing file is a normal first run (`Ok(None)`); an unreadable or invalid
 //! file is an error and is never touched, so the player's data can still be recovered; a save

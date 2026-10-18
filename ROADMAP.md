@@ -113,7 +113,7 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: all inventory rules are deterministic and covered by unit tests.
   - Done: `tests/crafting_playthrough.rs` plays the rules through the public API: forage, gather, craft every shipped recipe, equip; full-bag and depleted-node behaviour; crafting that needs the slots it frees; refused craft keeping its inputs; gear removal needing room while a swap does not; and a check that the meadow supplies every recipe's ingredients and that one of everything fits in a default bag.
   - Manual check (needs a window; not covered by unit tests): click a meadowmint patch and a honeyberry bush and confirm you walk onto them, forage repeatedly, and the crop disappears when spent and returns after about 20-25 s; press `C` and confirm the panel lists three recipes greyed out; gather three timber and confirm "Make walking staff" turns bright, click it, then click "Equip walking staff" and confirm the bag line moves it to "Equipped: hand: walking staff"; fill the bag and confirm foraging says the inventory is full without consuming the plant and that a craft with no room refuses and keeps the ingredients; confirm clicks on panel rows never walk the player, and that `Esc` closes the panel before it quits.
-  - Not yet: the bag and equipment are not saved (that is M6), and equipment has no gameplay effect yet (skills and stats are M4).
+  - Saved since M6 (bag and equipment are in the save file). Equipment has no gameplay effect yet.
 
 ## M4 — Skills and progression
 - [x] Add skills such as Foraging, Woodcraft, Herbalism, and Wayfinding.
@@ -128,7 +128,7 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: skill progression can be simulated and tested without rendering.
   - Done: unit tests for the curve table and round trips, level-up reporting (single and multi-level), the XP cap and overflow, per-skill tracking, requirement parsing and errors, the no-grind ceiling, walking XP in bulk and one tile at a time, recipe and dialogue gating, reachability chains, and gate-check errors. `tests/progression_playthrough.rs` plays the unlocks through the public API.
   - Manual check (needs a window): chop trees and watch the HUD `Skills:` line and a "Your Woodcraft level is now 2." message; press `C` and confirm the copper charm reads "needs Woodcraft level 3" until then; after the first quest, talk to the guide at Herbalism 1 and 2 and compare the options; walk around and confirm Wayfinding creeps up.
-  - Not yet: skills are not saved (M6), and equipment still has no gameplay effect.
+  - Skills are saved since M6. Equipment still has no gameplay effect.
 
 ## M5 — World content vertical slice
 - [x] Build an original starting village and nearby meadow/forest.
@@ -151,11 +151,19 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Manual check (needs a window; not covered by unit tests): `cargo run` and confirm the village, people, portraits in conversation, standing stones, and creatures appear; talk to every villager; approach the hare without and with a honeyberry; craft a walking staff and hand it to Tamsin; walk to the three waymarks and report to Ivo after reaching Wayfinding 2; open the journal (J) and confirm field notes; confirm the ambient sound plays and that a machine with no audio device still runs.
 
 ## M6 — Local save/load
-- [ ] Define a versioned save schema.
-- [ ] Save position, inventory, skills, quest state, and world changes to a local file.
-- [ ] Add safe writes (temporary file + replace) and clear recovery errors.
-- [ ] Test round trips, schema versions, missing/corrupt files, and defaults.
+- [x] Define a versioned save schema.
+  - Done: `save.rs` (pure) defines `SaveGame` and the plain-text format `ozbound-save 1`, documented at the top of the file (header, `world`, `player`, bag, gear, skills, quest lines in the existing quest-log format, creatures, `picked`, `node`, and a required `end`). Rules for changing the format (bump the version, keep reading old ones, never reuse a keyword) are written there too.
+  - Tests: every line kind parses and writes; wrong arguments name the line; version 0, unreadable, and newer versions are refused with a reason; the shipped version is the one written.
+- [x] Save position, inventory, skills, quest state, and world changes to a local file.
+  - Done: the save holds the player's tile, bag (with capacity), worn gear, skill XP and walk progress, quests, creatures seen/befriended, which moonpetals were picked, and the actions left on every tree, vein, herb patch, and berry bush that was used. `setup.rs` starts the world from it (player and camera at the saved tile, picked petals absent, used nodes partly or fully spent; a spent node's regrowth timer restarts). `persist.rs` writes about once a second when something changed and once more on exit (including closing the window). Small restore helpers were added with tests: `Inventory::from_stacks`, `Equipment::from_items`, `Skills::from_saved`, `FieldNotes::from_ids`, `GatheringNode::set_remaining`.
+  - Not saved: open panels, the route being walked, the camera angle, and respawn timers.
+- [x] Add safe writes (temporary file + replace) and clear recovery errors.
+  - Done: `save_store.rs` writes `game.txt.tmp`, flushes it, and renames it over `game.txt`. An unreadable or invalid save is reported with file, line, and what to do, is never overwritten (saving is switched off for that session), and the error points at `game.txt.bak`, a copy made after each successful load. A failed write switches saving off and says so in the journal line and on the console. The pre-M6 `saves/quests.txt` is carried into a new full save once and left in place. `OZBOUND_SAVE` picks another save file.
+- [x] Test round trips, schema versions, missing/corrupt files, and defaults.
+  - Tests: unit tests in `save.rs` and `save_store.rs` (round trips of a busy game, deterministic text, defaults for a minimal save, comments/CRLF/BOM, truncation at every line, duplicates, unknown ids, impossible XP/bag/gear/nodes, wrong map size, blocked/unreachable/occupied player tile, quest errors keeping real line numbers, stale temp files, write failures, backup, legacy migration). `tests/save_playthrough.rs` plays a session, restarts, checks the world, carries on, and saves again; refuses and preserves damaged files; recovers from the backup; migrates the old quest save once; refuses a save from another map; and checks that dropping or garbling any line of a save is never silently accepted.
   - Acceptance: progress survives restart; invalid saves fail safely without overwriting recoverable data.
+  - Headless check: the pure save and store layers were exercised by the tests above. The Bevy wiring (`main.rs`, `setup.rs`, `persist.rs`) was type-checked but not run in a window.
+  - Manual check (needs a window; not covered by unit tests): pick two moonpetals, chop a tree until spent, forage once, equip a staff, and quit with Esc; confirm `saves/game.txt` exists; restart and confirm you stand where you left, the two petals are gone, the tree is spent and grows back after about 30 s, and the bag, gear, skills line, and journal match. Close the window with its close button instead of Esc and confirm the last action was kept. Add `?` to a line of `saves/game.txt` and confirm the game starts fresh, says the save could not be read, names the line on the console, and leaves the file unchanged after you quit. Copy `game.txt.bak` over `game.txt` and confirm it loads. With only an old `saves/quests.txt`, confirm "quest progress was carried over". Make `saves/` read-only mid-session and confirm the journal line says progress could not be saved.
 
 ## M7 — Polish and accessibility
 - [ ] Add key remapping and adjustable UI scale.

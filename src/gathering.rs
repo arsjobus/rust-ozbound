@@ -70,6 +70,14 @@ impl GatheringNode {
     /// How many actions the node offers when full (what [`GatheringNode::restock`] restores).
     pub fn capacity(&self) -> u32 { self.capacity }
 
+    /// Sets how many actions are left, for restoring a saved world. Refuses a number above the
+    /// node's capacity (returning `false` and changing nothing).
+    pub fn set_remaining(&mut self, remaining: u32) -> bool {
+        if remaining > self.capacity { return false; }
+        self.remaining = remaining;
+        true
+    }
+
     /// Brings a spent node back to full. Only a depleted node is restocked, so a respawn
     /// timer firing late can never top up a node the player is still working on.
     /// Returns whether the node was restocked.
@@ -120,6 +128,18 @@ pub fn validate_node_placement(map: &WorldMap, pos: TilePos, kind: ResourceKind)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_remaining_restores_a_saved_node_but_never_above_capacity() {
+        let mut node = GatheringNode::new(ResourceKind::Tree, 3, 1);
+        assert!(node.set_remaining(1));
+        assert_eq!(node.remaining_actions(), 1);
+        assert!(!node.set_remaining(4));
+        assert_eq!(node.remaining_actions(), 1, "a refused restore changes nothing");
+        assert!(node.set_remaining(0));
+        assert!(node.is_depleted());
+        assert!(node.restock(), "a node restored as spent still grows back");
+    }
     #[test]
     fn successful_gathering_adds_yield_and_depletes_node() {
         let mut node = GatheringNode::new(ResourceKind::Tree, 2, 3);

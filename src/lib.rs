@@ -20,6 +20,8 @@ pub mod quest_store;
 pub mod quest_save;
 pub mod quests;
 pub mod respawn;
+pub mod save;
+pub mod save_store;
 pub mod scene;
 pub mod skills;
 pub mod village;

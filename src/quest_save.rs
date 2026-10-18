@@ -1,7 +1,8 @@
 //! Saving and loading the quest log as versioned plain text, independent of rendering.
 //!
 //! Pure Rust (no Bevy, no file I/O): `to_text` and `from_text` convert between a `QuestLog` and
-//! a string. The save system (roadmap M6) decides where the text lives and writes it safely.
+//! a string. The full save (`save.rs`) writes its quest lines in this same format, and
+//! `save_store.rs` decides where the text lives and writes it safely.
 //!
 //! Format, version 1 (one quest per line, in the order the quests were started):
 //!

@@ -16,8 +16,9 @@ use ozbound::{
     level::Level,
     pathfinding::Approach,
     quests::QuestLog,
-    skills::Skills,
     respawn::RespawnTimer,
+    save::SaveGame,
+    skills::Skills,
     talk::Talk,
     task::Task,
     world::{TilePos, WorldMap},
@@ -43,7 +44,7 @@ pub struct GameProgress {
     pub journal: String,
     pub inventory: Inventory,
     pub equipment: Equipment,
-    /// Skill XP and levels (not saved yet; see M6).
+    /// Skill XP and levels.
     pub skills: Skills,
 }
 
@@ -68,14 +69,21 @@ pub struct PackRowButton(pub usize);
 #[derive(Resource, Default)]
 pub struct TalkState(pub Option<Talk>);
 
-/// Where quest progress is saved. `enabled` is false when an unreadable save was found at
-/// startup, so that file is never overwritten. `saved` is the log as last written.
+/// Where the game is saved. `enabled` is false when an unreadable save was found at startup (or a
+/// write failed), so that file is never overwritten. `saved` is the game as last written, and
+/// `idle` the seconds since the last check for changes.
 #[derive(Resource)]
-pub struct QuestSave {
+pub struct SaveState {
     pub path: PathBuf,
     pub enabled: bool,
-    pub saved: QuestLog,
+    pub saved: SaveGame,
+    pub idle: f32,
 }
+
+/// The game as it was when the program started (a loaded save or a new game). `setup` reads it
+/// to place the player and to leave out the moonpetals already picked and the nodes already used.
+#[derive(Resource)]
+pub struct StartingSave(pub SaveGame);
 
 /// Who a character is in the dialogue file (`npc = ...`).
 #[derive(Component)]
@@ -85,7 +93,7 @@ pub struct Npc(pub String);
 #[derive(Component)]
 pub struct Creature(pub String);
 
-/// The bestiary and what the player has met so far (kept in memory; saving is M6).
+/// The bestiary and what the player has met so far.
 #[derive(Resource)]
 pub struct Wildlife {
     pub bestiary: Bestiary,

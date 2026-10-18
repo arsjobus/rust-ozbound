@@ -16,6 +16,8 @@ use ozbound::{
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
     interaction::InteractionKind,
     level::{NodeSpawn, SignSpawn},
+    respawn::RespawnTimer,
+    save::WorldChanges,
     scene,
     task::Task,
     world::{Tile, TilePos, WorldMap},
@@ -38,10 +40,32 @@ fn pick_box(map: &WorldMap, tile: TilePos, half: f32, height: f32) -> ([f32; 3],
     ([c[0] - half, 0.0, c[2] - half], [c[0] + half, height, c[2] + half])
 }
 
+/// The gathering rules for a node, set to what the save says is left on it (if it was used).
+fn node_for(spawn: &NodeSpawn, saved: &WorldChanges) -> GatheringNode {
+    let mut node = GatheringNode::new(spawn.kind, spawn.actions, spawn.yield_per_action);
+    if let Some(left) = saved.node_remaining(spawn.tile) {
+        node.set_remaining(left);
+    }
+    node
+}
+
+/// A node that was saved as spent starts the game spent: its crop, crown, or flecks are hidden
+/// and its regrowth clock starts now (timers are not saved).
+fn show_spent(commands: &mut Commands, root: Entity, spent_visual: Entity, node: &GatheringNode) {
+    if !node.is_depleted() {
+        return;
+    }
+    commands.entity(spent_visual).insert(Visibility::Hidden);
+    if let Some(seconds) = node.kind().respawn_seconds() {
+        commands.entity(root).insert(Respawning(RespawnTimer::new(seconds)));
+    }
+}
+
 pub fn setup(
     mut commands: Commands,
     meadow: Res<Meadow>,
     level: Res<LevelData>,
+    saved: Res<StartingSave>,
     wildlife: Res<Wildlife>,
     mut portraits: ResMut<Portraits>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -51,6 +75,7 @@ pub fn setup(
 ) {
     let map = &meadow.0;
     let level = &level.0;
+    let changes = &saved.0.changes;
     let kit = Kit::new(&mut meshes, &mut materials);
 
     // Click markers: a yellow cross for walking, a red one for interacting.
@@ -112,8 +137,10 @@ pub fn setup(
                     let (root, crown) = models::spawn_tree(&mut commands, &kit, at, yaw, scale, leaf);
                     if let Some(node) = nodes.get(&pos).filter(|n| n.kind == ResourceKind::Tree) {
                         let (pick_min, pick_max) = pick_box(map, pos, 0.45, 2.5 * scale);
+                        let gathering = node_for(node, changes);
+                        show_spent(&mut commands, root, crown, &gathering);
                         commands.entity(root).insert((
-                            ResourceNode(GatheringNode::new(node.kind, node.actions, node.yield_per_action)),
+                            ResourceNode(gathering),
                             SpentVisual(crown),
                             Interactable { kind: InteractionKind::ChopDown, name: "tree", tile: pos, approach: InteractionKind::ChopDown.approach(), pick_min, pick_max },
                         ));
@@ -126,8 +153,10 @@ pub fn setup(
                     let (root, flecks) = models::spawn_rock(&mut commands, &kit, at, yaw, scale, shade, node.is_some());
                     if let (Some(node), Some(flecks)) = (node, flecks) {
                         let (pick_min, pick_max) = pick_box(map, pos, 0.5, 1.0);
+                        let gathering = node_for(node, changes);
+                        show_spent(&mut commands, root, flecks, &gathering);
                         commands.entity(root).insert((
-                            ResourceNode(GatheringNode::new(node.kind, node.actions, node.yield_per_action)),
+                            ResourceNode(gathering),
                             SpentVisual(flecks),
                             Interactable { kind: InteractionKind::Mine, name: "copper vein", tile: pos, approach: InteractionKind::Mine.approach(), pick_min, pick_max },
                         ));
@@ -152,8 +181,12 @@ pub fn setup(
         }
     }
 
-    // Three moonpetals along the path. They are picked up by clicking them.
+    // Moonpetals along the path. They are picked up by clicking them.
     for (i, tile) in level.moonpetals.iter().copied().enumerate() {
+        // A petal picked in an earlier session stays picked.
+        if changes.is_picked(tile) {
+            continue;
+        }
         if let Err(error) = validate_node_placement(map, tile, ResourceKind::Moonpetal) {
             error!("skipping moonpetal at {tile:?}: {error:?}");
             continue;
@@ -189,8 +222,10 @@ pub fn setup(
         };
         let (pick_min, pick_max) = pick_box(map, pos, 0.42, height);
         let kind = InteractionKind::Forage;
+        let gathering = node_for(spawn, changes);
+        show_spent(&mut commands, root, crop, &gathering);
         commands.entity(root).insert((
-            ResourceNode(GatheringNode::new(spawn.kind, spawn.actions, spawn.yield_per_action)),
+            ResourceNode(gathering),
             SpentVisual(crop),
             Interactable { kind, name: spawn.kind.label(), tile: pos, approach: kind.approach(), pick_min, pick_max },
         ));
@@ -268,9 +303,11 @@ pub fn setup(
     let ambience = sounds.add(AudioSource { bytes: wav.into() });
     commands.spawn((AudioPlayer::new(ambience), PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::new(0.35))));
 
-    // The player.
-    let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, start_at, 0.0);
-    commands.entity(player).insert(Player { tile: level.player_start, task: Task::idle(), work: None });
+    // The player stands where the save left them (the level's start in a new game).
+    let player_tile = saved.0.player;
+    let player_at = vec3(map.tile_center_3d(player_tile, 0.0));
+    let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, player_at, 0.0);
+    commands.entity(player).insert(Player { tile: player_tile, task: Task::idle(), work: None });
 
     // A wide dark floor under the meadow so the map edge doesn't float in the sky colour.
     commands.spawn((
@@ -289,7 +326,7 @@ pub fn setup(
     ));
 
     // Camera: starts south of the player looking north; `Rig` keeps it following afterwards.
-    let rig = Rig::new(start_at + Vec3::Y * 0.9);
+    let rig = Rig::new(player_at + Vec3::Y * 0.9);
     commands.spawn((Camera3d::default(), rig.camera_transform(), MainCamera));
     commands.insert_resource(rig);
 

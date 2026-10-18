@@ -60,6 +60,16 @@ The first build downloads Bevy and its dependencies. No account, game server, an
 - **Data ownership.** Plan saves as local files with a documented, versioned format.
 - **Incremental scope.** Build a small vertical slice before adding expansive systems.
 
+## Saving
+
+Ozbound saves your game by itself: about a second after anything changes, and once more when you quit. The save is one plain-text file, `saves/game.txt` (set `OZBOUND_SAVE=path` to use another file, for example one per map). It holds where you stand, your bag and worn gear, skill XP, quest progress, the creatures you have met, which moonpetals you have picked, and which trees, veins, and plants have been used. A tree, vein, or plant that was spent when you quit is spent when you return and starts growing back again; moonpetals never grow back.
+
+- **Safe writes.** Each save is written to `game.txt.tmp`, flushed, and renamed over `game.txt`, so a crash while saving leaves the previous save whole.
+- **Bad saves are never overwritten.** If the file cannot be read (a hand edit, damage, a save from another map, a newer game version), the game says so with the file name and line, starts a new game, and does *not* save this session, so your progress stays where it is. Fix the line, or move the file aside to start fresh.
+- **Backup.** Every time a save loads successfully, the game copies it to `saves/game.txt.bak`. To go back to it, copy that file over `game.txt` while the game is closed.
+- **Old saves.** Versions before M6 kept only quest progress in `saves/quests.txt`. If there is no `game.txt` yet, that file is read once and carried into the new save; it is left where it is.
+- **Format.** Versioned (`ozbound-save 1`), documented at the top of `src/save.rs`. The save is checked against the world it is loaded into, and nothing is loaded partly. Delete `saves/` to start over; the folder is not tracked by git.
+
 ## Roadmap
 
 See [`ROADMAP.md`](ROADMAP.md) for milestones and acceptance criteria.
@@ -86,7 +96,7 @@ The game rules are now separated into pure Rust modules under `src/`:
 
 ### Quests and dialogue in the game
 
-Talking to the village guide opens a dialogue panel (click a choice or press 1-9; Esc or walking away closes it). Quests and conversations come from `assets/quests/meadow.quest` and `assets/dialogue/meadow.dialogue` (override with `OZBOUND_QUESTS` / `OZBOUND_DIALOGUE`; absent default files fall back to built-in copies, invalid files stop startup with file and line). The HUD shows a quest tracker, **J** opens the journal, and quest progress is saved to `saves/quests.txt` (`OZBOUND_QUEST_SAVE` to change; the bag and world are not saved until M6).
+Talking to the village guide opens a dialogue panel (click a choice or press 1-9; Esc or walking away closes it). Quests and conversations come from `assets/quests/meadow.quest` and `assets/dialogue/meadow.dialogue` (override with `OZBOUND_QUESTS` / `OZBOUND_DIALOGUE`; absent default files fall back to built-in copies, invalid files stop startup with file and line). The HUD shows a quest tracker, and **J** opens the journal. The whole game is saved automatically (see *Saving* below).
 
 Moonpetal collection in the Bevy prototype now adds the item to a 20-slot inventory and shows inventory counts in the HUD. The map, generic gathering nodes, and shared interaction helper are domain foundations for the next integration pass; the visual meadow still uses placeholder shapes.
 
@@ -152,13 +162,13 @@ These are tested without a window, including a full play-through of the moonpeta
 - `pack.rs`: the crafting-and-gear panel as data (rows, what choosing one does, the bag and equipment lines), so it is tested without a window.
 - New gatherables in the meadow: meadowmint patches and honeyberry bushes. They grow back after about 20 to 25 seconds.
 
-The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/ARCHITECTURE.md`. Bag contents and equipment are not saved yet (that arrives with M6).
+The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/ARCHITECTURE.md`. Bag contents and equipment are part of the save file (see *Saving* below).
 
 ## Skills and progression (M4)
 
 - `skills.rs`: Foraging, Woodcraft, Herbalism, and Wayfinding, levels 1-10. XP to reach level L is `30 x (L-1)^2` (30, 120, 270, ... 2430). Gathering, crafting, and walking teach XP, and each source stops teaching at a ceiling level so easy repetition cannot max a skill.
 - Recipes can say `require = woodcraft 3` and `xp = woodcraft 40 6`; dialogue can say `skill herbalism at_least 2` (or `below 2`). The copper charm needs Woodcraft 3, mint tea needs Herbalism 2, and the guide's mint quest needs Herbalism 2.
-- The HUD and the `C` panel show your skill levels and progress. The game refuses to start if content asks for a level nothing can teach. Skills are not saved yet (M6).
+- The HUD and the `C` panel show your skill levels and progress. The game refuses to start if content asks for a level nothing can teach. Skills are part of the save file (see *Saving* below).
 
 ## v0.5 Hollowmere vertical slice
 
