@@ -166,8 +166,6 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Manual check (needs a window; not covered by unit tests): pick two moonpetals, chop a tree until spent, forage once, equip a staff, and quit with Esc; confirm `saves/game.txt` exists; restart and confirm you stand where you left, the two petals are gone, the tree is spent and grows back after about 30 s, and the bag, gear, skills line, and journal match. Close the window with its close button instead of Esc and confirm the last action was kept. Add `?` to a line of `saves/game.txt` and confirm the game starts fresh, says the save could not be read, names the line on the console, and leaves the file unchanged after you quit. Copy `game.txt.bak` over `game.txt` and confirm it loads. With only an old `saves/quests.txt`, confirm "quest progress was carried over". Make `saves/` read-only mid-session and confirm the journal line says progress could not be saved.
 
 ## M7 — Polish and accessibility
-- [ ] Add key remapping and adjustable UI scale.
-- [ ] Add a keyboard path for click-to-move and click-to-interact (for example Tab to cycle nearby targets, Enter to act), so mouse-first play is not required.
 - [ ] Add readable dialogue, quest, inventory, and settings panels.
 - [ ] Add pause menu and audio controls.
 - [ ] Add performance profiling and a basic smoke-test checklist.
