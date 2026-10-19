@@ -11,6 +11,7 @@ use ozbound::{
     journal::describe_update,
     pack::{self, PackAction, PackRow},
     quests::QuestEvent,
+    text_fit::{chars_per_line, wrap_text, PACK_INFO_PX, PACK_PANEL, PACK_ROW_PX, PACK_TITLE_PX, ROW_PAD, ROW_PAD_X},
 };
 
 use crate::components::*;
@@ -100,17 +101,20 @@ pub fn sync_pack_ui(
             commands.entity(panel).with_children(|panel| {
                 panel.spawn((
                     Text::new("CRAFTING & GEAR (C or Esc to close)"),
-                    TextFont { font_size: 21.0, ..default() },
+                    TextFont { font_size: PACK_TITLE_PX, ..default() },
                     TextColor(Color::srgb(1.0, 0.92, 0.5)),
                 ));
                 panel.spawn((
-                    Text::new(format!(
-                        "{}\n{}\n{}",
-                        pack::bag_line(&progress.inventory),
-                        pack::equipment_line(&progress.equipment),
-                        progress.skills.summary_line()
+                    Text::new(wrap_text(
+                        &format!(
+                            "{}\n{}\n{}",
+                            pack::bag_line(&progress.inventory),
+                            pack::equipment_line(&progress.equipment),
+                            progress.skills.summary_line()
+                        ),
+                        chars_per_line(PACK_PANEL.inner_width(), PACK_INFO_PX),
                     )),
-                    TextFont { font_size: 17.0, ..default() },
+                    TextFont { font_size: PACK_INFO_PX, ..default() },
                     TextColor(Color::srgb(0.8, 0.85, 0.9)),
                     Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
                 ));
@@ -120,14 +124,14 @@ pub fn sync_pack_ui(
                     panel
                         .spawn((
                             Button,
-                            Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                            Node { padding: UiRect::axes(Val::Px(ROW_PAD_X), Val::Px(ROW_PAD)), ..default() },
                             BackgroundColor(ROW_IDLE),
                             PackRowButton(index),
                         ))
                         .with_children(|button| {
                             button.spawn((
-                                Text::new(format!("{number}{}", row.text)),
-                                TextFont { font_size: 18.0, ..default() },
+                                Text::new(wrap_text(&format!("{number}{}", row.text), chars_per_line(PACK_PANEL.inner_width() - 2.0 * ROW_PAD_X, PACK_ROW_PX))),
+                                TextFont { font_size: PACK_ROW_PX, ..default() },
                                 TextColor(colour),
                             ));
                         });

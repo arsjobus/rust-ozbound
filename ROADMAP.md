@@ -166,13 +166,60 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Manual check (needs a window; not covered by unit tests): pick two moonpetals, chop a tree until spent, forage once, equip a staff, and quit with Esc; confirm `saves/game.txt` exists; restart and confirm you stand where you left, the two petals are gone, the tree is spent and grows back after about 30 s, and the bag, gear, skills line, and journal match. Close the window with its close button instead of Esc and confirm the last action was kept. Add `?` to a line of `saves/game.txt` and confirm the game starts fresh, says the save could not be read, names the line on the console, and leaves the file unchanged after you quit. Copy `game.txt.bak` over `game.txt` and confirm it loads. With only an old `saves/quests.txt`, confirm "quest progress was carried over". Make `saves/` read-only mid-session and confirm the journal line says progress could not be saved.
 
 ## M7 — Polish and accessibility
-- [ ] Add readable dialogue, quest, inventory, and settings panels.
-- [ ] Add pause menu and audio controls.
-- [ ] Add performance profiling and a basic smoke-test checklist.
-- [ ] Test settings validation and UI state transitions where practical.
+- [x] Add readable dialogue, quest, inventory, and settings panels.
+  - Done: `text_fit.rs` owns each panel's geometry and wraps text to its width (the default font is monospaced, so this is exact enough to measure); dialogue, crafting-and-gear, journal, HUD, hover label, and pause menu all use it. The journal (quests and field notes) is split into pages (PageUp/PageDown). Settings (volume, ambient sound, text size, overlay) are a pause-menu page; text size scales the whole UI and is lowered by `fit_scale` when the window is small. The window cannot be resized below 800 x 600.
+  - Not done: the bag is still a text line in the HUD and the crafting panel; there is no separate inventory grid.
+- [x] Add pause menu and audio controls.
+  - Done: `pause.rs` (state machine, tested), `pause_ui.rs` (Bevy). Esc closes the most urgent open thing and, with nothing open, pauses; the clock stops (`Time<Virtual>`) and gameplay input stands aside. Rows: Resume, Settings, Controls, Quit. Volume 0-10 and an ambient on/off switch change the loop live. **Behaviour change:** Esc no longer quits by itself; Quit is a menu row.
+  - Settings are a versioned plain-text file (`saves/settings.txt`, `ozbound-settings 1`, `settings.rs`), written at once through a temp file and rename; a file that cannot be read is reported with file and line, replaced by the defaults for the session, and never overwritten (`settings_store.rs`, `OZBOUND_SETTINGS`).
+- [x] Add performance profiling and a basic smoke-test checklist.
+  - Done: `perf.rs` frame statistics; F3 (or the pause menu) shows fps, average, 1% low, and worst frame; `OZBOUND_PROFILE=1` prints a session summary on exit. `docs/SMOKE_TEST.md` is the checklist.
+  - Not done: no profiling numbers from real hardware are recorded yet (the checklist has a blank for them).
+- [x] Test settings validation and UI state transitions where practical.
+  - Done: unit tests for the settings format (every error names its line), the settings store, every pause-menu key on every page, the Esc priority rule (all 32 combinations of open panels), text wrapping/pagination/scale limits, keyboard targeting and WASD directions, and frame statistics.
   - Acceptance: all essential actions are reachable without a mouse; no critical text is clipped at supported resolutions.
+  - Met by: WASD steps, Tab/Shift+Tab/Enter/Space/X targeting, 1-9, J/C, camera arrows and +/- zoom, and the pause menu need no mouse. `tests/accessibility_playthrough.rs` proves that keyboard steps reach exactly the tiles the mouse can at every camera angle, that Tab offers every person, plant, tree, vein, sign, creature, and petal and each walk ends in reach, that no conversation has more than nine choices and the crafting panel never has more than nine rows (so number keys reach everything), and that every shipped dialogue step, the crafting panel with a full bag, every pause page, and the paged journal fit the smallest supported window.
+  - Limits, stated plainly: clipping is checked by calculation from the font's character width, not by looking at a rendered window, and no hardware profiling was done. Run `docs/SMOKE_TEST.md` on a real display before trusting either. The right-click menu itself is mouse-only, but every action in it has a keyboard route.
 
-## M8 — Optional future directions (not committed)
+## M8 - Improved HUD and Chat Area
+- [ ] Add a chat area to resceive chat messages or examine object messages
+- [ ] Change the HUD to no longer display examine object messages upon player examination
+- [ ] Player sound be able to type basic emotes like /wave /dance /cheer and should animate the player briefly to match
+- [ ] HUD need not display the working title of the game or the control options
+- [ ] Move the player's bag into it's own standalone UI with a button to toggle it opened / closed and hotkey as [b]
+- [ ] Move the player's skills tracking into it's own standalone UI with a button to toggle it opened / closed
+- [ ] Move the player's journal into it's own standalone UI with a button a button to toggle it opened / closed in kind of a quest book
+- [ ] The sign messages should be readable using the similar dialogue box UI that's used for NPC speech and options
+- [ ] The initial HUD that appeared in the upper left shouldn't take up the screen anylonger since we've broke it apart
+
+## M9 - Build Out the Eastern Village (Starting Area)
+- [ ] Continue building out a larger world split into local map regions (separate scene assets).
+- [ ] Each area has it's own background music theme with music playing from bgm folder. (mp4, wav, ogg).
+- [ ] Non-harvestable trees should be a different low-poly model to make an untraversable thicket
+- [ ] Add at least one basic house that the player can walk inside as a reusable asset
+- [ ] Build out multiple plots with the houses placed on each plot featuring gardens and vineyards nearby
+- [ ] Make a better bridge model that looks like a wooden bridge and replace bridges with it
+
+## M10 - NPC Behaviors Walk n Talk
+- [ ] Set up behavior tree system that can be used by all NPCs
+- [ ] Some NPCs can be configured to be stationary and others may have a wander range that they will be able to roam around
+- [ ] NPCs should be able to do the same animated emotes as the player. I.e. /wave /dance /cheer etc..
+- [ ] NPCs engaged in conversation with the player shouldn't move away and they should face the player
+- [ ] NPCs should perform the wave emote when the player stops speaking with them
+
+## M11 - WebGL Build
+- [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
+
+## M12 - Editor Mode and Basic Adjustments
+- [ ] Should design this system in such a way that the game world and assets could be networked for multiplayer
+- [ ] Should be able to enter world edit mode with the /edit command
+- [ ] Should convert in game objects and NPCs to some standalone reusable asset files
+- [ ] Should convert the low-poly terrain into a stitchable terrain mesh that belongs to a scene
+- [ ] Should be able to select an NPC or game object asset and reposition it within a scene
+- [ ] Should be able to select and choose to remove an asset from a scene
+- [ ] Should be able to undo / redo each edit
+
+## M13 — Optional future directions (not committed)
 - [ ] Consider controller support.
 - [ ] Consider a larger world split into local map regions.
 - [ ] Evaluate multiplayer only if there is a compelling reason; do not make it a prerequisite.

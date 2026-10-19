@@ -23,6 +23,8 @@ use ozbound::{
     world::{Tile, TilePos, WorldMap},
 };
 
+use ozbound::text_fit::{DIALOGUE_PANEL, JOURNAL_PANEL, JOURNAL_PX, MARGIN, PACK_PANEL, PAUSE_PANEL, ROW_GAP};
+
 use crate::camera_rig::Rig;
 use crate::components::*;
 use crate::models::{self, Kit};
@@ -72,6 +74,7 @@ pub fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut sounds: ResMut<Assets<AudioSource>>,
+    settings: Res<UserSettings>,
 ) {
     let map = &meadow.0;
     let level = &level.0;
@@ -301,7 +304,12 @@ pub fn setup(
     // Ambient sound: wind and distant birds, generated in code and looped quietly.
     let wav = ambient::meadow_loop_wav(24);
     let ambience = sounds.add(AudioSource { bytes: wav.into() });
-    commands.spawn((AudioPlayer::new(ambience), PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::new(0.35))));
+    // Its volume follows the settings (`settings_ui::apply_settings` keeps it in step afterwards).
+    commands.spawn((
+        AudioPlayer::new(ambience),
+        PlaybackSettings::LOOP.with_volume(bevy::audio::Volume::new(settings.0.ambient_gain())),
+        AmbientSound,
+    ));
 
     // The player stands where the save left them (the level's start in a new game).
     let player_tile = saved.0.player;
@@ -351,9 +359,16 @@ pub fn setup(
     // Journal panel (toggled with J): `hud::update_journal_panel` fills in the text.
     commands.spawn((
         Text::new(""),
-        TextFont { font_size: 17.0, ..default() },
+        TextFont { font_size: JOURNAL_PX, ..default() },
         TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, top: Val::Px(10.0), right: Val::Px(10.0), width: Val::Px(400.0), padding: UiRect::all(Val::Px(10.0)), ..default() },
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(JOURNAL_PANEL.offset),
+            right: Val::Px(MARGIN),
+            width: Val::Px(JOURNAL_PANEL.width),
+            padding: UiRect::all(Val::Px(JOURNAL_PANEL.padding)),
+            ..default()
+        },
         BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.88)),
         Visibility::Hidden,
         JournalPanel,
@@ -364,12 +379,12 @@ pub fn setup(
         Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
-            bottom: Val::Px(70.0),
-            width: Val::Px(640.0),
-            margin: UiRect::left(Val::Px(-320.0)),
-            padding: UiRect::all(Val::Px(14.0)),
+            bottom: Val::Px(DIALOGUE_PANEL.offset),
+            width: Val::Px(DIALOGUE_PANEL.width),
+            margin: UiRect::left(Val::Px(-DIALOGUE_PANEL.width / 2.0)),
+            padding: UiRect::all(Val::Px(DIALOGUE_PANEL.padding)),
             flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(6.0),
+            row_gap: Val::Px(ROW_GAP),
             ..default()
         },
         BackgroundColor(Color::srgba(0.07, 0.06, 0.10, 0.94)),
@@ -383,10 +398,10 @@ pub fn setup(
         Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
-            top: Val::Px(120.0),
-            width: Val::Px(620.0),
-            margin: UiRect::left(Val::Px(-310.0)),
-            padding: UiRect::all(Val::Px(14.0)),
+            top: Val::Px(PACK_PANEL.offset),
+            width: Val::Px(PACK_PANEL.width),
+            margin: UiRect::left(Val::Px(-PACK_PANEL.width / 2.0)),
+            padding: UiRect::all(Val::Px(PACK_PANEL.padding)),
             flex_direction: FlexDirection::Column,
             row_gap: Val::Px(4.0),
             ..default()
@@ -404,5 +419,35 @@ pub fn setup(
         GlobalZIndex(10),
         Visibility::Hidden,
         ContextMenuPanel,
+    ));
+
+    // Pause menu panel: hidden until Esc; `pause_ui::sync_pause_ui` fills in the rows.
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Px(PAUSE_PANEL.offset),
+            width: Val::Px(PAUSE_PANEL.width),
+            margin: UiRect::left(Val::Px(-PAUSE_PANEL.width / 2.0)),
+            padding: UiRect::all(Val::Px(PAUSE_PANEL.padding)),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(ROW_GAP),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.07, 0.06, 0.10, 0.96)),
+        GlobalZIndex(20),
+        Visibility::Hidden,
+        PausePanel,
+    ));
+
+    // Frame-time overlay (F3, or Frame-time overlay in the pause menu): bottom right.
+    commands.spawn((
+        Text::new("measuring..."),
+        TextFont { font_size: 16.0, ..default() },
+        TextColor(Color::srgb(0.7, 1.0, 0.7)),
+        Node { position_type: PositionType::Absolute, bottom: Val::Px(MARGIN), right: Val::Px(MARGIN), padding: UiRect::all(Val::Px(4.0)), ..default() },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.55)),
+        Visibility::Hidden,
+        PerfHud,
     ));
 }

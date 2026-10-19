@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use ozbound::{
     bestiary::{Bestiary, FieldNotes},
+    pause::PauseMenu,
+    perf::FrameStats,
+    settings::Settings,
     content::Content,
     context_menu::MenuEntry,
     crafting::RecipeBook,
@@ -228,3 +231,52 @@ pub struct ContextMenuPanel;
 /// One clickable row of the menu panel; the index matches `OpenMenu::entries`.
 #[derive(Component)]
 pub struct MenuRow(pub usize);
+
+/// The player's settings (volume, text size, overlay). Systems read this; `settings_ui` applies it.
+#[derive(Resource)]
+pub struct UserSettings(pub Settings);
+
+/// Where the settings file is, whether it may be written (false after an unreadable file was
+/// found or a write failed, so the player's file is never clobbered), and what was last written.
+#[derive(Resource)]
+pub struct SettingsStore {
+    pub path: PathBuf,
+    pub enabled: bool,
+    pub saved: Settings,
+}
+
+/// The pause menu while it is open. While it is, the game clock is stopped and every gameplay
+/// input system stands aside (see `main.rs`, `pause_ui.rs`).
+#[derive(Resource, Default)]
+pub struct Pause(pub Option<PauseMenu>);
+
+/// The panel that shows the pause menu.
+#[derive(Component)]
+pub struct PausePanel;
+
+/// One clickable row of the pause menu; the index matches `PauseMenu::lines`.
+#[derive(Component)]
+pub struct PauseRow(pub usize);
+
+/// Whether the journal (J) is open and which page of it is showing.
+#[derive(Resource, Default)]
+pub struct JournalState {
+    pub open: bool,
+    pub page: usize,
+}
+
+/// The thing chosen with Tab, if any (see `keyboard.rs`).
+#[derive(Resource, Default)]
+pub struct KeyTarget(pub Option<Entity>);
+
+/// Recent frame times for the overlay and the exit summary.
+#[derive(Resource, Default)]
+pub struct PerfStats(pub FrameStats);
+
+/// The frame-time overlay text.
+#[derive(Component)]
+pub struct PerfHud;
+
+/// The looping ambient sound, so its volume can follow the settings.
+#[derive(Component)]
+pub struct AmbientSound;

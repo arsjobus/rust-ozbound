@@ -40,25 +40,41 @@ The first build downloads Bevy and its dependencies. No account, game server, an
 
 ## Controls
 
+Everything can be done from the keyboard; the mouse is optional. The same list is in the game (Esc, then Controls).
+
 | Input | Action |
 |---|---|
 | Left-click ground | Walk to that tile |
-| Left-click tree, copper vein, moonpetal, or the guide | Walk beside it, then chop / mine / pick / talk |
+| Left-click tree, copper vein, moonpetal, the guide, a sign, or a creature | Walk beside it (or onto it), then chop / mine / pick / talk / read / approach |
 | Left-click a meadowmint patch or honeyberry bush | Walk onto it, then forage until it is spent |
+| Right-click | Action menu for what is under the cursor |
+| W A S D | Take one step, relative to the camera; hold to keep walking |
+| Tab / Shift+Tab | Select the next / previous thing worth visiting (nearest first); the hover label says what it is and how far |
+| Enter or Space | Go to the selected thing and use it (with nothing selected, the nearest) |
+| X | Examine the selected thing |
+| 1-9 | Pick a numbered row in a conversation or the crafting panel |
+| J | Open or close the journal; PageUp / PageDown turn its pages |
 | C | Open or close the crafting-and-gear panel (click a row, or press 1-9) |
-| Hover | Shows the action a click would perform |
 | Middle-mouse drag, or arrow keys | Turn and tilt the camera |
-| Scroll wheel | Zoom |
-| Esc | Close the open panel, otherwise quit |
+| Scroll wheel, or + / - | Zoom |
+| F3 | Show or hide the frame-time overlay |
+| Esc | Close the most urgent open thing (pause menu, right-click menu, conversation, crafting panel, journal); with nothing open, open the pause menu |
 
-## Project principles
+## Pause menu and settings
 
-- **Single-player and local-first by default.** No accounts, telemetry, or online dependency in the starter.
-- **Human-directed play.** No engagement tricks, daily streaks, or manipulative reward loops.
-- **Understandable architecture.** Keep game rules in small Rust modules that can be tested without launching a window.
-- **Test every feature.** Every roadmap feature includes unit-test work and explicit acceptance criteria.
-- **Data ownership.** Plan saves as local files with a documented, versioned format.
-- **Incremental scope.** Build a small vertical slice before adding expansive systems.
+Esc with nothing else open pauses the game (the clock stops; the ambient sound keeps playing so you can hear volume changes). Use Up / Down, Enter or Space, Left / Right, and Esc, or click:
+
+- **Settings**: master volume (0-10), ambient sound on/off, text size (Normal / Large / Larger), and the frame-time overlay.
+- **Controls**: the list above.
+- **Quit game**: the only way Esc ever leaves the game; progress is saved on exit as before. Closing the window also saves.
+
+Settings are saved at once to `saves/settings.txt` (set `OZBOUND_SETTINGS=path` to use another file). It is a small plain-text file with a version header (`ozbound-settings 1`, documented at the top of `src/settings.rs`); delete it to go back to the defaults. Like the save, it is written through a temporary file and a rename, and a file that cannot be read is reported with its file name and line, replaced by the defaults for that session, and **never overwritten**.
+
+Text size scales the whole interface. The smallest supported window is 800 x 600; in a small window a large size is lowered just enough for every panel to fit, so text is never clipped. Long text is wrapped to its panel, and a long journal is split into pages.
+
+## Performance
+
+F3 (or the pause menu) shows a frame-time overlay: frames per second over the last two seconds, the average and 1% low frame time, and the worst frame. Start the game with `OZBOUND_PROFILE=1` to also print a session summary (frames, average, worst, slow frames) on exit. `docs/SMOKE_TEST.md` is the checklist to run before a release.
 
 ## Saving
 

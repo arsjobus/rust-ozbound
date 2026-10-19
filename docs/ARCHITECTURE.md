@@ -14,7 +14,10 @@ src/
 ├── animation.rs     # Visual-only: limb swings, floating collectables
 ├── camera_rig.rs    # Orbit camera that follows the player
 ├── menu.rs          # INPUT + UI: right-click menu open/choose, draws the panel
-├── hud.rs           # UI: objective, bag, equipment, journal, hover label
+├── hud.rs           # UI: objective, bag, equipment, hover label; paged journal (J, PageUp/PageDown)
+├── keyboard.rs      # INPUT: WASD steps, Tab/Enter/X target selection (all via targeting.rs)
+├── pause_ui.rs      # INPUT + UI: Esc, the pause menu panel, stopping the clock
+├── settings_ui.rs   # Applies settings (UI scale, volume, overlay), writes the settings file, frame-time overlay
 ├── pack_ui.rs       # INPUT + UI: C opens the crafting-and-gear panel, click/1-9 picks a row
 ├── lib.rs           # Public pure-Rust domain modules (library crate)
 ├── world.rs         # Tile positions, map bounds, walkability (all collision), 3D tile centers
@@ -36,6 +39,12 @@ src/
 ├── bestiary.rs      # Creatures, field notes, and the non-lethal, all-or-nothing `approach` encounter
 ├── appearance.rs    # Character looks as data, plus the 16x16 dialogue portrait drawn from them
 ├── ambient.rs       # Generates the looping ambient WAV in code
+├── settings.rs      # Settings values, validation, versioned text format (ozbound-settings 1)
+├── settings_store.rs# Reads/writes the settings file (temp file + rename, bad files never overwritten)
+├── pause.rs         # Pause menu state machine, controls list, and the rule for what Esc does
+├── targeting.rs     # Keyboard targets (rank, Tab cycling) and WASD step direction/validation
+├── text_fit.rs      # Word wrap, pagination, UI-scale limit, and every panel's geometry
+├── perf.rs          # Frame-time statistics for the overlay and exit summary
 ├── textdata.rs      # Shared reader for plain-text content files (sections, fields, ids, line-numbered errors)
 ├── quests.rs        # Quest definitions (parsed/validated), QuestLog transitions, events and updates
 ├── dialogue.rs      # Dialogue conversations/nodes/choices, conditions and effects, DialogueSession
@@ -90,6 +99,11 @@ src/
 
 - The save (M6) is one file, `saves/game.txt`, read once at startup (`main::restore_game`) and written by `persist.rs`. `save.rs` owns the format and every validation rule (the save is checked against the loaded level, quests, and bestiary, and never loads partly); `save_store.rs` owns the file safety (temp file + flush + rename; an invalid file is never overwritten; `.bak` copy after a good load). `setup.rs` reads `StartingSave` to place the player and to skip picked moonpetals and restore used nodes; after that the ECS is the live state and `persist.rs` snapshots it (`WorldChanges::capture`) and compares with what was last written. Respawn timers are deliberately not saved: a node saved as spent starts regrowing again at load.
 - To change the format: bump `save::FORMAT_VERSION`, keep reading every older version, add a test that loads a saved sample of each, and update the header of `save.rs`.
+
+- M7 (polish and accessibility): every action has a keyboard route that uses the same rules as the mouse. `targeting::rank` plans a route to every candidate with the mouse's own planner, so Tab never offers anything a click could not reach; `targeting::step_to` uses `WorldMap::can_walk_to`. Esc is decided in one place, `pause::on_escape` (pause menu, right-click menu, conversation, crafting panel, journal, then open the pause menu), and applied by `pause_ui::pause_input`; Esc never quits by itself.
+- Pausing stops `Time<Virtual>` and gates the gameplay input systems on `pause_ui::running`. Systems that must keep working while paused (the pause menu, settings, the overlay, which measures `Time<Real>`) are not gated. The pause and settings systems run after the input systems each frame, so a click that resumes the game cannot also walk the player.
+- Nothing clips: `text_fit` owns each panel's width, padding, offset, and font sizes (`DIALOGUE_PANEL`, `PACK_PANEL`, `JOURNAL_PANEL`, `PAUSE_PANEL`), and the Bevy layer builds the panels from those constants and gives them text already wrapped to their inner width. Bevy's default font is monospaced, so the character counts are exact enough to estimate heights; `tests/accessibility_playthrough.rs` checks every shipped dialogue step, the crafting panel with a full bag, every pause page, and the journal against the smallest logical window (`MIN_LOGICAL`, 680 x 520, which an 800 x 600 window always provides at normal text size; larger sizes are scaled down by `fit_scale`). Adding a panel means adding its geometry there and a test.
+- Settings live in their own file, not in the save. `settings_ui::apply_settings` is the only system that writes it; an unreadable file switches writing off for the session.
 
 ## Testing strategy
 

@@ -1,5 +1,5 @@
 //! Third-person orbit camera that follows the player: middle-drag or arrow keys to turn,
-//! scroll wheel to zoom. The angle and distance maths lives in the tested `ozbound::orbit`.
+//! scroll wheel or the + and - keys to zoom. The angle and distance maths lives in the tested `ozbound::orbit`.
 
 use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
@@ -10,6 +10,8 @@ use crate::components::{MainCamera, Player};
 const KEY_TURN_SPEED: f32 = 1.8;
 const MOUSE_TURN_SPEED: f32 = 0.005;
 const ZOOM_PER_NOTCH: f32 = 1.5;
+/// Zoom speed (world units per second) for the + and - keys, the keyboard way to zoom.
+const ZOOM_KEY_SPEED: f32 = 8.0;
 /// Pixel-based scrolling (trackpads) reports many small steps; this converts them to notches.
 const PIXELS_PER_NOTCH: f32 = 40.0;
 
@@ -69,6 +71,13 @@ pub fn update_camera(
             MouseScrollUnit::Pixel => event.y / PIXELS_PER_NOTCH,
         };
         rig.orbit.zoom(-notches * ZOOM_PER_NOTCH);
+    }
+
+    if keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
+        rig.orbit.zoom(-ZOOM_KEY_SPEED * dt);
+    }
+    if keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
+        rig.orbit.zoom(ZOOM_KEY_SPEED * dt);
     }
 
     if let Ok(player) = player.get_single() {

@@ -7,6 +7,9 @@
 //! so does walking away, so the player can never be trapped.
 
 use bevy::prelude::*;
+use ozbound::text_fit::{
+    chars_per_line, wrap_text, CHOICE_PX, DIALOGUE_PANEL, DIALOGUE_PX, PORTRAIT, PORTRAIT_GAP, ROW_PAD, ROW_PAD_X, SPEAKER_PX,
+};
 
 use crate::components::*;
 
@@ -66,21 +69,24 @@ pub fn sync_dialogue_ui(
             Some(active) => {
                 *visibility = Visibility::Inherited;
                 let view = active.view();
+                // The text is wrapped to the room it has, so the panel's height is what the tests measured.
+                let words_width = chars_per_line(DIALOGUE_PANEL.inner_width() - PORTRAIT - PORTRAIT_GAP, DIALOGUE_PX);
+                let choice_width = chars_per_line(DIALOGUE_PANEL.inner_width() - 2.0 * ROW_PAD_X, CHOICE_PX);
                 commands.entity(panel).with_children(|panel| {
                     // Portrait on the left, speaker and words on the right.
-                    panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(14.0), ..default() }).with_children(|row| {
+                    panel.spawn(Node { flex_direction: FlexDirection::Row, column_gap: Val::Px(PORTRAIT_GAP), ..default() }).with_children(|row| {
                         if let Some(image) = portrait.0.clone() {
-                            row.spawn((ImageNode::new(image), Node { width: Val::Px(96.0), height: Val::Px(96.0), flex_shrink: 0.0, ..default() }));
+                            row.spawn((ImageNode::new(image), Node { width: Val::Px(PORTRAIT), height: Val::Px(PORTRAIT), flex_shrink: 0.0, ..default() }));
                         }
                         row.spawn(Node { flex_direction: FlexDirection::Column, row_gap: Val::Px(4.0), flex_shrink: 1.0, ..default() }).with_children(|words| {
                             words.spawn((
                                 Text::new(view.speaker.clone()),
-                                TextFont { font_size: 21.0, ..default() },
+                                TextFont { font_size: SPEAKER_PX, ..default() },
                                 TextColor(Color::srgb(1.0, 0.92, 0.5)),
                             ));
                             words.spawn((
-                                Text::new(view.text.clone()),
-                                TextFont { font_size: 19.0, ..default() },
+                                Text::new(wrap_text(&view.text, words_width)),
+                                TextFont { font_size: DIALOGUE_PX, ..default() },
                                 TextColor(Color::WHITE),
                                 Node { margin: UiRect::bottom(Val::Px(8.0)), ..default() },
                             ));
@@ -90,14 +96,14 @@ pub fn sync_dialogue_ui(
                         panel
                             .spawn((
                                 Button,
-                                Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                                Node { padding: UiRect::axes(Val::Px(ROW_PAD_X), Val::Px(ROW_PAD)), ..default() },
                                 BackgroundColor(ROW_IDLE),
                                 ChoiceRow(index),
                             ))
                             .with_children(|row| {
                                 row.spawn((
-                                    Text::new(format!("{}. {}", index + 1, choice)),
-                                    TextFont { font_size: 18.0, ..default() },
+                                    Text::new(wrap_text(&format!("{}. {}", index + 1, choice), choice_width)),
+                                    TextFont { font_size: CHOICE_PX, ..default() },
                                     TextColor(Color::srgb(0.85, 0.95, 1.0)),
                                 ));
                             });

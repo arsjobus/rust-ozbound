@@ -131,11 +131,11 @@ pub fn order_walk(
     }
 }
 
-fn marker_position(map: &WorldMap, tile: TilePos) -> Vec3 {
+pub fn marker_position(map: &WorldMap, tile: TilePos) -> Vec3 {
     Vec3::from_array(map.tile_center_3d(tile, 0.06))
 }
 
-fn spawn_marker(commands: &mut Commands, assets: &ClickAssets, at: Vec3, interact: bool) {
+pub fn spawn_marker(commands: &mut Commands, assets: &ClickAssets, at: Vec3, interact: bool) {
     let material = if interact { assets.interact.clone() } else { assets.walk.clone() };
     commands
         .spawn((
