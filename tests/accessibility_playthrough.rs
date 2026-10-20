@@ -9,6 +9,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
+use ozbound::chat::{ChatLog, Kind as ChatKind};
 use ozbound::equipment::Equipment;
 use ozbound::interaction::{in_reach, InteractionKind};
 use ozbound::inventory::{Inventory, ItemId};
@@ -21,7 +22,7 @@ use ozbound::settings::{Settings, TextSize};
 use ozbound::skills::Skills;
 use ozbound::targeting::{cycle, rank, step_direction, step_to, Candidate, Dir};
 use ozbound::text_fit::{
-    chars_per_line, dialogue_height, fit_scale, lines_per_page, logical_size, pack_height, paginate, wrap, DIALOGUE_PANEL, JOURNAL_PANEL, JOURNAL_PX,
+    chars_per_line, dialogue_height, CHAT_LINES, CHAT_PANEL, CHAT_PX, fit_scale, lines_per_page, logical_size, pack_height, paginate, DIALOGUE_PANEL, DOCK_PANEL, JOURNAL_PX,
     pause_height, MARGIN, MIN_LOGICAL, MIN_WINDOW, PACK_PANEL, PAUSE_PANEL,
 };
 use ozbound::village::{builtin, World};
@@ -214,8 +215,8 @@ fn the_journal_pages_fit_and_lose_nothing() {
         let _ = log.start(&world.content.quests, &quest.id);
     }
     let text = Journal::build(&world.content.quests, &log).render();
-    let width = chars_per_line(JOURNAL_PANEL.inner_width(), JOURNAL_PX);
-    let per_page = lines_per_page(JOURNAL_PANEL.inner_height(MIN_LOGICAL.1), JOURNAL_PX);
+    let width = chars_per_line(DOCK_PANEL.inner_width(), JOURNAL_PX);
+    let per_page = lines_per_page(DOCK_PANEL.inner_height(MIN_LOGICAL.1), JOURNAL_PX);
     let pages = paginate(&text, width, per_page);
     assert!(!pages.is_empty());
     let mut words = 0;
@@ -230,14 +231,17 @@ fn the_journal_pages_fit_and_lose_nothing() {
 }
 
 #[test]
-fn long_messages_wrap_inside_the_hud_at_the_smallest_window() {
-    // The message line can carry a gathering result, a quest update, and a level-up together.
+fn long_messages_wrap_inside_the_chat_area_at_the_smallest_window() {
+    // A message can carry a gathering result, a quest update, and a level-up together.
     let message = "You gathered 1 from the tree (2 left). Quest updated: A Staff for the Bridgewarden - gather timber (3 / 3). Your Woodcraft level is now 4.";
-    let (logical_width, _) = logical_size(MIN_WINDOW.0, MIN_WINDOW.1, fit_scale(1.5, MIN_WINDOW.0, MIN_WINDOW.1));
-    let width = chars_per_line(logical_width - 2.0 * MARGIN - 420.0, 19.0);
-    let lines = wrap(message, width);
-    assert!(lines.iter().all(|line| line.chars().count() <= width));
-    assert!(lines.len() >= 2, "it really does need wrapping at this width");
+    let width = chars_per_line(CHAT_PANEL.inner_width(), CHAT_PX);
+    let mut log = ChatLog::new();
+    log.push(ChatKind::Game, message);
+    let view = log.view(width, CHAT_LINES);
+    assert!(view.iter().all(|line| line.text.chars().count() <= width));
+    assert!(view.len() >= 2, "it really does need wrapping at this width");
+    let shown: String = view.iter().map(|line| line.text.trim()).collect::<Vec<_>>().join(" ");
+    assert_eq!(shown.split_whitespace().collect::<Vec<_>>(), message.split_whitespace().collect::<Vec<_>>(), "all of the message stays visible");
 }
 
 #[test]
@@ -294,7 +298,7 @@ fn the_largest_text_size_is_reduced_not_clipped_in_a_small_window() {
     let scale = fit_scale(settings.requested_ui_scale(), MIN_WINDOW.0, MIN_WINDOW.1);
     assert!((1.0..1.5).contains(&scale));
     let (logical_width, logical_height) = logical_size(MIN_WINDOW.0, MIN_WINDOW.1, scale);
-    for panel in [DIALOGUE_PANEL, PACK_PANEL, JOURNAL_PANEL] {
+    for panel in [DIALOGUE_PANEL, PACK_PANEL, DOCK_PANEL, CHAT_PANEL] {
         assert!(panel.width + 2.0 * MARGIN <= logical_width + 0.01, "{panel:?}");
         assert!(panel.offset + MARGIN < logical_height);
     }

@@ -312,7 +312,7 @@ pub fn spawn_humanoid(commands: &mut Commands, kit: &Kit, look: &Look, at: Vec3,
         (0.34, 1.13, 0.50, Vec3::new(0.14, 0.50, 0.16), &look.tunic, 1.0, true),
     ];
     for (x, y, length, size, material, swing, is_arm) in limbs {
-        let hinge = commands.spawn((pivot(Transform::from_xyz(x, y, 0.0)), Limb { owner: root, swing, is_arm })).id();
+        let hinge = commands.spawn((pivot(Transform::from_xyz(x, y, 0.0)), Limb { owner: root, swing, is_arm, side: x.signum() })).id();
         let shape = commands.spawn(part(&kit.cube, material, cube(size, -length / 2.0))).id();
         commands.entity(hinge).add_child(shape);
         commands.entity(root).add_child(hinge);

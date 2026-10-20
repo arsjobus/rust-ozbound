@@ -15,9 +15,13 @@ use crate::skills::Skills;
 
 #[derive(Debug, Clone)]
 pub struct Talk {
-    session: DialogueSession,
+    /// `None` for a reading (a sign): one fixed page and a single way out.
+    session: Option<DialogueSession>,
     view: DialogueView,
 }
+
+/// The single choice offered when reading something such as a signpost.
+pub const READING_DONE: &str = "Done reading";
 
 impl Talk {
     /// Starts the conversation with the NPC named `npc` in the dialogue file. Talking to an NPC
@@ -41,7 +45,19 @@ impl Talk {
         let view = session
             .view(&content.dialogue, &ctx)
             .ok_or_else(|| "They have nothing to say right now.".to_string())?;
-        Ok((Self { session, view }, messages))
+        Ok((Self { session: Some(session), view }, messages))
+    }
+
+    /// A page of text with no one to answer, such as a signpost: shown in the same panel as a
+    /// conversation, with one choice ([`READING_DONE`]) that closes it. It changes nothing in
+    /// the game, and Esc or walking away close it like any conversation.
+    pub fn reading(title: &str, text: &str) -> Self {
+        Self { session: None, view: DialogueView { speaker: title.to_string(), text: text.to_string(), choices: vec![READING_DONE.to_string()] } }
+    }
+
+    /// Whether this is a reading rather than a conversation.
+    pub fn is_reading(&self) -> bool {
+        self.session.is_none()
     }
 
     /// What the player currently sees: speaker, text, and the choices offered.
@@ -49,7 +65,7 @@ impl Talk {
         &self.view
     }
 
-    /// Picks the `index`th offered choice. Returns the journal lines the step caused and
+    /// Picks the `index`th offered choice. Returns the chat lines the step caused and
     /// whether the conversation is still open. An index that is not offered changes nothing.
     pub fn choose(
         &mut self,
@@ -59,11 +75,15 @@ impl Talk {
         skills: &Skills,
         index: usize,
     ) -> (Vec<String>, bool) {
+        let Some(session) = self.session.as_mut() else {
+            // A reading has one choice, "Done reading"; anything else is not offered.
+            return (Vec::new(), index != 0);
+        };
         let mut ctx = QuestContext { quests: &content.quests, log, inventory, skills };
-        match self.session.choose(&content.dialogue, index, &mut ctx) {
+        match session.choose(&content.dialogue, index, &mut ctx) {
             Ok(outcome) => {
                 let messages = outcome_messages(&content.quests, &outcome);
-                match self.session.view(&content.dialogue, &ctx) {
+                match session.view(&content.dialogue, &ctx) {
                     Some(view) => {
                         self.view = view;
                         (messages, true)
@@ -71,7 +91,7 @@ impl Talk {
                     None => (messages, false),
                 }
             }
-            Err(_) => (Vec::new(), !self.session.is_finished()),
+            Err(_) => (Vec::new(), !session.is_finished()),
         }
     }
 }
@@ -84,6 +104,47 @@ mod tests {
 
     fn content() -> Content {
         Content::builtin().unwrap()
+    }
+
+    #[test]
+    fn a_reading_shows_its_text_with_one_way_out() {
+        let reading = Talk::reading("Signpost", "Hollowmere is east of the bridge.");
+        assert!(reading.is_reading());
+        let view = reading.view();
+        assert_eq!(view.speaker, "Signpost");
+        assert_eq!(view.text, "Hollowmere is east of the bridge.");
+        assert_eq!(view.choices, [READING_DONE]);
+    }
+
+    #[test]
+    fn choosing_done_closes_a_reading_and_changes_nothing() {
+        let content = content();
+        let mut reading = Talk::reading("Signpost", "East.");
+        let (mut log, mut bag, skills) = (QuestLog::new(), Inventory::default(), Skills::default());
+        let (messages, open) = reading.choose(&content, &mut log, &mut bag, &skills, 0);
+        assert!(messages.is_empty());
+        assert!(!open, "the only choice ends it");
+        assert!(bag.stacks().is_empty());
+        assert_eq!(log.to_text(), QuestLog::new().to_text());
+    }
+
+    #[test]
+    fn a_choice_a_reading_does_not_offer_changes_nothing() {
+        let content = content();
+        let mut reading = Talk::reading("Signpost", "East.");
+        let (mut log, mut bag, skills) = (QuestLog::new(), Inventory::default(), Skills::default());
+        for index in [1, 2, 9, usize::MAX] {
+            let (messages, open) = reading.choose(&content, &mut log, &mut bag, &skills, index);
+            assert!(messages.is_empty() && open, "index {index} stays open");
+        }
+        assert_eq!(reading.view().choices.len(), 1);
+    }
+
+    #[test]
+    fn a_conversation_is_not_a_reading() {
+        let content = content();
+        let (talk, _) = Talk::start(&content, &mut QuestLog::new(), &mut Inventory::default(), &Skills::default(), "guide").unwrap();
+        assert!(!talk.is_reading());
     }
 
     #[test]

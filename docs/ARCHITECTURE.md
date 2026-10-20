@@ -11,10 +11,11 @@ src/
 ├── pointer.rs       # INPUT: hover label, left-click walk/interact, click markers
 ├── movement.rs      # MOVEMENT: glides the player along the planned route
 ├── interact.rs      # WORLD INTERACTION: talk/read/pick/gather on arrival, node respawn
-├── animation.rs     # Visual-only: limb swings, floating collectables
+├── animation.rs     # Visual-only: limb swings, emote poses, floating collectables
 ├── camera_rig.rs    # Orbit camera that follows the player
 ├── menu.rs          # INPUT + UI: right-click menu open/choose, draws the panel
-├── hud.rs           # UI: objective, bag, equipment, hover label; paged journal (J, PageUp/PageDown)
+├── hud.rs           # UI: quest tracker, hover label, toolbar, and the paged side panels (B bag, K skills, J quest book)
+├── chat_ui.rs       # INPUT + UI: the chat area (log, typing, scrolling), starts emotes, collects game messages
 ├── keyboard.rs      # INPUT: WASD steps, Tab/Enter/X target selection (all via targeting.rs)
 ├── pause_ui.rs      # INPUT + UI: Esc, the pause menu panel, stopping the clock
 ├── settings_ui.rs   # Applies settings (UI scale, volume, overlay), writes the settings file, frame-time overlay
@@ -30,6 +31,9 @@ src/
 ├── equipment.rs     # Equipment slots; equip/unequip/swap between bag and slots
 ├── crafting.rs      # Recipes (parsed/validated), all-or-nothing crafting, recipe file loading
 ├── pack.rs          # Crafting-and-gear panel as data: rows, applying a row, bag/equipment lines
+├── chat.rs          # Chat log, text-entry box, slash commands (pure)
+├── emote.rs         # Emotes: commands, durations, limb poses over time (pure; NPCs will reuse it)
+├── side_panel.rs    # Which side panel is open; the bag and skills panel text (pure)
 ├── skills.rs        # Skills, XP curve, level requirements, XP sources, reachability check
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
@@ -54,7 +58,7 @@ src/
 ├── save.rs          # The full game save: SaveGame, versioned text format, validated loading, WorldChanges
 ├── save_store.rs    # Reads/writes the save file (temp file + rename, backup, bad saves never overwritten, legacy migration)
 ├── content.rs       # Loads quest + dialogue files (custom path, default path, built-in fallback)
-├── talk.rs          # One open conversation: current view, choices, journal lines per step
+├── talk.rs          # One open conversation: current view, choices, chat lines per step
 ├── scene.rs         # Built-in default level (compiled in), per-tile variation, fence rail links
 └── quest.rs         # Original moonpetal counter (only used by level validation now)
 ```
@@ -102,7 +106,8 @@ src/
 
 - M7 (polish and accessibility): every action has a keyboard route that uses the same rules as the mouse. `targeting::rank` plans a route to every candidate with the mouse's own planner, so Tab never offers anything a click could not reach; `targeting::step_to` uses `WorldMap::can_walk_to`. Esc is decided in one place, `pause::on_escape` (pause menu, right-click menu, conversation, crafting panel, journal, then open the pause menu), and applied by `pause_ui::pause_input`; Esc never quits by itself.
 - Pausing stops `Time<Virtual>` and gates the gameplay input systems on `pause_ui::running`. Systems that must keep working while paused (the pause menu, settings, the overlay, which measures `Time<Real>`) are not gated. The pause and settings systems run after the input systems each frame, so a click that resumes the game cannot also walk the player.
-- Nothing clips: `text_fit` owns each panel's width, padding, offset, and font sizes (`DIALOGUE_PANEL`, `PACK_PANEL`, `JOURNAL_PANEL`, `PAUSE_PANEL`), and the Bevy layer builds the panels from those constants and gives them text already wrapped to their inner width. Bevy's default font is monospaced, so the character counts are exact enough to estimate heights; `tests/accessibility_playthrough.rs` checks every shipped dialogue step, the crafting panel with a full bag, every pause page, and the journal against the smallest logical window (`MIN_LOGICAL`, 680 x 520, which an 800 x 600 window always provides at normal text size; larger sizes are scaled down by `fit_scale`). Adding a panel means adding its geometry there and a test.
+- Nothing clips: `text_fit` owns each panel's width, padding, offset, and font sizes (`DIALOGUE_PANEL`, `PACK_PANEL`, `DOCK_PANEL`, `PAUSE_PANEL`), and the Bevy layer builds the panels from those constants and gives them text already wrapped to their inner width. Bevy's default font is monospaced, so the character counts are exact enough to estimate heights; `tests/accessibility_playthrough.rs` checks every shipped dialogue step, the crafting panel with a full bag, every pause page, and the journal against the smallest logical window (`MIN_LOGICAL`, 680 x 520, which an 800 x 600 window always provides at normal text size; larger sizes are scaled down by `fit_scale`). Adding a panel means adding its geometry there and a test.
+- M8 (HUD and chat): messages no longer sit in the HUD. Systems set `GameProgress::notice` and `chat_ui::collect_notices` moves it into the `ChatLog` each frame; examining writes an `Examine` line straight to the log. `chat.rs` owns the log (size-limited, wrapped, scrollable), the text-entry box (printable characters only, 100 at most), and the slash commands; `emote.rs` owns each emote's duration and pose, and `animation::tick_emotes` / `animate_limbs` only apply it. While the box is open `ChatState::keys_captured` is set, and every key handler (WASD, Tab/Enter/X, 1-9, B/K/J/C, camera keys) stands aside, so typing never moves the player or picks a row. Esc cancels typing first (`pause::on_escape`). The bag, skills, and quest book share one `DockPanel` and one `Dock` (one open at a time, so the right column cannot overflow a small window); each is paged by `text_fit::paginate`. Chat, toolbar, and side panels carry `UiBlocker`, so `pointer` and `menu_input` ignore clicks while the cursor is over them. A sign opens as `Talk::reading` in the ordinary dialogue panel with one choice, "Done reading", so Esc, walking away, and the number key close it like any conversation. The dialogue panel's offset is derived from the chat area's height so the two never overlap.
 - Settings live in their own file, not in the save. `settings_ui::apply_settings` is the only system that writes it; an unreadable file switches writing off for the session.
 
 ## Testing strategy

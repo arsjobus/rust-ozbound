@@ -34,7 +34,8 @@ pub fn pause_input(
     mut menu: ResMut<ContextMenuState>,
     mut talk: ResMut<TalkState>,
     mut pack: ResMut<PackState>,
-    mut journal: ResMut<JournalState>,
+    mut dock: ResMut<DockState>,
+    mut chat: ResMut<ChatState>,
     mut clock: ResMut<Time<Virtual>>,
     mut exit: EventWriter<AppExit>,
 ) {
@@ -81,12 +82,13 @@ pub fn pause_input(
     if !keys.just_pressed(KeyCode::Escape) {
         return;
     }
-    let open = Open { pause: false, context_menu: menu.0.is_some(), dialogue: talk.0.is_some(), crafting: pack.0, journal: journal.open };
+    let open = Open { pause: false, context_menu: menu.0.is_some(), dialogue: talk.0.is_some(), crafting: pack.0, side_panel: dock.dock.is_open(), chat: chat.input.is_open() };
     match on_escape(open) {
         EscapeAction::CloseContextMenu => menu.0 = None,
         EscapeAction::CloseDialogue => talk.0 = None,
         EscapeAction::CloseCrafting => pack.0 = false,
-        EscapeAction::CloseJournal => journal.open = false,
+        EscapeAction::CloseSidePanel => dock.close(),
+        EscapeAction::CloseChat => chat.input.close(),
         EscapeAction::OpenPause => {
             pause.0 = Some(PauseMenu::new());
             clock.pause();

@@ -267,7 +267,7 @@ pub fn controls_help() -> String {
 }
 
 /// `(keys, what it does)` for every control. Keep this in step with the README.
-pub const CONTROLS: [(&str, &str); 13] = [
+pub const CONTROLS: [(&str, &str); 15] = [
     ("Left-click", "walk, or go to an object and use it"),
     ("Right-click", "action menu for what is under the cursor"),
     ("W A S D", "step relative to the camera (hold to walk)"),
@@ -275,7 +275,9 @@ pub const CONTROLS: [(&str, &str); 13] = [
     ("Enter or Space", "go to the selected thing and use it"),
     ("X", "examine the selected thing"),
     ("1-9", "pick a numbered row (talk, crafting)"),
-    ("J", "journal (PageUp / PageDown turn pages)"),
+    ("B / K / J", "open bag / skills / quest book"),
+    ("T or /", "chat: Enter sends, /help lists commands"),
+    ("PageUp / PageDown", "scroll chat, or turn panel pages"),
     ("C", "crafting and gear"),
     ("Arrow keys / middle-drag", "turn the camera"),
     ("Scroll wheel or + / -", "zoom the camera"),
@@ -290,7 +292,10 @@ pub struct Open {
     pub context_menu: bool,
     pub dialogue: bool,
     pub crafting: bool,
-    pub journal: bool,
+    /// One of the side panels (bag, skills, quest book) is open.
+    pub side_panel: bool,
+    /// The chat box is open for typing.
+    pub chat: bool,
 }
 
 /// What Esc does.
@@ -301,25 +306,29 @@ pub enum EscapeAction {
     CloseContextMenu,
     CloseDialogue,
     CloseCrafting,
-    CloseJournal,
+    CloseSidePanel,
+    /// The chat box is open: Esc cancels what was being typed.
+    CloseChat,
     /// Nothing is open: pause the game.
     OpenPause,
 }
 
 /// Esc closes the most urgent thing first: the pause menu (it sits on top of everything), then
-/// the right-click menu, a conversation, the crafting panel, the journal, and with nothing open
-/// it pauses. Esc never quits by itself.
+/// the right-click menu, the chat box (you are mid-sentence), a conversation, the crafting
+/// panel, a side panel, and with nothing open it pauses. Esc never quits by itself.
 pub fn on_escape(open: Open) -> EscapeAction {
     if open.pause {
         EscapeAction::PauseBack
     } else if open.context_menu {
         EscapeAction::CloseContextMenu
+    } else if open.chat {
+        EscapeAction::CloseChat
     } else if open.dialogue {
         EscapeAction::CloseDialogue
     } else if open.crafting {
         EscapeAction::CloseCrafting
-    } else if open.journal {
-        EscapeAction::CloseJournal
+    } else if open.side_panel {
+        EscapeAction::CloseSidePanel
     } else {
         EscapeAction::OpenPause
     }
@@ -335,7 +344,8 @@ impl Open {
             EscapeAction::CloseContextMenu => self.context_menu = false,
             EscapeAction::CloseDialogue => self.dialogue = false,
             EscapeAction::CloseCrafting => self.crafting = false,
-            EscapeAction::CloseJournal => self.journal = false,
+            EscapeAction::CloseSidePanel => self.side_panel = false,
+            EscapeAction::CloseChat => self.chat = false,
             EscapeAction::OpenPause => self.pause = true,
         }
         self
@@ -570,48 +580,49 @@ mod tests {
         for line in text.lines() {
             assert!(line.chars().count() <= 56, "{line:?} is too long to stay on one line in the pause panel");
         }
-        for essential in ["Tab", "Enter", "Esc", "W A S D", "J", "C", "F3"] {
+        for essential in ["Tab", "Enter", "Esc", "W A S D", "B / K / J", "C", "T or /", "PageUp", "F3"] {
             assert!(text.contains(essential), "the help must mention {essential}");
         }
     }
 
     #[test]
     fn escape_closes_the_most_urgent_thing_first() {
-        let all = Open { pause: true, context_menu: true, dialogue: true, crafting: true, journal: true };
+        let all = Open { pause: true, context_menu: true, dialogue: true, crafting: true, side_panel: true, chat: true };
         let mut open = all;
         let mut order = Vec::new();
-        for _ in 0..6 {
+        for _ in 0..7 {
             let action = on_escape(open);
             order.push(action);
             open = open.after(action);
         }
         use EscapeAction::*;
-        assert_eq!(order[..5], [PauseBack, CloseContextMenu, CloseDialogue, CloseCrafting, CloseJournal]);
-        assert_eq!(order[5], OpenPause, "with nothing open, Esc pauses");
+        assert_eq!(order[..6], [PauseBack, CloseContextMenu, CloseChat, CloseDialogue, CloseCrafting, CloseSidePanel]);
+        assert_eq!(order[6], OpenPause, "with nothing open, Esc pauses");
     }
 
     #[test]
     fn escape_never_quits_and_always_gets_back_to_a_calm_state() {
         // Every combination of open panels: Esc always does exactly one thing, never leaves a
-        // panel it did not name, and within six presses reaches "paused with nothing else open".
-        for bits in 0u8..32 {
+        // panel it did not name, and within seven presses reaches "paused with nothing else open".
+        for bits in 0u8..64 {
             let start = Open {
                 pause: bits & 1 != 0,
                 context_menu: bits & 2 != 0,
                 dialogue: bits & 4 != 0,
                 crafting: bits & 8 != 0,
-                journal: bits & 16 != 0,
+                side_panel: bits & 16 != 0,
+                chat: bits & 32 != 0,
             };
             let mut open = start;
             let mut presses = 0;
-            while open != Open::default() && presses < 6 {
+            while open != Open::default() && presses < 7 {
                 let action = on_escape(open);
                 let next = open.after(action);
                 assert_ne!(next, open, "{start:?}: {action:?} must change something");
                 open = next;
                 presses += 1;
             }
-            assert!(presses <= 5, "{start:?}: five panels at most, so five presses at most");
+            assert!(presses <= 6, "{start:?}: six panels at most, so six presses at most");
             // And one more press from a clean screen pauses the game.
             assert_eq!(on_escape(Open::default()), EscapeAction::OpenPause);
         }

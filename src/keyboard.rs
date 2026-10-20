@@ -8,6 +8,7 @@
 //! is open (they own the keyboard and mouse) and while the game is paused.
 
 use bevy::prelude::*;
+use ozbound::chat::Kind;
 use ozbound::{
     interaction::{examine_text, hover_text},
     pathfinding::plan_route,
@@ -39,11 +40,12 @@ pub fn keyboard_walk(
     talk: Res<TalkState>,
     menu: Res<ContextMenuState>,
     pack: Res<PackState>,
+    chat: Res<ChatState>,
     mut selected: ResMut<KeyTarget>,
     mut progress: ResMut<GameProgress>,
     mut players: Query<&mut Player>,
 ) {
-    if talk.0.is_some() || menu.0.is_some() || pack.0 {
+    if talk.0.is_some() || menu.0.is_some() || pack.0 || chat.keys_captured {
         return;
     }
     let held = [(KeyCode::KeyW, Dir::Forward), (KeyCode::KeyS, Dir::Back), (KeyCode::KeyA, Dir::Left), (KeyCode::KeyD, Dir::Right)]
@@ -66,7 +68,7 @@ pub fn keyboard_walk(
         }
         Err(_) => {
             if keys.just_pressed(key) {
-                progress.journal = "Something is in the way.".into();
+                progress.notice = "Something is in the way.".into();
             }
         }
     }
@@ -82,13 +84,14 @@ pub fn keyboard_target(
     talk: Res<TalkState>,
     menu: Res<ContextMenuState>,
     pack: Res<PackState>,
+    mut chat: ResMut<ChatState>,
     mut selected: ResMut<KeyTarget>,
     mut progress: ResMut<GameProgress>,
     targets: Query<(Entity, &Interactable)>,
     nodes: Query<&ResourceNode>,
     mut players: Query<&mut Player>,
 ) {
-    if talk.0.is_some() || menu.0.is_some() || pack.0 {
+    if talk.0.is_some() || menu.0.is_some() || pack.0 || chat.keys_captured {
         return;
     }
     let tab = keys.just_pressed(KeyCode::Tab);
@@ -111,7 +114,7 @@ pub fn keyboard_target(
                     spawn_marker(&mut commands, &assets, marker_position(map, it.tile), true);
                 }
             }
-            None => progress.journal = "There is nothing to visit right now.".into(),
+            None => progress.notice = "There is nothing to visit right now.".into(),
         }
         return;
     }
@@ -123,7 +126,7 @@ pub fn keyboard_target(
                 order_interact(&mut commands, map, &assets, &mut player, &mut progress, entity, it);
                 selected.0 = None;
             }
-            None => progress.journal = "There is nothing to visit right now.".into(),
+            None => progress.notice = "There is nothing to visit right now.".into(),
         }
         return;
     }
@@ -132,9 +135,9 @@ pub fn keyboard_target(
     match selected.0.and_then(|entity| targets.get(entity).ok()) {
         Some((entity, it)) => {
             let spent = nodes.get(entity).is_ok_and(|node| node.0.is_depleted());
-            progress.journal = examine_text(it.kind, spent);
+            chat.log.push(Kind::Examine, examine_text(it.kind, spent));
         }
-        None => progress.journal = "Press Tab to choose something, then X to examine it.".into(),
+        None => progress.notice = "Press Tab to choose something, then X to examine it.".into(),
     }
 }
 

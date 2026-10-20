@@ -82,7 +82,7 @@ pub fn interact(
     if let Some(target) = player.task.take_ready_target() {
         if let Ok((it, sign, npc)) = interactables.get(target) {
             if !in_reach(player.tile, it.tile, it.approach) {
-                progress.journal = TOO_FAR.into();
+                progress.notice = TOO_FAR.into();
             } else {
                 face_tile(&mut transform, &meadow.0, player.tile, it.tile);
                 match it.kind {
@@ -95,24 +95,27 @@ pub fn interact(
                         match started {
                             Ok((opened, messages)) => {
                                 if !messages.is_empty() {
-                                    progress.journal = messages.join(" ");
+                                    progress.notice = messages.join(" ");
                                 }
                                 talk.0 = Some(opened);
                                 portrait.0 = npc.and_then(|n| portraits.0.get(&n.0).cloned());
                             }
-                            Err(message) => progress.journal = message,
+                            Err(message) => progress.notice = message,
                         }
                     }
-                    InteractionKind::Read => {
-                        progress.journal = match sign {
-                            Some(text) => format!("The signpost reads: \"{}\"", text.0),
-                            None => "The signpost is too weathered to read.".into(),
-                        };
-                    }
+                    InteractionKind::Read => match sign {
+                        Some(text) => {
+                            // The sign opens in the dialogue panel; the chat keeps a record.
+                            progress.notice = format!("The signpost reads: \"{}\"", text.0);
+                            talk.0 = Some(Talk::reading("Signpost", &text.0));
+                            portrait.0 = None;
+                        }
+                        None => progress.notice = "The signpost is too weathered to read.".into(),
+                    },
                     InteractionKind::Approach => {
                         let progress = &mut *progress;
                         let wildlife = &mut *wildlife;
-                        progress.journal = match creatures.get(target) {
+                        progress.notice = match creatures.get(target) {
                             Ok(Creature(id)) => match approach_creature(&wildlife.bestiary, &mut wildlife.notes, &mut progress.inventory, id) {
                                 Ok(Encounter::Befriended { creature, taken, gift, text }) => {
                                     let mut line = format!("{text} (You gave {} {}", taken.quantity, taken.item.label());
@@ -137,23 +140,23 @@ pub fn interact(
                             let updates = record_gathered(&content.0.quests, &mut progress.log, ItemId::Moonpetal, 1);
                             let xp = progress.skills.gathered(ResourceKind::Moonpetal);
                             let message = with_updates("You gathered a moonpetal.".into(), &content.0.quests, &updates);
-                            progress.journal = with_level_up(message, xp);
+                            progress.notice = with_level_up(message, xp);
                         } else {
-                            progress.journal = "Your inventory is full. Make room before gathering more.".into();
+                            progress.notice = "Your inventory is full. Make room before gathering more.".into();
                         }
                     }
                     InteractionKind::ChopDown | InteractionKind::Mine | InteractionKind::Forage => {
                         if let Ok((node, _)) = nodes.get(target) {
                             let label = node.0.kind().label();
                             if node.0.is_depleted() {
-                                progress.journal = format!("This {label} has nothing left to give.");
+                                progress.notice = format!("This {label} has nothing left to give.");
                             } else {
                                 let action = match it.kind {
                                     InteractionKind::ChopDown => "chopping",
                                     InteractionKind::Forage => "foraging",
                                     _ => "mining",
                                 };
-                                progress.journal = format!("You start {action} the {label}...");
+                                progress.notice = format!("You start {action} the {label}...");
                                 player.work = Some(Work { target, timer: Timer::from_seconds(GATHER_INTERVAL, TimerMode::Repeating) });
                             }
                         }
@@ -181,7 +184,7 @@ pub fn interact(
         let in_range = interactables.get(target).is_ok_and(|(it, _, _)| in_reach(player.tile, it.tile, it.approach));
         let mut keep_going = false;
         if !in_range {
-            progress.journal = TOO_FAR.into();
+            progress.notice = TOO_FAR.into();
         } else if let Ok((mut node, spent)) = nodes.get_mut(target) {
             let kind = node.0.kind();
             let outcome = node.0.gather(&mut progress.inventory);
@@ -192,7 +195,7 @@ pub fn interact(
                 message = with_updates(message, &content.0.quests, &updates);
                 message = with_level_up(message, progress.skills.gathered(kind));
             }
-            progress.journal = message;
+            progress.notice = message;
             if outcome.is_ok() && node.0.is_depleted() {
                 if let Ok(mut visibility) = visibilities.get_mut(spent.0) {
                     *visibility = Visibility::Hidden;

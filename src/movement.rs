@@ -44,7 +44,7 @@ pub fn follow_route(
         player.tile = step;
         // Every tile walked counts toward Wayfinding (it stops teaching at level 3).
         if let Some(line) = progress.skills.walked(1).and_then(|gain| gain.message()) {
-            progress.journal = line;
+            progress.notice = line;
         }
         // Reaching a named place tells the quest log (only a `visit` objective that is current counts).
         if let Some(place) = level.0.places.iter().find(|place| place.tile == step) {
@@ -56,7 +56,7 @@ pub fn follow_route(
                     text.push(' ');
                     text.push_str(&describe_update(&content.0.quests, update));
                 }
-                progress.journal = text;
+                progress.notice = text;
             }
         }
     }

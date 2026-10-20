@@ -4,7 +4,7 @@
 //!
 //! The game is written at most once a second, and only when something changed, plus once more
 //! when the game exits. A write that fails turns saving off for the session instead of retrying
-//! every second, and says so in the journal line and on the console.
+//! every second, and says so in the chat area and on the console.
 
 use bevy::prelude::*;
 use ozbound::{
@@ -53,7 +53,7 @@ fn write(save: &mut SaveState, progress: &mut GameProgress, game: SaveGame) {
         Err(error) => {
             eprintln!("warning: {error}; progress will not be saved this session");
             save.enabled = false;
-            progress.journal = "Your progress could not be saved. See the console for details.".into();
+            progress.notice = "Your progress could not be saved. See the console for details.".into();
         }
     }
 }

@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use ozbound::{
     bestiary::{Bestiary, FieldNotes},
+    chat::{ChatInput, ChatLog},
+    emote::ActiveEmote,
+    side_panel::{Dock, Tab},
     pause::PauseMenu,
     perf::FrameStats,
     settings::Settings,
@@ -43,8 +46,9 @@ pub struct GameContent(pub Content);
 #[derive(Resource, Default)]
 pub struct GameProgress {
     pub log: QuestLog,
-    /// The latest message for the player (shown under the HUD).
-    pub journal: String,
+    /// A message waiting to be shown in the chat area. `chat_ui::collect_notices` moves it
+    /// into the log every frame, so systems just set this and never touch the chat directly.
+    pub notice: String,
     pub inventory: Inventory,
     pub equipment: Equipment,
     /// Skill XP and levels.
@@ -120,8 +124,22 @@ pub struct DialoguePanel;
 pub struct ChoiceRow(pub usize);
 
 /// The panel that lists active and completed quests (toggled with J).
+/// The panel under the toolbar that shows the open side panel (bag, skills, or quest book).
 #[derive(Component)]
-pub struct JournalPanel;
+pub struct DockPanel;
+
+/// A toolbar button that toggles a side panel.
+#[derive(Component)]
+pub struct ToolbarButton(pub Tab);
+
+/// Marks UI the mouse can hover or click: while the cursor is over it, clicks and right-clicks
+/// do not reach the world behind it.
+#[derive(Component)]
+pub struct UiBlocker;
+
+/// The panel holding the chat log and the input line.
+#[derive(Component)]
+pub struct ChatPanel;
 
 /// What the cursor is over, shown as an action label such as "Chop down tree".
 #[derive(Resource, Default)]
@@ -143,6 +161,8 @@ pub struct Player {
     pub tile: TilePos,
     pub task: Task<Entity>,
     pub work: Option<Work>,
+    /// A gesture being played (`/wave` and friends), if any.
+    pub emote: Option<ActiveEmote>,
 }
 
 #[derive(Component)]
@@ -180,6 +200,8 @@ pub struct Limb {
     pub owner: Entity,
     pub swing: f32,
     pub is_arm: bool,
+    /// -1 for the limb on the character's -x side, +1 for the +x side (used by emote poses).
+    pub side: f32,
 }
 
 /// Gentle bobbing and turning for collectables.
@@ -258,11 +280,35 @@ pub struct PausePanel;
 #[derive(Component)]
 pub struct PauseRow(pub usize);
 
-/// Whether the journal (J) is open and which page of it is showing.
+/// Which side panel (bag, skills, quest book) is open and which page of it is showing.
 #[derive(Resource, Default)]
-pub struct JournalState {
-    pub open: bool,
+pub struct DockState {
+    pub dock: Dock,
     pub page: usize,
+}
+
+impl DockState {
+    /// Opens `tab` (or closes it if it is the open one) and starts again at its first page.
+    pub fn toggle(&mut self, tab: Tab) {
+        self.dock.toggle(tab);
+        self.page = 0;
+    }
+
+    pub fn close(&mut self) {
+        self.dock.close();
+        self.page = 0;
+    }
+}
+
+/// The chat area: the message log and the text-entry box.
+#[derive(Resource, Default)]
+pub struct ChatState {
+    pub log: ChatLog,
+    pub input: ChatInput,
+    /// Whether the box was open when this frame began. Gameplay key handlers stand aside while
+    /// it is set, so the Enter that sends a line is not also read as "go to the selected
+    /// thing". Written only by `chat_ui::chat_input`.
+    pub keys_captured: bool,
 }
 
 /// The thing chosen with Tab, if any (see `keyboard.rs`).

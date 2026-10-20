@@ -12,7 +12,7 @@ The setting takes inspiration from L. Frank Baum's 1900 novel *The Wonderful Wiz
 - Hovering shows what a click will do ("Chop down tree", "Talk to Village Guide", "Walk here").
 - A third-person orbit camera that follows the player.
 - A small quest: talk to the village guide, then pick three moonpetals.
-- HUD with quest progress, bag contents, and a journal line.
+- A slim HUD (quest tracker and hover label), a chat area for game messages and emotes, and bag, skills, and quest-book panels on a toolbar.
 
 This is deliberately a small, understandable foundation. Skills, dialogue trees, crafting, and richer world content are future work.
 
@@ -45,7 +45,7 @@ Everything can be done from the keyboard; the mouse is optional. The same list i
 | Input | Action |
 |---|---|
 | Left-click ground | Walk to that tile |
-| Left-click tree, copper vein, moonpetal, the guide, a sign, or a creature | Walk beside it (or onto it), then chop / mine / pick / talk / read / approach |
+| Left-click tree, copper vein, moonpetal, the guide, a sign, or a creature | Walk beside it (or onto it), then chop / mine / pick / talk / read (a sign opens in the dialogue panel) / approach |
 | Left-click a meadowmint patch or honeyberry bush | Walk onto it, then forage until it is spent |
 | Right-click | Action menu for what is under the cursor |
 | W A S D | Take one step, relative to the camera; hold to keep walking |
@@ -53,12 +53,13 @@ Everything can be done from the keyboard; the mouse is optional. The same list i
 | Enter or Space | Go to the selected thing and use it (with nothing selected, the nearest) |
 | X | Examine the selected thing |
 | 1-9 | Pick a numbered row in a conversation or the crafting panel |
-| J | Open or close the journal; PageUp / PageDown turn its pages |
+| B / K / J | Open or close the bag / skills / quest book (one panel at a time; the toolbar buttons do the same). PageUp / PageDown turn the open panel's pages |
+| T or / | Type in the chat area (`/` starts a command): Enter sends, Esc cancels. `/wave`, `/dance`, `/cheer` play a short gesture; `/help` lists the commands. PageUp / PageDown scroll the chat when no panel is open |
 | C | Open or close the crafting-and-gear panel (click a row, or press 1-9) |
 | Middle-mouse drag, or arrow keys | Turn and tilt the camera |
 | Scroll wheel, or + / - | Zoom |
 | F3 | Show or hide the frame-time overlay |
-| Esc | Close the most urgent open thing (pause menu, right-click menu, conversation, crafting panel, journal); with nothing open, open the pause menu |
+| Esc | Close the most urgent open thing (pause menu, right-click menu, chat box, conversation, crafting panel, side panel); with nothing open, open the pause menu |
 
 ## Pause menu and settings
 
@@ -190,7 +191,7 @@ The full-bag, spent-node, crafting, and equipment rules are tabulated in `docs/A
 
 The game now starts in **Hollowmere** (`assets/maps/hollowmere.map`): the meadow, a bridge over the river, a village with four villagers besides the guide, and a forest. There are five short quests (collect, craft, visit, befriend, and talk objectives), three gentle creatures you can approach (no combat), dialogue portraits, and quiet ambient sound that is generated in code.
 
-- Talk to villagers, hand in quests, and press `J` for the journal (quests and field notes) and `C` for crafting.
+- Talk to villagers, hand in quests, and press `J` for the quest book (quests and field notes), `B` for your bag, `K` for skills and `C` for crafting.
 - Approach a creature with something it likes to win its trust; it is always optional and harmless.
 - `OZBOUND_MAP`, `OZBOUND_QUESTS`, `OZBOUND_DIALOGUE`, `OZBOUND_BESTIARY`, and `OZBOUND_RECIPES` play other files. The older meadow files remain as the small tutorial fixtures used by the tests.
 - At startup the whole world is cross-checked (`src/village.rs`), so a content mistake stops the game with a plain message instead of leaving a quest that cannot be finished.

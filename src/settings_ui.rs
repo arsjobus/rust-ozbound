@@ -8,7 +8,7 @@
 //! - The ambient loop's volume follows the volume setting and the ambient switch.
 //! - Changed settings are written at once (temp file + rename). A settings file that could not
 //!   be read at startup, or a write that fails, switches writing off for the session so the
-//!   player's file is never overwritten, and says so in the journal line and on the console.
+//!   player's file is never overwritten, and says so in the chat area and on the console.
 
 use bevy::audio::AudioSinkPlayback;
 use bevy::prelude::*;
@@ -58,7 +58,7 @@ pub fn apply_settings(
             Err(error) => {
                 eprintln!("warning: {error}; settings will not be saved this session");
                 store.enabled = false;
-                progress.journal = "Your settings could not be saved. See the console for details.".into();
+                progress.notice = "Your settings could not be saved. See the console for details.".into();
             }
         }
     }

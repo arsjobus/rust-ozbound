@@ -6,6 +6,7 @@
 
 mod animation;
 mod camera_rig;
+mod chat_ui;
 mod components;
 mod dialogue_ui;
 mod hud;
@@ -34,7 +35,7 @@ use ozbound::{
 };
 
 use components::{
-    ContextMenuState, GameContent, GameProgress, HoverText, JournalState, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
+    ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
     SettingsStore, StartingSave, TalkPortrait, TalkState, UserSettings, Wildlife,
 };
 use pause_ui::running;
@@ -111,7 +112,7 @@ fn restore_game(world: &Hollowmere) -> (SaveGame, SaveState, String) {
             }
             let message = match start {
                 Start::NewGame => "",
-                Start::Loaded => "Welcome back. Your progress was restored. Press J to read your journal.",
+                Start::Loaded => "Welcome back. Your progress was restored. Press J to open your quest book.",
                 Start::MigratedQuests => "Welcome back. Your quest progress was carried over to the new save file.",
             };
             // A migrated game is not on disk in the new format yet, so it counts as unsaved.
@@ -138,6 +139,8 @@ fn main() {
         std::process::exit(1);
     });
     let (game, save_state, mut welcome) = restore_game(&world);
+    let mut chat = ChatState::default();
+    chat.log.push(ozbound::chat::Kind::System, "Press T or / to chat. Type /help to see the chat commands.");
     let (settings, settings_file, settings_note) = load_settings();
     if !settings_note.is_empty() {
         welcome = if welcome.is_empty() { settings_note } else { format!("{welcome} {settings_note}") };
@@ -162,7 +165,7 @@ fn main() {
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
         .insert_resource(GameProgress {
             log: game.quests.clone(),
-            journal: welcome,
+            notice: welcome,
             inventory: game.bag.clone(),
             equipment: game.equipment.clone(),
             skills: game.skills.clone(),
@@ -177,7 +180,8 @@ fn main() {
         .insert_resource(settings)
         .insert_resource(settings_file)
         .insert_resource(Pause::default())
-        .insert_resource(JournalState::default())
+        .insert_resource(DockState::default())
+        .insert_resource(chat)
         .insert_resource(KeyTarget::default())
         .insert_resource(PerfStats::default())
         .insert_resource(StartingSave(game))
@@ -186,7 +190,7 @@ fn main() {
         .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(level.map.clone()))
         .insert_resource(LevelData(level))
-        .add_systems(Startup, setup::setup)
+        .add_systems(Startup, (setup::setup, chat_ui::spawn_chat_panel))
         .add_systems(Last, (persist::save_on_exit, settings_ui::report_on_exit))
         .add_systems(
             Update,
@@ -194,7 +198,11 @@ fn main() {
                 // Gameplay input and the world: all of it stands aside while the game is paused.
                 (
                     settings_ui::toggle_overlay,
-                    hud::journal_input.run_if(running),
+                    // Chat reads the keyboard first; the systems after it stand aside while the
+                    // chat box is open (see `ChatState::keys_captured`).
+                    chat_ui::chat_input.run_if(running),
+                    hud::dock_input.run_if(running),
+                    hud::toolbar_input.run_if(running),
                     pack_ui::pack_input.run_if(running),
                     pointer::pointer.run_if(running),
                     menu::menu_input.run_if(running),
@@ -206,6 +214,7 @@ fn main() {
                     interact::interact,
                     interact::respawn_nodes,
                     persist::persist_game,
+                    animation::tick_emotes,
                     animation::animate_limbs,
                     animation::float_props,
                     pointer::fade_markers,
@@ -215,6 +224,7 @@ fn main() {
                 // Esc and the pause menu run after the input systems, so a click that resumes the
                 // game is never also read as a click on the world.
                 (
+                    chat_ui::collect_notices,
                     pause_ui::pause_input,
                     settings_ui::apply_settings,
                     settings_ui::record_frames,
@@ -222,8 +232,10 @@ fn main() {
                     dialogue_ui::sync_dialogue_ui,
                     pack_ui::sync_pack_ui,
                     pause_ui::sync_pause_ui,
+                    chat_ui::sync_chat_ui,
                     hud::update_hud,
-                    hud::update_journal_panel,
+                    hud::sync_toolbar,
+                    hud::update_dock_panel,
                 )
                     .chain(),
             )

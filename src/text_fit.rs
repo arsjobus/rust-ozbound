@@ -49,9 +49,25 @@ impl Panel {
     }
 }
 
-pub const DIALOGUE_PANEL: Panel = Panel { width: 640.0, padding: 14.0, offset: 70.0 };
+/// The chat area sits in the bottom-left corner (`offset` is its distance from the bottom).
+pub const CHAT_PANEL: Panel = Panel { width: 440.0, padding: 8.0, offset: MARGIN };
+/// Lines of the chat log that are visible at once (the input line is one more).
+pub const CHAT_LINES: usize = 5;
+pub const CHAT_PX: f32 = 15.0;
+/// The chat panel's whole height: the log lines, the input line, and the padding.
+pub const CHAT_HEIGHT: f32 = (CHAT_LINES as f32 + 1.0) * CHAT_PX * LINE_HEIGHT_EM + 2.0 * CHAT_PANEL.padding;
+
+/// The toolbar of side-panel buttons in the top-right corner.
+pub const TOOLBAR_PX: f32 = 16.0;
+pub const TOOLBAR_BUTTON_HEIGHT: f32 = 30.0;
+pub const TOOLBAR_BUTTON_PAD: f32 = 10.0;
+pub const TOOLBAR_GAP: f32 = 6.0;
+
+/// The dialogue panel stands just above the chat area, so the two never overlap.
+pub const DIALOGUE_PANEL: Panel = Panel { width: 640.0, padding: 14.0, offset: CHAT_PANEL.offset + CHAT_HEIGHT + MARGIN };
 pub const PACK_PANEL: Panel = Panel { width: 620.0, padding: 14.0, offset: 40.0 };
-pub const JOURNAL_PANEL: Panel = Panel { width: 400.0, padding: 10.0, offset: 10.0 };
+/// The side panels (bag, skills, quest book) hang just below the toolbar.
+pub const DOCK_PANEL: Panel = Panel { width: 400.0, padding: 10.0, offset: MARGIN + TOOLBAR_BUTTON_HEIGHT + TOOLBAR_GAP };
 pub const PAUSE_PANEL: Panel = Panel { width: 640.0, padding: 14.0, offset: 40.0 };
 
 /// Font sizes, shared by the Bevy layer and the estimates below.
@@ -62,6 +78,7 @@ pub const CHOICE_PX: f32 = 18.0;
 pub const PACK_TITLE_PX: f32 = 21.0;
 pub const PACK_INFO_PX: f32 = 17.0;
 pub const PACK_ROW_PX: f32 = 18.0;
+/// Text size inside the side panels.
 pub const JOURNAL_PX: f32 = 17.0;
 pub const MENU_PX: f32 = 20.0;
 pub const CONTROLS_PX: f32 = 16.0;
@@ -95,6 +112,12 @@ pub fn lines_per_page(height_px: f32, font_px: f32) -> usize {
 /// The height of `lines` lines of text of size `font_px`.
 pub fn text_height(lines: usize, font_px: f32) -> f32 {
     lines as f32 * font_px * LINE_HEIGHT_EM
+}
+
+/// The width of the toolbar when its buttons carry these labels.
+pub fn toolbar_width(labels: &[String]) -> f32 {
+    let buttons: f32 = labels.iter().map(|label| label.chars().count() as f32 * TOOLBAR_PX * GLYPH_WIDTH_EM + 2.0 * TOOLBAR_BUTTON_PAD).sum();
+    buttons + TOOLBAR_GAP * labels.len().saturating_sub(1) as f32
 }
 
 /// Wraps `text` to at most `width` characters per line. Existing line breaks are kept (an empty
@@ -445,14 +468,14 @@ mod tests {
     #[test]
     fn the_panels_fit_across_the_smallest_logical_window() {
         let (w, h) = MIN_LOGICAL;
-        for panel in [DIALOGUE_PANEL, PACK_PANEL, JOURNAL_PANEL, PAUSE_PANEL] {
+        for panel in [DIALOGUE_PANEL, PACK_PANEL, DOCK_PANEL, PAUSE_PANEL] {
             assert!(panel.width + 2.0 * MARGIN <= w, "{panel:?} is too wide for {w}");
             assert!(panel.inner_height(h) > 100.0, "{panel:?} has no room in {h}");
             assert!(panel.inner_width() > 200.0);
         }
         // The journal and dialogue panels may be open together with the HUD; the journal sits on
         // the right and the dialogue on the bottom centre, so check they do not overlap in height.
-        assert!(JOURNAL_PANEL.offset + JOURNAL_PANEL.inner_height(h) + 2.0 * JOURNAL_PANEL.padding <= h);
+        assert!(DOCK_PANEL.offset + DOCK_PANEL.inner_height(h) + 2.0 * DOCK_PANEL.padding <= h);
     }
 
     #[test]

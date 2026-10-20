@@ -201,7 +201,7 @@ impl XpGain {
         self.level_after > self.level_before
     }
 
-    /// A journal line for a level-up, or `None` when the level did not change.
+    /// A chat line for a level-up, or `None` when the level did not change.
     pub fn message(&self) -> Option<String> {
         self.leveled_up().then(|| format!("Your {} level is now {}.", self.skill.label(), self.level_after))
     }

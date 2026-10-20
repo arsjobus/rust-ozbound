@@ -38,6 +38,7 @@ pub fn pack_input(
     recipes: Res<Recipes>,
     content: Res<GameContent>,
     talk: Res<TalkState>,
+    chat: Res<ChatState>,
     mut progress: ResMut<GameProgress>,
     mut state: ResMut<PackState>,
 ) {
@@ -48,14 +49,16 @@ pub fn pack_input(
         }
         return;
     }
-    if keys.just_pressed(KeyCode::KeyC) {
+    // While the chat box is open the keyboard belongs to it.
+    let keys_live = !chat.keys_captured;
+    if keys_live && keys.just_pressed(KeyCode::KeyC) {
         state.0 = !state.0;
         return;
     }
     if !state.0 {
         return;
     }
-    let from_key = DIGITS.iter().position(|key| keys.just_pressed(*key));
+    let from_key = if keys_live { DIGITS.iter().position(|key| keys.just_pressed(*key)) } else { None };
     let from_click = buttons.iter().find(|(interaction, _)| **interaction == Interaction::Pressed).map(|(_, row)| row.0);
     let Some(index) = from_key.or(from_click) else { return };
 
@@ -78,7 +81,7 @@ pub fn pack_input(
             }
         }
     }
-    progress.journal = message;
+    progress.notice = message;
 }
 
 /// Shows or hides the panel, rebuilds its rows when the bag, gear, or open state changes, and

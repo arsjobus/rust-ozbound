@@ -33,11 +33,13 @@ pub fn dialogue_input(
     keys: Res<ButtonInput<KeyCode>>,
     rows: Query<(&Interaction, &ChoiceRow), Changed<Interaction>>,
     content: Res<GameContent>,
+    chat: Res<ChatState>,
     mut progress: ResMut<GameProgress>,
     mut talk: ResMut<TalkState>,
 ) {
     let Some(active) = talk.0.as_mut() else { return };
-    let from_key = DIGITS.iter().position(|key| keys.just_pressed(*key));
+    // Number keys type into the chat box while it is open instead of picking a row.
+    let from_key = if chat.keys_captured { None } else { DIGITS.iter().position(|key| keys.just_pressed(*key)) };
     let from_click = rows.iter().find(|(interaction, _)| **interaction == Interaction::Pressed).map(|(_, row)| row.0);
     let Some(index) = from_key.or(from_click) else { return };
     if index >= active.view().choices.len() {
@@ -46,7 +48,7 @@ pub fn dialogue_input(
     let progress = &mut *progress;
     let (messages, open) = active.choose(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, index);
     if !messages.is_empty() {
-        progress.journal = messages.join(" ");
+        progress.notice = messages.join(" ");
     }
     if !open {
         talk.0 = None;

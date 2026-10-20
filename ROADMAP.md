@@ -182,17 +182,33 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Limits, stated plainly: clipping is checked by calculation from the font's character width, not by looking at a rendered window, and no hardware profiling was done. Run `docs/SMOKE_TEST.md` on a real display before trusting either. The right-click menu itself is mouse-only, but every action in it has a keyboard route.
 
 ## M8 - Improved HUD and Chat Area
-- [ ] Add a chat area to resceive chat messages or examine object messages
-- [ ] Change the HUD to no longer display examine object messages upon player examination
-- [ ] Player sound be able to type basic emotes like /wave /dance /cheer and should animate the player briefly to match
-- [ ] HUD need not display the working title of the game or the control options
-- [ ] Move the player's bag into it's own standalone UI with a button to toggle it opened / closed and hotkey as [b]
-- [ ] Move the player's skills tracking into it's own standalone UI with a button to toggle it opened / closed
-- [ ] Move the player's journal into it's own standalone UI with a button a button to toggle it opened / closed in kind of a quest book
-- [ ] The sign messages should be readable using the similar dialogue box UI that's used for NPC speech and options
-- [ ] The initial HUD that appeared in the upper left shouldn't take up the screen anylonger since we've broke it apart
+- [x] Add a chat area to resceive chat messages or examine object messages
+  - Done: `chat.rs` (pure: message log with kinds, wrapping and scrolling, the text-entry box, slash commands) and `chat_ui.rs` (Bevy: the panel in the bottom-left corner, typing, scrolling). Every message the game used to print in the HUD (`GameProgress::notice`, renamed from `journal`) is moved into the log each frame; examining adds an Examine line; what the player types shows as `You: ...`. The log keeps the newest 200 messages, wraps long ones, and PageUp / PageDown scroll it when no side panel is open. T or / opens the box, Enter sends, Esc cancels. While it is open every other key handler stands aside, so typing never walks or picks a row.
+  - Tests: unit tests in `chat.rs` (log limits, wrapping at many widths with nothing lost, scrolling, parsing, input limits, control characters, display line) and `tests/hud_chat_playthrough.rs` (a whole session, 200-message limit and scrolling, nothing typed changes the game).
+- [x] Change the HUD to no longer display examine object messages upon player examination
+  - Done: X, the right-click Examine entry, and every other message now go to the chat area; the HUD no longer has a message line.
+- [x] Player sound be able to type basic emotes like /wave /dance /cheer and should animate the player briefly to match
+  - Done: `emote.rs` (pure) gives each emote a duration, a chat line, and a pose over time (eased in and out, bounded angles, small hops); `animation::tick_emotes` and `animate_limbs` apply it to the player's arms, legs, and height. An emote needs the player to stand still and not be working; walking or working ends it at once. `/help` lists the commands; an unknown command or extra words are explained in the chat and do nothing else. NPCs can reuse `Emote` for M10.
+  - Tests: `emote.rs` unit tests (every pose starts and ends at rest, stays in bounds for the whole emote, bad times give rest, wave raises one arm and cheer both) and the playthrough tests above.
+- [x] HUD need not display the working title of the game or the control options
+  - Done: both lines are gone. The controls are on the pause menu's Controls page (`pause::CONTROLS`, updated for B, K, J, T, /, and PageUp / PageDown).
+- [x] Move the player's bag into it's own standalone UI with a button to toggle it opened / closed and hotkey as [b]
+  - Done: the bag panel (slots used, what is carried, what is worn) opens with B or the toolbar's Bag button. Its text is `side_panel::bag_text`.
+- [x] Move the player's skills tracking into it's own standalone UI with a button to toggle it opened / closed
+  - Done: the skills panel (level, progress to the next level, what each skill is for) opens with the toolbar's Skills button, and also with K so it can be reached without a mouse. Its text is `side_panel::skills_text`.
+- [x] Move the player's journal into it's own standalone UI with a button a button to toggle it opened / closed in kind of a quest book
+  - Done: the journal is now the Quest Book panel (J or the toolbar's Quests button), still paged with PageUp / PageDown and still carrying the field notes.
+  - Decision to confirm: bag, skills, and quest book share one right-hand slot, one open at a time, like the tabs of a classic MMORPG interface. That keeps the column from overflowing the smallest window. Letting them open together is a small change (`Dock` becomes three flags) but would need a layout that fits all three.
+- [x] The sign messages should be readable using the similar dialogue box UI that's used for NPC speech and options
+  - Done: reading a sign opens `Talk::reading` in the ordinary dialogue panel, titled Signpost, with the single choice "Done reading" (click, 1, Esc, or walking away close it). The text is also recorded in the chat. The dialogue panel now stands above the chat area (its offset is derived from the chat area's height).
+  - Tests: `talk.rs` unit tests and `tests/hud_chat_playthrough.rs` (every shipped sign and conversation fits above the chat area at the smallest window; a reading changes nothing in the quest log or bag).
+- [x] The initial HUD that appeared in the upper left shouldn't take up the screen anylonger since we've broke it apart
+  - Done: the top-left now holds only the quest tracker and the hover label (the hover label moved up from the bottom-left to make room for the chat area). The toolbar sits top-right. Chat, toolbar, and side panels block clicks to the world behind them.
+  - Acceptance: tests pass (`cargo test`: 598 unit tests plus the integration tests, 15 of them new). The Bevy code compiles without warnings.
+  - Limits, stated plainly: nothing was run in a window, so how the emotes look, the exact placement of the panels, and click blocking over the new panels are unchecked by eye. Layout is checked by calculation from the font's character width, as in M7. Run section 8 of `docs/SMOKE_TEST.md` on a real display.
 
 ## M9 - Build Out the Eastern Village (Starting Area)
+- [ ] Rename Hollowmere to a fitting new starting location name according to LOCATIONS.md and start using this file for world building.
 - [ ] Continue building out a larger world split into local map regions (separate scene assets).
 - [ ] Each area has it's own background music theme with music playing from bgm folder. (mp4, wav, ogg).
 - [ ] Non-harvestable trees should be a different low-poly model to make an untraversable thicket

@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
+use ozbound::chat::Kind;
 use ozbound::{
     context_menu::{build_menu, place_menu, row_at, MenuAction, MenuMetrics},
     interaction::examine_text,
@@ -34,6 +35,8 @@ pub fn menu_input(
     mut progress: ResMut<GameProgress>,
     talk: Res<TalkState>,
     pack: Res<PackState>,
+    mut chat: ResMut<ChatState>,
+    blockers: Query<&Interaction, With<UiBlocker>>,
 ) {
     // A conversation or the crafting panel owns the mouse; a menu that was open when it
     // began is dismissed.
@@ -46,6 +49,13 @@ pub fn menu_input(
     let left = buttons.just_pressed(MouseButton::Left);
     let right = buttons.just_pressed(MouseButton::Right);
     if !left && !right {
+        return;
+    }
+    // A click on the chat, the toolbar, or a side panel belongs to that panel, not the world
+    // behind it. It dismisses an open menu, except a left-click, which may be picking a row.
+    let over_ui = blockers.iter().any(|interaction| *interaction != Interaction::None);
+    if over_ui && (right || menu.0.is_none()) {
+        menu.0 = None;
         return;
     }
     let Ok(window) = windows.get_single() else { return };
@@ -63,7 +73,7 @@ pub fn menu_input(
                 MenuAction::Examine => {
                     if let Some((id, it)) = object {
                         let spent = nodes.get(id).is_ok_and(|node| node.0.is_depleted());
-                        progress.journal = examine_text(it.kind, spent);
+                        chat.log.push(Kind::Examine, examine_text(it.kind, spent));
                     }
                 }
                 MenuAction::Interact => {

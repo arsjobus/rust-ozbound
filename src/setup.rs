@@ -6,6 +6,7 @@ use std::f32::consts::TAU;
 use bevy::image::ImageSampler;
 use bevy::pbr::{CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::prelude::*;
+use bevy::ui::FocusPolicy;
 use bevy::render::{
     render_asset::RenderAssetUsages,
     render_resource::{Extent3d, TextureDimension, TextureFormat},
@@ -23,7 +24,10 @@ use ozbound::{
     world::{Tile, TilePos, WorldMap},
 };
 
-use ozbound::text_fit::{DIALOGUE_PANEL, JOURNAL_PANEL, JOURNAL_PX, MARGIN, PACK_PANEL, PAUSE_PANEL, ROW_GAP};
+use ozbound::side_panel::Tab;
+use ozbound::text_fit::{
+    DIALOGUE_PANEL, DOCK_PANEL, HUD_PX, JOURNAL_PX, MARGIN, PACK_PANEL, PAUSE_PANEL, ROW_GAP, TOOLBAR_BUTTON_HEIGHT, TOOLBAR_BUTTON_PAD, TOOLBAR_GAP, TOOLBAR_PX,
+};
 
 use crate::camera_rig::Rig;
 use crate::components::*;
@@ -315,7 +319,7 @@ pub fn setup(
     let player_tile = saved.0.player;
     let player_at = vec3(map.tile_center_3d(player_tile, 0.0));
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, player_at, 0.0);
-    commands.entity(player).insert(Player { tile: player_tile, task: Task::idle(), work: None });
+    commands.entity(player).insert(Player { tile: player_tile, task: Task::idle(), work: None, emote: None });
 
     // A wide dark floor under the meadow so the map edge doesn't float in the sky colour.
     commands.spawn((
@@ -338,40 +342,88 @@ pub fn setup(
     commands.spawn((Camera3d::default(), rig.camera_transform(), MainCamera));
     commands.insert_resource(rig);
 
-    // HUD.
-    commands.spawn((
-        Text::new("OZBOUND"),
-        TextFont { font_size: 19.0, ..default() },
-        TextColor(Color::WHITE),
-        Node { position_type: PositionType::Absolute, top: Val::Px(10.0), left: Val::Px(10.0), padding: UiRect::all(Val::Px(8.0)), ..default() },
-        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
-        HudText,
-    ));
-    commands.spawn((
-        Text::new(""),
-        TextFont { font_size: 22.0, ..default() },
-        TextColor(Color::srgb(1.0, 0.95, 0.55)),
-        Node { position_type: PositionType::Absolute, bottom: Val::Px(12.0), left: Val::Px(10.0), padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
-        BackgroundColor(Color::NONE),
-        HoverHud,
-    ));
+    // HUD: the hover label and the quest tracker, stacked in the top-left corner. Everything
+    // else that used to live here has its own panel (chat, bag, skills, quest book).
+    commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(MARGIN),
+            left: Val::Px(MARGIN),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::FlexStart,
+            row_gap: Val::Px(6.0),
+            ..default()
+        })
+        .with_children(|stack| {
+            stack.spawn((
+                Text::new(""),
+                TextFont { font_size: 22.0, ..default() },
+                TextColor(Color::srgb(1.0, 0.95, 0.55)),
+                Node { padding: UiRect::axes(Val::Px(10.0), Val::Px(4.0)), ..default() },
+                BackgroundColor(Color::NONE),
+                HoverHud,
+            ));
+            stack.spawn((
+                Text::new(""),
+                TextFont { font_size: HUD_PX, ..default() },
+                TextColor(Color::WHITE),
+                Node { padding: UiRect::all(Val::Px(8.0)), ..default() },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.45)),
+                HudText,
+            ));
+        });
 
-    // Journal panel (toggled with J): `hud::update_journal_panel` fills in the text.
+    // Toolbar: one button per side panel, top-right. `hud::toolbar_input` reads the clicks.
+    commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(MARGIN),
+            right: Val::Px(MARGIN),
+            flex_direction: FlexDirection::Row,
+            column_gap: Val::Px(TOOLBAR_GAP),
+            ..default()
+        })
+        .with_children(|bar| {
+            for tab in Tab::ALL {
+                bar.spawn((
+                    Button,
+                    Node {
+                        height: Val::Px(TOOLBAR_BUTTON_HEIGHT),
+                        padding: UiRect::axes(Val::Px(TOOLBAR_BUTTON_PAD), Val::Px(0.0)),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.78)),
+                    ToolbarButton(tab),
+                    UiBlocker,
+                ))
+                .with_children(|button| {
+                    button.spawn((Text::new(tab.button_text()), TextFont { font_size: TOOLBAR_PX, ..default() }, TextColor(Color::WHITE)));
+                });
+            }
+        });
+
+    // Side panel (bag, skills, or quest book; toggled by the toolbar or B / K / J):
+    // `hud::update_dock_panel` fills in the text.
     commands.spawn((
         Text::new(""),
         TextFont { font_size: JOURNAL_PX, ..default() },
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(JOURNAL_PANEL.offset),
+            top: Val::Px(DOCK_PANEL.offset),
             right: Val::Px(MARGIN),
-            width: Val::Px(JOURNAL_PANEL.width),
-            padding: UiRect::all(Val::Px(JOURNAL_PANEL.padding)),
+            width: Val::Px(DOCK_PANEL.width),
+            padding: UiRect::all(Val::Px(DOCK_PANEL.padding)),
             ..default()
         },
         BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.88)),
+        Interaction::default(),
+        FocusPolicy::Block,
         Visibility::Hidden,
-        JournalPanel,
+        UiBlocker,
+        DockPanel,
     ));
 
     // Dialogue panel: hidden until a conversation opens; `dialogue_ui::sync_dialogue_ui` fills it in.

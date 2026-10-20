@@ -5,7 +5,7 @@ use bevy::input::mouse::{MouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use ozbound::orbit::OrbitCamera;
 
-use crate::components::{MainCamera, Player};
+use crate::components::{ChatState, MainCamera, Player};
 
 const KEY_TURN_SPEED: f32 = 1.8;
 const MOUSE_TURN_SPEED: f32 = 0.005;
@@ -37,24 +37,27 @@ pub fn update_camera(
     mouse: Res<ButtonInput<MouseButton>>,
     mut motion: EventReader<MouseMotion>,
     mut wheel: EventReader<MouseWheel>,
+    chat: Res<ChatState>,
     mut rig: ResMut<Rig>,
     player: Query<&Transform, (With<Player>, Without<MainCamera>)>,
     mut camera: Query<&mut Transform, With<MainCamera>>,
 ) {
     let dt = time.delta_secs();
+    // The arrow keys and + / - belong to the chat box while it is open.
+    let keys_live = !chat.keys_captured;
 
     let mut turn = 0.0;
     let mut tilt = 0.0;
-    if keys.pressed(KeyCode::ArrowLeft) {
+    if keys_live && keys.pressed(KeyCode::ArrowLeft) {
         turn += KEY_TURN_SPEED * dt;
     }
-    if keys.pressed(KeyCode::ArrowRight) {
+    if keys_live && keys.pressed(KeyCode::ArrowRight) {
         turn -= KEY_TURN_SPEED * dt;
     }
-    if keys.pressed(KeyCode::ArrowUp) {
+    if keys_live && keys.pressed(KeyCode::ArrowUp) {
         tilt += KEY_TURN_SPEED * dt;
     }
-    if keys.pressed(KeyCode::ArrowDown) {
+    if keys_live && keys.pressed(KeyCode::ArrowDown) {
         tilt -= KEY_TURN_SPEED * dt;
     }
     // Always drain mouse motion so a long drag doesn't replay later.
@@ -73,10 +76,10 @@ pub fn update_camera(
         rig.orbit.zoom(-notches * ZOOM_PER_NOTCH);
     }
 
-    if keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
+    if keys_live && keys.any_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
         rig.orbit.zoom(-ZOOM_KEY_SPEED * dt);
     }
-    if keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
+    if keys_live && keys.any_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
         rig.orbit.zoom(ZOOM_KEY_SPEED * dt);
     }
 

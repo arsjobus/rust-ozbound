@@ -19,9 +19,9 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Turn the camera with the arrow keys (a quarter turn or so): W still moves "up the screen".
 - [ ] Tab selects the nearest thing; the hover label names it and says how many steps away; Tab again moves on; Shift+Tab goes back; a full lap returns to the start.
 - [ ] Enter goes to the selected thing and uses it (walk to the guide and talk; walk to a tree and chop).
-- [ ] X on a selected thing prints its description in the journal line.
+- [ ] X on a selected thing prints its description in the chat area (and not in the HUD).
 - [ ] In a conversation, 1-9 pick choices and Esc closes it; in the crafting panel (C), 1-9 pick rows and C or Esc closes it.
-- [ ] J opens the journal; PageUp / PageDown turn pages when there are several.
+- [ ] J opens the quest book, B the bag, K skills; each key closes its own panel, opening another switches to it; PageUp / PageDown turn pages when there are several.
 - [ ] + and - zoom the camera.
 
 ## 3. Mouse
@@ -45,15 +45,31 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 
 - [ ] Talk to every villager and read each line: no dialogue text or choice is cut off (the portrait stays visible).
 - [ ] Open the crafting panel with a busy bag: every row is visible.
-- [ ] Start every quest and open the journal: the text pages cleanly, nothing is cut off at the bottom.
-- [ ] With the journal open, the top-left HUD text does not run under it.
+- [ ] Start every quest and open the quest book: the text pages cleanly, nothing is cut off at the bottom.
+- [ ] With a side panel open, the top-left quest tracker does not run under it.
+- [ ] Fill the bag with every item and equip gear, then open the bag panel: nothing is cut off; the toolbar and chat area do not overlap each other or the panel.
+- [ ] Talk to a villager at this size: the dialogue panel sits above the chat area without covering it.
 
 ## 6. Performance
 
 - [ ] F3 shows the frame-time overlay; it reads "smooth" (about 60 fps) while walking the village on the target machine.
 - [ ] `OZBOUND_PROFILE=1 cargo run`, play for a minute, quit: the summary line is printed. Note the average and worst frame here: ______
-- [ ] No hitch (a worst frame over about 100 ms) when opening the pause menu, a conversation, or the journal.
+- [ ] No hitch (a worst frame over about 100 ms) when opening the pause menu, a conversation, or a side panel.
 
 ## 7. Saving still works
 
 - [ ] Pick two moonpetals, chop a tree until spent, quit, restart: the world and quest state are as left (see the M6 manual check in `ROADMAP.md` for the full list).
+
+## 8. HUD, chat, and panels (M8)
+
+- [ ] The top-left shows only the quest tracker (and a hover label when the mouse is over something); no game title and no list of controls.
+- [ ] The toolbar (Bag, Skills, Quests) is top-right; clicking a button opens its panel, clicking it again closes it, and the open one is highlighted.
+- [ ] Clicking a toolbar button, the chat area, or an open panel does not make the player walk.
+- [ ] Gather something, examine a tree (X or right-click Examine): the lines appear in the chat area, in different colours, and nothing appears in the HUD.
+- [ ] Press T, type a line, press Enter: it appears as `You: ...`. While typing, W A S D, Tab, Space, 1-9 and the arrow keys do not move the player or the camera or pick anything.
+- [ ] Press / then `wave`, Enter: the player raises an arm and the chat says `You wave.`; the same for `/dance` and `/cheer`. The pose eases in and out and the player ends standing normally.
+- [ ] `/jump` and `/wave please` give a short explanation in the chat and do nothing else; `/help` lists the commands.
+- [ ] Start walking or chopping: any emote stops. Type `/wave` while walking: the chat says you cannot.
+- [ ] Esc while typing cancels the line (and does not open the pause menu); Esc again with nothing open pauses.
+- [ ] PageUp / PageDown scroll the chat when no side panel is open; a note under the log says older messages are showing; a new message returns to the newest.
+- [ ] Read a signpost: it opens in the dialogue panel titled Signpost with one choice, Done reading (1 or click); Esc and walking away close it too. The text is also recorded in the chat.

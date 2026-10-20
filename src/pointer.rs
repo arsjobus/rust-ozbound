@@ -33,11 +33,17 @@ pub fn pointer(
     menu: Res<ContextMenuState>,
     talk: Res<TalkState>,
     pack: Res<PackState>,
+    blockers: Query<&Interaction, With<UiBlocker>>,
 ) {
     hover.0.clear();
     // While the right-click menu, a conversation, or the crafting panel is open it owns the
     // mouse (see `menu::menu_input`, `dialogue_ui::dialogue_input`, `pack_ui::pack_input`).
     if menu.0.is_some() || talk.0.is_some() || pack.0 {
+        return;
+    }
+    // The chat, the toolbar, and the side panels sit above the world: the mouse over them is
+    // not over anything in the scene, and a click on them does not walk.
+    if blockers.iter().any(|interaction| *interaction != Interaction::None) {
         return;
     }
     let Ok(window) = windows.get_single() else { return };
@@ -102,7 +108,7 @@ pub fn order_interact(
             player.work = None;
             spawn_marker(commands, assets, marker_position(map, it.tile), true);
         }
-        None => progress.journal = "You can't reach that.".into(),
+        None => progress.notice = "You can't reach that.".into(),
     }
 }
 
@@ -116,7 +122,7 @@ pub fn order_walk(
     tile: TilePos,
 ) {
     if !map.can_walk_to(tile) {
-        progress.journal = "You can't walk there.".into();
+        progress.notice = "You can't walk there.".into();
         return;
     }
     let origin = player.task.planning_origin(player.tile);
@@ -127,7 +133,7 @@ pub fn order_walk(
             player.work = None;
             spawn_marker(commands, assets, marker_position(map, tile), false);
         }
-        None => progress.journal = "You can't reach that.".into(),
+        None => progress.notice = "You can't reach that.".into(),
     }
 }
 
