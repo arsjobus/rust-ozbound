@@ -2,6 +2,7 @@
 //! Kept free of Bevy so both can be unit-tested. The layout itself is level data: see
 //! [`crate::level`] and `assets/maps/meadow.map`.
 
+use crate::gathering::ResourceKind;
 use crate::level::{Level, LevelError};
 use crate::world::{Tile, TilePos, WorldMap};
 
@@ -64,6 +65,78 @@ impl FenceLinks {
 pub fn fence_links(map: &WorldMap, pos: TilePos) -> FenceLinks {
     let is_fence = |dx: i32, dy: i32| map.tile_at(TilePos::new(pos.x + dx, pos.y + dy)) == Ok(Tile::Fence);
     FenceLinks { east: is_fence(1, 0), west: is_fence(-1, 0), north: is_fence(0, 1), south: is_fence(0, -1) }
+}
+
+/// One tile of a bridge: a path tile with water on both sides of its direction of travel.
+/// The 3D layer replaces the flat path slab with a wooden deck, rails, and end posts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BridgeTile {
+    pub tile: TilePos,
+    /// True when the bridge runs east-west (water lies north and south of it); false when it
+    /// runs north-south.
+    pub along_x: bool,
+    /// True when the next tile *behind* the bridge (west or south) is not part of it.
+    pub first: bool,
+    /// True when the next tile *ahead* of the bridge (east or north) is not part of it.
+    pub last: bool,
+}
+
+/// Whether the path tile at `pos` is a bridge tile, and which way it runs. A tile with water
+/// on all four sides is a stepping stone, not a bridge; so is a path tile on dry land.
+fn bridge_axis(map: &WorldMap, pos: TilePos) -> Option<bool> {
+    if map.tile_at(pos) != Ok(Tile::Path) {
+        return None;
+    }
+    let water = |dx: i32, dy: i32| map.tile_at(TilePos::new(pos.x + dx, pos.y + dy)) == Ok(Tile::Water);
+    let flanked_north_south = water(0, 1) && water(0, -1);
+    let flanked_east_west = water(1, 0) && water(-1, 0);
+    match (flanked_north_south, flanked_east_west) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+/// Every bridge tile on the map, bottom row first. Bridges are not marked in level files:
+/// a path that crosses water is a bridge, so `Tile::is_walkable` stays the only collision rule
+/// and the deck can never disagree with where the player may walk.
+pub fn bridge_tiles(map: &WorldMap) -> Vec<BridgeTile> {
+    let mut out = Vec::new();
+    for y in 0..map.height() as i32 {
+        for x in 0..map.width() as i32 {
+            let tile = TilePos::new(x, y);
+            let Some(along_x) = bridge_axis(map, tile) else { continue };
+            let same = |dx: i32, dy: i32| bridge_axis(map, TilePos::new(x + dx, y + dy)) == Some(along_x);
+            let (back, ahead) = if along_x { ((-1, 0), (1, 0)) } else { ((0, -1), (0, 1)) };
+            out.push(BridgeTile { tile, along_x, first: !same(back.0, back.1), last: !same(ahead.0, ahead.1) });
+        }
+    }
+    out
+}
+
+/// Which way a vineyard row runs: true for east-west. A row follows its neighbours (the
+/// vine tiles left and right, or above and below); a lone vine tile, or a tie, runs east-west.
+pub fn vine_runs_along_x(map: &WorldMap, pos: TilePos) -> bool {
+    let vine = |dx: i32, dy: i32| map.tile_at(TilePos::new(pos.x + dx, pos.y + dy)) == Ok(Tile::Vine);
+    let sideways = usize::from(vine(1, 0)) + usize::from(vine(-1, 0));
+    let vertical = usize::from(vine(0, 1)) + usize::from(vine(0, -1));
+    sideways >= vertical
+}
+
+/// Tree tiles that cannot be harvested: every `T` tile that is not a listed tree resource.
+/// They are drawn as dense thickets, so it is clear at a glance which trees can be chopped.
+pub fn thicket_tiles(level: &Level) -> Vec<TilePos> {
+    let mut out = Vec::new();
+    for y in 0..level.map.height() as i32 {
+        for x in 0..level.map.width() as i32 {
+            let tile = TilePos::new(x, y);
+            let harvestable = level.nodes.iter().any(|n| n.tile == tile && n.kind == ResourceKind::Tree);
+            if level.map.tile_at(tile) == Ok(Tile::Tree) && !harvestable {
+                out.push(tile);
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -150,5 +223,102 @@ mod tests {
         assert_eq!(fence_links(&m, TilePos::new(11, 7)).rails(), vec![(1, 0)]);
         assert_eq!(fence_links(&m, TilePos::new(13, 7)).rails(), vec![(1, 0), (-1, 0)]);
         assert_eq!(fence_links(&m, TilePos::new(15, 7)).rails(), vec![(-1, 0)]);
+    }
+
+    // ---- bridges and thickets ----
+
+    fn bridges_of(text: &str) -> Vec<BridgeTile> { bridge_tiles(&WorldMap::from_ascii(text).unwrap()) }
+
+    #[test]
+    fn a_path_across_water_is_a_bridge_running_the_way_you_walk() {
+        // Water above and below a path row: an east-west bridge two tiles long.
+        let east_west = bridges_of("~~~~\n.==.\n~~~~");
+        assert_eq!(east_west.len(), 2);
+        assert!(east_west.iter().all(|b| b.along_x));
+        assert_eq!((east_west[0].first, east_west[0].last), (true, false));
+        assert_eq!((east_west[1].first, east_west[1].last), (false, true));
+        // Water left and right of a path column: a north-south bridge.
+        let north_south = bridges_of("~.~\n~=~\n~=~\n~=~\n~.~");
+        assert_eq!(north_south.len(), 3, "the grass ends of the column are not bridge");
+        assert!(north_south.iter().all(|b| !b.along_x));
+        assert!(north_south.iter().any(|b| b.first) && north_south.iter().any(|b| b.last));
+    }
+
+    #[test]
+    fn a_one_tile_causeway_is_both_the_first_and_last_tile() {
+        let b = bridges_of("~~~\n.=.\n~~~");
+        assert_eq!(b, vec![BridgeTile { tile: TilePos::new(1, 1), along_x: true, first: true, last: true }]);
+    }
+
+    #[test]
+    fn dry_paths_stepping_stones_and_map_edges_are_not_bridges() {
+        assert!(bridges_of("....\n====\n....").is_empty(), "a path on dry land");
+        assert!(bridges_of("~~~\n~=~\n~~~").is_empty(), "a stepping stone in a pond");
+        assert!(bridges_of("~=.\n~=.").is_empty(), "water on one side only is a riverbank path");
+        assert!(bridges_of(".=.\n.=.").is_empty(), "off-map neighbours are not water");
+        assert!(bridges_of("~~~\n...\n~~~").is_empty(), "grass is not a bridge");
+        assert!(bridges_of("TTT\n===\nTTT").is_empty(), "trees beside a path are not water");
+    }
+
+    #[test]
+    fn bridge_tiles_are_always_walkable_so_the_deck_never_hides_a_wall() {
+        let m = WorldMap::from_ascii("~~~~\n.==.\n~~~~").unwrap();
+        for b in bridge_tiles(&m) {
+            assert!(m.can_walk_to(b.tile));
+        }
+    }
+
+    #[test]
+    fn bluebrook_has_exactly_one_wooden_bridge_and_it_spans_the_river() {
+        let level = Level::parse(crate::village::BLUEBROOK_MAP).unwrap();
+        let bridges = bridge_tiles(&level.map);
+        assert!(bridges.len() >= 2, "the river crossing needs at least two deck tiles");
+        // Every deck tile belongs to one connected run along the main road.
+        assert!(bridges.iter().all(|b| b.along_x && b.tile.y == bridges[0].tile.y));
+        assert_eq!(bridges.iter().filter(|b| b.first).count(), 1);
+        assert_eq!(bridges.iter().filter(|b| b.last).count(), 1);
+        assert!(bridges.windows(2).all(|w| w[1].tile.x == w[0].tile.x + 1), "consecutive tiles");
+    }
+
+    #[test]
+    fn thickets_are_exactly_the_tree_tiles_nobody_can_chop() {
+        let level = Level::parse(crate::village::BLUEBROOK_MAP).unwrap();
+        let thickets = thicket_tiles(&level);
+        assert!(thickets.len() > 40, "the forest edge should be dense; found {}", thickets.len());
+        for tile in &thickets {
+            assert_eq!(level.map.tile_at(*tile), Ok(Tile::Tree));
+            assert!(!level.nodes.iter().any(|n| n.tile == *tile), "{tile:?} is harvestable");
+        }
+        // Every listed tree is a tree tile and is not a thicket.
+        for node in level.nodes.iter().filter(|n| n.kind == ResourceKind::Tree) {
+            assert!(!thickets.contains(&node.tile), "{:?}", node.tile);
+        }
+        // Together they cover every tree tile on the map.
+        let trees = (0..level.map.height() as i32)
+            .flat_map(|y| (0..level.map.width() as i32).map(move |x| TilePos::new(x, y)))
+            .filter(|t| level.map.tile_at(*t) == Ok(Tile::Tree))
+            .count();
+        let chop = level.nodes.iter().filter(|n| n.kind == ResourceKind::Tree).count();
+        assert_eq!(thickets.len() + chop, trees);
+    }
+
+    #[test]
+    fn thickets_block_movement_like_any_tree() {
+        let level = Level::parse(crate::village::BLUEBROOK_MAP).unwrap();
+        for tile in thicket_tiles(&level) {
+            assert!(!level.map.can_walk_to(tile), "{tile:?}");
+        }
+    }
+
+    #[test]
+    fn vine_rows_follow_their_neighbours() {
+        let across = WorldMap::from_ascii("vvvv").unwrap();
+        assert!((0..4).all(|x| vine_runs_along_x(&across, TilePos::new(x, 0))));
+        let down = WorldMap::from_ascii("v\nv\nv").unwrap();
+        assert!((0..3).all(|y| !vine_runs_along_x(&down, TilePos::new(0, y))));
+        let lone = WorldMap::from_ascii("...\n.v.\n...").unwrap();
+        assert!(vine_runs_along_x(&lone, TilePos::new(1, 1)), "a lone vine runs east-west");
+        let corner = WorldMap::from_ascii("vv\nv.").unwrap();
+        assert!(vine_runs_along_x(&corner, TilePos::new(0, 1)), "a tie runs east-west");
     }
 }

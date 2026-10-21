@@ -226,7 +226,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("no route to {kind:?} at {target:?}"));
             assert!(in_reach(route.last().copied().unwrap_or(start), target, approach), "{kind:?} at {target:?}");
         };
-        ends_in_reach(level.guide, InteractionKind::TalkTo);
+        ends_in_reach(level.guide.expect("the meadow has a guide"), InteractionKind::TalkTo);
         for petal in &level.moonpetals { ends_in_reach(*petal, InteractionKind::Pick); }
         for node in &level.nodes { ends_in_reach(node.tile, node.kind.interaction()); }
         for sign in &level.signs { ends_in_reach(sign.tile, InteractionKind::Read); }

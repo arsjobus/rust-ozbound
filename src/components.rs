@@ -326,3 +326,51 @@ pub struct PerfHud;
 /// The looping ambient sound, so its volume can follow the settings.
 #[derive(Component)]
 pub struct AmbientSound;
+
+/// Marks everything the current region put into the world (terrain, props, people, the
+/// player, click markers). Travelling to another region despawns all of it and builds the new
+/// region's world; see `travel.rs`.
+#[derive(Component)]
+pub struct RegionEntity;
+
+/// The walls of a house (lowered while the player is inside); `0` indexes `Level::houses`.
+#[derive(Component)]
+pub struct HouseWalls(pub usize);
+
+/// The roof of a house (hidden while the player is inside); `0` indexes `Level::houses`.
+#[derive(Component)]
+pub struct HouseRoof(pub usize);
+
+/// Every playable region's level, so travelling can switch maps. `LevelData` and `Meadow`
+/// always hold the region the player is in; this keeps the others.
+#[derive(Resource)]
+pub struct Atlas {
+    pub locations: ozbound::locations::Locations,
+    pub levels: Vec<(String, Level)>,
+}
+
+impl Atlas {
+    pub fn level(&self, id: &str) -> Option<&Level> {
+        self.levels.iter().find(|(region, _)| region == id).map(|(_, level)| level)
+    }
+}
+
+/// The location id of the region the player is in.
+#[derive(Resource)]
+pub struct CurrentRegion(pub String);
+
+/// An exit the player has just walked onto. `travel::apply_travel` takes it next frame.
+#[derive(Resource, Default)]
+pub struct TravelOrder(pub Option<ozbound::level::ExitSpawn>);
+
+/// Present for the frame in which the new region's world must be built.
+#[derive(Resource)]
+pub struct RebuildWorld;
+
+/// The looping background music of the current region.
+#[derive(Component)]
+pub struct BgmSound;
+
+/// The region whose music is playing (or was last started).
+#[derive(Resource, Default)]
+pub struct BgmState(pub Option<String>);

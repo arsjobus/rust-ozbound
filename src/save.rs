@@ -6,14 +6,15 @@
 //! where the player stands, the bag and worn gear, skill XP, quest progress, creatures met, and
 //! the changes made to the world (moonpetals picked, trees/veins/plants partly or fully used).
 //!
-//! # Format, version 1
+//! # Format, version 2
 //!
 //! One entry per line; blank lines and lines starting with `#` are ignored, and CRLF line
 //! endings and a leading BOM are accepted. The first entry is the header and the last must be
 //! `end`, so a file cut off mid-write is recognised as such instead of loading as a smaller game.
 //!
 //! ```text
-//! ozbound-save 1
+//! ozbound-save 2
+//! region YELLOW_BRICK_ROAD_EAST # optional; the region the player is in (absent = the starting region)
 //! world 40 24                 # map width and height (guards against another world's save)
 //! player 12 5                 # the tile the player stands on
 //! bag_capacity 20             # optional; defaults to the normal bag size
@@ -29,8 +30,15 @@
 //! end
 //! ```
 //!
-//! # Loading rules
+//! Version 2 only adds the optional `region` line (version 1 saves have none and load as the
+//! starting region). `picked` and `node` lines belong to the saved region's map; changes made
+//! in a region the player has since left are not kept (a known limitation: its trees and
+//! plants start fresh when it is entered again, and its moonpetals come back).
+//! [`SaveGame::peek_region`] reads just that line, so the caller can pick the right level to
+//! validate against before loading the rest.
 //!
+//! # Loading rules
+//!//!
 //! Loading validates everything against the world the player is about to enter and refuses
 //! anything play could not have produced; it never partly succeeds, and every problem names
 //! its line. In particular: the header must be `ozbound-save <n>` with `1 <= n <= FORMAT_VERSION`
@@ -63,7 +71,7 @@ use crate::textdata::{is_valid_id, ContentError};
 use crate::world::TilePos;
 
 /// The save format this build writes and reads.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The largest bag a save may claim (the normal bag is 20 slots).
 pub const MAX_BAG_CAPACITY: usize = 200;
@@ -145,6 +153,8 @@ impl WorldChanges {
 /// Everything saved about a play session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveGame {
+    /// The region (location id) the player is in; `None` means the starting region.
+    pub region: Option<String>,
     /// Width and height of the map the save belongs to.
     pub map_size: (usize, usize),
     pub player: TilePos,
@@ -160,6 +170,7 @@ impl SaveGame {
     /// A new game on `level`: the player at the start, nothing carried, nothing done.
     pub fn new_game(level: &Level) -> Self {
         Self {
+            region: None,
             map_size: (level.map.width(), level.map.height()),
             player: level.player_start,
             bag: Inventory::default(),
@@ -174,6 +185,9 @@ impl SaveGame {
     /// Writes the save in the versioned text format. The same game always gives the same text.
     pub fn to_text(&self) -> String {
         let mut out = format!("{MAGIC} {FORMAT_VERSION}\n");
+        if let Some(region) = &self.region {
+            out.push_str(&format!("region {region}\n"));
+        }
         out.push_str(&format!("world {} {}\n", self.map_size.0, self.map_size.1));
         out.push_str(&format!("player {} {}\n", self.player.x, self.player.y));
         out.push_str(&format!("bag_capacity {}\n", self.bag.capacity()));
@@ -206,6 +220,18 @@ impl SaveGame {
         }
         out.push_str("end\n");
         out
+    }
+
+    /// The region named by a save's `region` line, without reading or validating anything else.
+    /// `None` when there is no such line (the save is for the starting region) or the text is
+    /// not a save at all; loading reports the real problem.
+    pub fn peek_region(text: &str) -> Option<String> {
+        text.trim_start_matches('\u{feff}').lines().find_map(|line| {
+            match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+                ["region", id] => Some((*id).to_string()),
+                _ => None,
+            }
+        })
     }
 
     /// Reads a save written by [`SaveGame::to_text`], validating it against `ctx`.
@@ -263,7 +289,8 @@ fn parse_tile(line: usize, x: &str, y: &str) -> Result<TilePos, ContentError> {
 }
 
 /// What each entry keyword takes, for the message when its arguments are wrong.
-const USAGE: [(&str, &str); 12] = [
+const USAGE: [(&str, &str); 13] = [
+    ("region", "<LOCATION_ID>"),
     ("world", "<width> <height>"),
     ("player", "<x> <y>"),
     ("bag_capacity", "<slots>"),
@@ -281,6 +308,7 @@ const USAGE: [(&str, &str); 12] = [
 /// Entries gathered while reading, checked against the world once the whole file is read.
 #[derive(Default)]
 struct Reading {
+    region: Option<String>,
     world: Option<(usize, usize)>,
     player: Option<(usize, TilePos)>,
     capacity: Option<(usize, usize)>,
@@ -307,6 +335,13 @@ impl Reading {
             }
         };
         match words.as_slice() {
+            ["region", id] => {
+                once(self.region.is_some(), "region")?;
+                if !crate::textdata::is_valid_location_id(id) {
+                    return Err(ContentError::at(number, format!("`{id}` is not a location id (capital letters, digits, and underscores)")));
+                }
+                self.region = Some((*id).to_string());
+            }
             ["world", w, h] => {
                 once(self.world.is_some(), "world")?;
                 let size = (parse_num::<usize>(number, "map width", w)?, parse_num::<usize>(number, "map height", h)?);
@@ -476,7 +511,7 @@ impl Reading {
         picked.sort_by_key(sort_key);
         let mut nodes = self.nodes;
         nodes.sort_by_key(|(tile, _)| sort_key(tile));
-        Ok(SaveGame { map_size: size, player, bag, equipment, skills, quests, notes, changes: WorldChanges { picked, nodes } })
+        Ok(SaveGame { region: self.region, map_size: size, player, bag, equipment, skills, quests, notes, changes: WorldChanges { picked, nodes } })
     }
 }
 
@@ -489,7 +524,7 @@ fn check_player(line: usize, at: TilePos, ctx: &SaveContext) -> Result<(), Conte
     if !level.map.is_reachable(level.player_start, at) {
         return Err(ContentError::at(line, format!("the player cannot be at ({}, {}): it cannot be reached from the starting tile", at.x, at.y)));
     }
-    let occupant = if level.guide == at {
+    let occupant = if level.guide == Some(at) {
         Some("the village guide".to_string())
     } else if let Some(npc) = level.npcs.iter().find(|npc| npc.tile == at) {
         Some(npc.name.clone())
@@ -592,7 +627,7 @@ mod tests {
         let world = world();
         let game = SaveGame::new_game(&world.level);
         let text = game.to_text();
-        assert!(text.starts_with(&format!("ozbound-save 1\nworld {} {}\nplayer ", world.level.map.width(), world.level.map.height())), "{text}");
+        assert!(text.starts_with(&format!("ozbound-save 2\nworld {} {}\nplayer ", world.level.map.width(), world.level.map.height())), "{text}");
         assert!(text.ends_with("end\n"));
         assert_eq!(load(&text, &world).unwrap(), game);
         assert!(game.changes.is_empty());
@@ -672,13 +707,62 @@ mod tests {
     fn bad_zero_and_newer_versions_are_refused_with_a_reason() {
         let world = world();
         let good = busy_game(&world).to_text();
-        let e = load(&good.replacen("ozbound-save 1", "ozbound-save one", 1), &world).unwrap_err();
+        let e = load(&good.replacen("ozbound-save 2", "ozbound-save one", 1), &world).unwrap_err();
         assert!(e.message.contains("not a format version"), "{e}");
-        let e = load(&good.replacen("ozbound-save 1", "ozbound-save 0", 1), &world).unwrap_err();
+        let e = load(&good.replacen("ozbound-save 2", "ozbound-save 0", 1), &world).unwrap_err();
         assert!(e.message.contains("version 0"), "{e}");
-        let e = load(&good.replacen("ozbound-save 1", "ozbound-save 2", 1), &world).unwrap_err();
+        let e = load(&good.replacen("ozbound-save 2", "ozbound-save 3", 1), &world).unwrap_err();
         assert_eq!(e.line, Some(1));
-        assert!(e.message.contains("format 2") && e.message.contains("up to format 1") && e.message.contains("update"), "{e}");
+        assert!(e.message.contains("format 3") && e.message.contains("up to format 2") && e.message.contains("update"), "{e}");
+    }
+
+    #[test]
+    fn a_version_one_save_still_loads_as_the_starting_region() {
+        let world = world();
+        let start = world.level.player_start;
+        let v1 = format!("ozbound-save 1\nworld {} {}\nplayer {} {}\nend\n", world.level.map.width(), world.level.map.height(), start.x, start.y);
+        let game = load(&v1, &world).expect("version 1 saves must keep loading");
+        assert_eq!(game.region, None);
+        assert_eq!(SaveGame::peek_region(&v1), None);
+        // Writing it back upgrades it to the current version and changes nothing else.
+        let again = load(&game.to_text(), &world).unwrap();
+        assert_eq!(again, game);
+        assert!(game.to_text().starts_with("ozbound-save 2\n"));
+    }
+
+    #[test]
+    fn the_region_line_round_trips_and_is_only_written_away_from_the_start() {
+        let world = world();
+        let mut game = busy_game(&world);
+        assert!(!game.to_text().contains("region"), "the starting region writes no region line");
+        game.region = Some("YELLOW_BRICK_ROAD_EAST".to_string());
+        let text = game.to_text();
+        assert!(text.contains("\nregion YELLOW_BRICK_ROAD_EAST\n"));
+        assert_eq!(SaveGame::peek_region(&text).as_deref(), Some("YELLOW_BRICK_ROAD_EAST"));
+        assert_eq!(load(&text, &world).unwrap().region.as_deref(), Some("YELLOW_BRICK_ROAD_EAST"));
+    }
+
+    #[test]
+    fn a_bad_or_repeated_region_line_is_refused_with_its_line() {
+        let world = world();
+        let text = busy_game(&world).to_text();
+        let with = |line: &str| text.replacen("world ", &format!("{line}\nworld "), 1);
+        let e = load(&with("region road"), &world).unwrap_err();
+        assert!(e.message.contains("not a location id"), "{e}");
+        assert_eq!(e.line, Some(2));
+        let e = load(&with("region A_B\nregion C_D"), &world).unwrap_err();
+        assert!(e.message.contains("`region` appears twice"), "{e}");
+        let e = load(&with("region"), &world).unwrap_err();
+        assert!(e.message.contains("<LOCATION_ID>"), "{e}");
+    }
+
+    #[test]
+    fn peek_region_ignores_everything_but_the_region_line() {
+        assert_eq!(SaveGame::peek_region(""), None);
+        assert_eq!(SaveGame::peek_region("not a save\nregion  A_B \n"), Some("A_B".to_string()));
+        assert_eq!(SaveGame::peek_region("\u{feff}ozbound-save 2\nregion A_B\n"), Some("A_B".to_string()));
+        assert_eq!(SaveGame::peek_region("region A B\n"), None, "wrong shape");
+        assert_eq!(SaveGame::peek_region("regional A_B\n"), None);
     }
 
     #[test]
@@ -769,12 +853,12 @@ mod tests {
         let water = (0..level.map.height() as i32)
             .flat_map(|y| (0..level.map.width() as i32).map(move |x| TilePos::new(x, y)))
             .find(|t| level.map.tile_at(*t).is_ok_and(|tile| tile == crate::world::Tile::Water))
-            .expect("Hollowmere has a river");
+            .expect("Bluebrook has a river");
         for (label, tile, word) in [
             ("water", water, "blocked"),
             ("off the map", TilePos::new(-1, 0), "blocked"),
             ("far off the map", TilePos::new(9999, 9999), "blocked"),
-            ("the guide", level.guide, "guide"),
+            ("the guide", level.guide.expect("the shipped story level has a guide"), "guide"),
             ("a villager", level.npcs[0].tile, &level.npcs[0].name),
             ("a creature", level.creatures[0].tile, "creature"),
         ] {
@@ -793,7 +877,7 @@ mod tests {
         for y in 0..level.map.height() as i32 {
             for x in 0..level.map.width() as i32 {
                 let tile = TilePos::new(x, y);
-                let free = level.guide != tile && level.npcs.iter().all(|n| n.tile != tile) && level.creatures.iter().all(|c| c.tile != tile);
+                let free = level.guide != Some(tile) && level.npcs.iter().all(|n| n.tile != tile) && level.creatures.iter().all(|c| c.tile != tile);
                 if free && level.map.can_walk_to(tile) && level.map.is_reachable(level.player_start, tile) {
                     let game = load(&with_line(&text, "player", &format!("player {x} {y}")), &world).unwrap();
                     assert_eq!(game.player, tile);
@@ -908,7 +992,7 @@ mod tests {
             .quests
             .iter()
             .find_map(|q| q.prerequisites.first().map(|p| (q.id.clone(), p.clone())))
-            .expect("Hollowmere has a quest with a prerequisite");
+            .expect("Bluebrook has a quest with a prerequisite");
         let text = busy_game(&world).to_text();
         assert!(book.get(&prerequisite).is_some());
         let e = load(&with_extra(&text, &format!("quest {dependent} active 0 0")), &world).unwrap_err();

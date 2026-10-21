@@ -1,4 +1,4 @@
-# Dialogue for Hollowmere: the guide (unchanged from the meadow) plus four villagers. Format (see src/dialogue.rs):
+# Dialogue for Bluebrook: the guide (unchanged from the meadow) plus four villagers. Format (see src/dialogue.rs):
 #
 #   [conversation <id>]
 #   npc = <npc id>          talking starts this NPC's "talk" objectives
@@ -225,7 +225,7 @@ text = You are new to these roads, I think. Walk around a little first, the mead
 choice = I will. -> end
 
 [node offer]
-text = You know the roads. I need three spots confirmed: the Standing Stone in the meadow's north, Heron Landing by the pond, and the Hollowmere Lookout north of the village. Walk to each, then tell me what you saw.
+text = You know the roads. I need three spots confirmed: the Standing Stone in the meadow's north, Heron Landing by the pond, and the Bluebrook Lookout north of the village. Walk to each, then tell me what you saw.
 choice = I will walk them. -> accept
 choice = Maybe later. -> end
 

@@ -1,4 +1,4 @@
-# Quest definitions for Hollowmere (the guide's two quests from the meadow, plus three village quests). Format (see src/quests.rs):
+# Quest definitions for Bluebrook (the guide's two quests from the meadow, plus three village quests). Format (see src/quests.rs):
 #
 #   [quest <id>]            ids use lower-case letters, digits, and underscores
 #   title = <text>          shown in the journal
@@ -37,8 +37,8 @@ takes = walking_staff 1
 reward = copper_ore 2
 
 [quest waymarks]
-title = Waymarks of Hollowmere
-summary = Ivo the surveyor is drawing a map and needs someone who can find their way. Visit the Standing Stone, Heron Landing, and the Hollowmere Lookout, then report back to him.
+title = Waymarks of Bluebrook
+summary = Ivo the surveyor is drawing a map and needs someone who can find their way. Visit the Standing Stone, Heron Landing, and the Bluebrook Lookout, then report back to him.
 objective = visit standing_stone
 objective = visit heron_landing
 objective = visit lookout

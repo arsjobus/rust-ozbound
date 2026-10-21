@@ -22,10 +22,10 @@ use crate::inventory::{Inventory, ItemId};
 use crate::quests::ItemAmount;
 use crate::textdata::{check_id, parse_positive, read_lines, ContentError, Item};
 
-/// The bestiary file compiled into the game, identical to `assets/bestiary/hollowmere.bestiary`.
-pub const DEFAULT_BESTIARY: &str = include_str!("../assets/bestiary/hollowmere.bestiary");
+/// The bestiary file compiled into the game, identical to `assets/bestiary/bluebrook.bestiary`.
+pub const DEFAULT_BESTIARY: &str = include_str!("../assets/bestiary/bluebrook.bestiary");
 /// Where the game looks for the bestiary on disk, relative to the working directory.
-pub const BESTIARY_PATH: &str = "assets/bestiary/hollowmere.bestiary";
+pub const BESTIARY_PATH: &str = "assets/bestiary/bluebrook.bestiary";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Creature {
@@ -93,7 +93,7 @@ impl Bestiary {
         self.creatures.is_empty()
     }
 
-    /// Parses and validate a `.bestiary` file (format documented in `hollowmere.bestiary`).
+    /// Parses and validate a `.bestiary` file (format documented in `bluebrook.bestiary`).
     pub fn parse(text: &str) -> Result<Self, ContentError> {
         struct Draft {
             creature: Creature,
@@ -375,7 +375,7 @@ settled = The heron stands on one leg.
     fn the_shipped_bestiary_is_valid() {
         let book = Bestiary::parse(DEFAULT_BESTIARY).unwrap();
         assert!(book.len() >= 3);
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/bestiary/hollowmere.bestiary");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/bestiary/bluebrook.bestiary");
         assert_eq!(std::fs::read_to_string(path).unwrap(), DEFAULT_BESTIARY);
     }
 

@@ -1,4 +1,4 @@
-//! End-to-end check of the M5 acceptance paths: every shipped Hollowmere quest is offered,
+//! End-to-end check of the M5 acceptance paths: every shipped Bluebrook quest is offered,
 //! advanced by real world events, and handed in using only the public API (no Bevy). It also
 //! walks the real routes on the real map, so a place or creature that cannot be reached
 //! on foot fails here.
@@ -102,7 +102,7 @@ impl Game {
 }
 
 #[test]
-fn moonpetals_for_the_apothecary_still_works_in_hollowmere() {
+fn moonpetals_for_the_apothecary_still_works_in_bluebrook() {
     let mut game = Game::new();
     game.finish_moonpetals();
     assert_eq!(game.bag.count(ItemId::Moonpetal), 0);
@@ -186,7 +186,7 @@ fn a_missing_staff_delays_the_hand_in_without_losing_progress() {
 }
 
 #[test]
-fn waymarks_of_hollowmere_needs_wayfinding_then_three_visits() {
+fn waymarks_of_bluebrook_needs_wayfinding_then_three_visits() {
     let mut game = Game::new();
     // New travellers are asked to learn the roads first.
     game.talk("surveyor", &["help with the map", "I will."]);

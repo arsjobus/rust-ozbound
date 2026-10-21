@@ -23,6 +23,7 @@ const SAVE_INTERVAL: f32 = 1.0;
 /// has been picked or used up in the world.
 fn current_game(
     level: &Level,
+    region: Option<String>,
     progress: &GameProgress,
     wildlife: &Wildlife,
     players: &Query<&Player>,
@@ -31,6 +32,7 @@ fn current_game(
 ) -> Option<SaveGame> {
     let player = players.get_single().ok()?;
     let mut game = SaveGame::new_game(level);
+    game.region = region;
     game.player = player.tile;
     game.bag = progress.inventory.clone();
     game.equipment = progress.equipment.clone();
@@ -41,6 +43,12 @@ fn current_game(
     let node_state: Vec<(TilePos, u32)> = nodes.iter().map(|(node, at)| (at.tile, node.0.remaining_actions())).collect();
     game.changes = WorldChanges::capture(level, &petals_left, &node_state);
     Some(game)
+}
+
+/// The region to write into the save: `None` for the starting region, which keeps the file
+/// identical to what version 1 wrote.
+fn saved_region(region: &CurrentRegion, atlas: &Atlas) -> Option<String> {
+    (region.0 != atlas.locations.start().id).then(|| region.0.clone())
 }
 
 /// Writes `game` if it differs from what is on disk.
@@ -61,6 +69,8 @@ fn write(save: &mut SaveState, progress: &mut GameProgress, game: SaveGame) {
 pub fn persist_game(
     time: Res<Time>,
     level: Res<LevelData>,
+    region: Res<CurrentRegion>,
+    atlas: Res<Atlas>,
     mut progress: ResMut<GameProgress>,
     wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
@@ -76,7 +86,7 @@ pub fn persist_game(
         return;
     }
     save.idle = 0.0;
-    if let Some(game) = current_game(&level.0, &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, saved_region(&region, &atlas), &progress, &wildlife, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }
@@ -86,6 +96,8 @@ pub fn persist_game(
 pub fn save_on_exit(
     mut exits: EventReader<AppExit>,
     level: Res<LevelData>,
+    region: Res<CurrentRegion>,
+    atlas: Res<Atlas>,
     mut progress: ResMut<GameProgress>,
     wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
@@ -96,7 +108,7 @@ pub fn save_on_exit(
     if exits.read().next().is_none() || !save.enabled {
         return;
     }
-    if let Some(game) = current_game(&level.0, &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, saved_region(&region, &atlas), &progress, &wildlife, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }

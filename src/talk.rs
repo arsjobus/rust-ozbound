@@ -108,11 +108,11 @@ mod tests {
 
     #[test]
     fn a_reading_shows_its_text_with_one_way_out() {
-        let reading = Talk::reading("Signpost", "Hollowmere is east of the bridge.");
+        let reading = Talk::reading("Signpost", "Bluebrook is east of the bridge.");
         assert!(reading.is_reading());
         let view = reading.view();
         assert_eq!(view.speaker, "Signpost");
-        assert_eq!(view.text, "Hollowmere is east of the bridge.");
+        assert_eq!(view.text, "Bluebrook is east of the bridge.");
         assert_eq!(view.choices, [READING_DONE]);
     }
 

@@ -73,3 +73,16 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Esc while typing cancels the line (and does not open the pause menu); Esc again with nothing open pauses.
 - [ ] PageUp / PageDown scroll the chat when no side panel is open; a note under the log says older messages are showing; a new message returns to the newest.
 - [ ] Read a signpost: it opens in the dialogue panel titled Signpost with one choice, Done reading (1 or click); Esc and walking away close it too. The text is also recorded in the chat.
+
+## 9. Houses, plots, bridge, thickets, regions, and music (M9)
+
+- [ ] The game starts in Bluebrook. The forest edge is made of dark leafy thickets; the few tall pines that can be chopped (hover says "tree") look different from them.
+- [ ] The river bridge looks like a wooden bridge (planks, rails, posts at each end) and you can walk across it; the river flows under it.
+- [ ] Three plots east of the river each have a house, with garden beds (cabbages, tomatoes, pumpkins) and a vineyard (trellis rows with grapes). Garden beds and vines block walking; the grass lanes between them do not.
+- [ ] Walk into each house through its doorway: the roof disappears and the walls drop to a low rim while you are inside; walk out and the house is whole again. Walls block you.
+- [ ] Mistress Pell is inside her house; you can walk in and talk to her.
+- [ ] Walk east along the main road to its end (x = 38): the chat says you travel to the Yellow Brick Road, east; the world changes, the quest tracker, chat, bag and panels are unchanged, and you can still talk to nobody on the road (it has no villagers yet).
+- [ ] Cross the road's three-tile bridge; the sign near it reads correctly; the waystation has a house, a garden, and vineyard rows.
+- [ ] Walk back west to the road's west end: you return to Bluebrook beside its east end, not on the exit tile.
+- [ ] Quit while on the road and restart: you are on the road where you left off. Delete saves/game.txt and restart: you start in Bluebrook.
+- [ ] Music: the village and the road play different tunes. Drop an ogg, wav, or mp4 named `bluebrook.ogg` (or `.wav`/`.mp4` content under that name) into `assets/bgm/`, restart: it plays instead. A text file renamed `bluebrook.ogg` is refused with a console note and the built-in theme plays. Turning ambient sound off (pause menu) silences the music too.

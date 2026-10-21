@@ -51,6 +51,16 @@ impl fmt::Display for StoreError {
     }
 }
 
+impl StoreError {
+    /// A save that names a region this build does not have (a newer game wrote it, or a custom
+    /// map changed). Reported like any invalid save: the file is left alone.
+    pub fn unknown_region(path: &Path, region: &str) -> Self {
+        let error = ContentError::at(0, format!("the save is for region `{region}`, which is not a playable region of this game"));
+        let backup = Some(backup_path(path)).filter(|b| b.is_file());
+        Self::Invalid { path: path.to_path_buf(), error, backup }
+    }
+}
+
 impl std::error::Error for StoreError {}
 
 /// Where a loaded game came from.
@@ -192,6 +202,13 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_region_is_reported_as_an_invalid_save_naming_it() {
+        let error = StoreError::unknown_region(Path::new("/nonexistent/game.txt"), "NOWHERE");
+        let text = error.to_string();
+        assert!(text.contains("invalid save") && text.contains("`NOWHERE`") && text.contains("still in that file"), "{text}");
+    }
+
+    #[test]
     fn missing_file_is_a_new_game() {
         let (dir, world) = (scratch(), world());
         let loaded = load(&dir.join("game.txt"), None, &ctx(&world)).unwrap();
@@ -289,7 +306,7 @@ mod tests {
     fn a_newer_format_is_reported_and_left_alone() {
         let (dir, world) = (scratch(), world());
         let path = dir.join("game.txt");
-        let text = played(&world).to_text().replacen("ozbound-save 1", "ozbound-save 9", 1);
+        let text = played(&world).to_text().replacen("ozbound-save 2", "ozbound-save 9", 1);
         std::fs::write(&path, &text).unwrap();
         let error = load(&path, None, &ctx(&world)).unwrap_err();
         assert!(error.to_string().contains("format 9"), "{error}");

@@ -1,4 +1,4 @@
-# Creatures of Hollowmere. Format (see src/bestiary.rs):
+# Creatures of Bluebrook. Format (see src/bestiary.rs):
 #
 #   [creature <id>]            ids use lower-case letters, digits, and underscores
 #   name = <text>              shown above the text and in the field notes

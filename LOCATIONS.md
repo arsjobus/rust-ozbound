@@ -847,3 +847,27 @@ Use the novel as the source for its named places and journey episodes.
 When a map layout, exact position, or additional detail is invented for
 gameplay, label it as an adaptation or original game content rather than
 presenting it as a fact from the book.
+
+---
+
+## Implementation status (kept in step with the code)
+
+`assets/world/locations.world` is the data form of the register above and is what the game
+reads (`src/locations.rs`). A unit test compares every row of the register table with it, so
+a place cannot be added to one and forgotten in the other. Each entry may carry:
+
+- `map` (a file in `assets/maps/`): the place is **playable**. Without one it is planned only.
+- `music` (a file in `assets/bgm/`) and `theme` (`village` or `road`, generated in code).
+- `start = yes` on exactly one playable place.
+
+Playable now:
+
+| ID | Map | Notes |
+|---|---|---|
+| `MUNCHKIN_LANDS` | `bluebrook.map` | The start. The village of **Bluebrook** (game-original name for the first friendly settlement): three plots, each with a house and a garden or vineyard. |
+| `YELLOW_BRICK_ROAD_EAST` | `yellow_road_east.map` | The road east: a wooden bridge, thickets, and the Wayfarer's Rest waystation. Its east end is not open yet. |
+
+A level's `[exits]` link its tiles to other places. The register must declare the route
+(`exits = ...`) and the destination must be playable, or the level is refused at load.
+Later-book material (`GILLIKIN_COUNTRY`) stays `LATER_OZ` / `P3`, is never linked from the
+1900 route, and a `LATER_OZ` place cannot also be labelled `NOVEL_1900`.

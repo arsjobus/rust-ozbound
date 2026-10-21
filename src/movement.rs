@@ -24,6 +24,7 @@ pub fn follow_route(
     level: Res<LevelData>,
     content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
+    mut travel: ResMut<TravelOrder>,
     mut players: Query<(&mut Player, &mut Transform)>,
 ) {
     let Ok((mut player, mut transform)) = players.get_single_mut() else { return };
@@ -45,6 +46,15 @@ pub fn follow_route(
         // Every tile walked counts toward Wayfinding (it stops teaching at level 3).
         if let Some(line) = progress.skills.walked(1).and_then(|gain| gain.message()) {
             progress.notice = line;
+        }
+        // Stepping onto an exit leaves for another region (`travel::apply_travel` does the move
+        // next frame). Whatever else was queued up is dropped: the player is going somewhere new.
+        if let Some(exit) = level.0.exit_at(step) {
+            if travel.0.is_none() {
+                travel.0 = Some(exit.clone());
+                player.task = ozbound::task::Task::idle();
+                return;
+            }
         }
         // Reaching a named place tells the quest log (only a `visit` objective that is current counts).
         if let Some(place) = level.0.places.iter().find(|place| place.tile == step) {

@@ -1,4 +1,4 @@
-//! The Hollowmere world as one loaded, cross-checked unit: level, quests, dialogue, bestiary,
+//! The Bluebrook world as one loaded, cross-checked unit: level, quests, dialogue, bestiary,
 //! and recipes.
 //!
 //! Pure Rust (no Bevy). Each file is validated on its own by its parser; [`check`] then
@@ -21,21 +21,30 @@ use crate::crafting::{self, RecipeBook};
 use crate::dialogue::{DialogueBook, Effect};
 use crate::inventory::ItemId;
 use crate::level::{Level, GUIDE_ID};
+use crate::locations::{self, Locations, DEFAULT_LOCATIONS, LOCATIONS_PATH, MAPS_DIR};
 use crate::quests::{Objective, QuestBook};
 
 /// The built-in copies, identical to the files under `assets/`.
-pub const HOLLOWMERE_MAP: &str = include_str!("../assets/maps/hollowmere.map");
-pub const HOLLOWMERE_QUESTS: &str = include_str!("../assets/quests/hollowmere.quest");
-pub const HOLLOWMERE_DIALOGUE: &str = include_str!("../assets/dialogue/hollowmere.dialogue");
+pub const BLUEBROOK_MAP: &str = include_str!("../assets/maps/bluebrook.map");
+pub const BLUEBROOK_QUESTS: &str = include_str!("../assets/quests/bluebrook.quest");
+pub const BLUEBROOK_DIALOGUE: &str = include_str!("../assets/dialogue/bluebrook.dialogue");
 
-pub const MAP_PATH: &str = "assets/maps/hollowmere.map";
-pub const QUESTS_PATH: &str = "assets/quests/hollowmere.quest";
-pub const DIALOGUE_PATH: &str = "assets/dialogue/hollowmere.dialogue";
+/// Built-in copies of the other regions' maps, by file name (see `assets/world/locations.world`).
+pub const BUILTIN_REGION_MAPS: [(&str, &str); 1] = [("yellow_road_east.map", include_str!("../assets/maps/yellow_road_east.map"))];
 
-/// Everything the game needs to start playing Hollowmere.
+pub const MAP_PATH: &str = "assets/maps/bluebrook.map";
+pub const QUESTS_PATH: &str = "assets/quests/bluebrook.quest";
+pub const DIALOGUE_PATH: &str = "assets/dialogue/bluebrook.dialogue";
+
+/// Everything the game needs to start playing Bluebrook.
 #[derive(Debug, Clone)]
 pub struct World {
+    /// The starting region's level: the story level, with the guide, villagers, and quests.
     pub level: Level,
+    /// The location register (see `locations.rs`).
+    pub locations: Locations,
+    /// Every other playable region, as `(location id, level)`. Regions carry no story content.
+    pub regions: Vec<(String, Level)>,
     pub content: Content,
     pub bestiary: Bestiary,
     pub recipes: RecipeBook,
@@ -49,6 +58,10 @@ pub struct Sources<'a> {
     pub dialogue_custom: Option<&'a Path>,
     pub bestiary_custom: Option<&'a Path>,
     pub recipes_custom: Option<&'a Path>,
+    pub locations_custom: Option<&'a Path>,
+    pub locations_default: &'a Path,
+    /// Where the other regions' maps are looked up by file name.
+    pub maps_dir: &'a Path,
     pub map_default: &'a Path,
     pub quests_default: &'a Path,
     pub dialogue_default: &'a Path,
@@ -65,6 +78,9 @@ impl Sources<'_> {
             dialogue_custom: None,
             bestiary_custom: None,
             recipes_custom: None,
+            locations_custom: None,
+            locations_default: Path::new(LOCATIONS_PATH),
+            maps_dir: Path::new(MAPS_DIR),
             map_default: Path::new(MAP_PATH),
             quests_default: Path::new(QUESTS_PATH),
             dialogue_default: Path::new(DIALOGUE_PATH),
@@ -112,15 +128,15 @@ pub fn load(sources: &Sources) -> Result<Loaded, String> {
     let mut notes = Vec::new();
     let mut take = |note: Option<String>| notes.extend(note);
 
-    let (text, label, note) = read("level", sources.map_custom, sources.map_default, HOLLOWMERE_MAP)?;
+    let (text, label, note) = read("level", sources.map_custom, sources.map_default, BLUEBROOK_MAP)?;
     take(note);
     let level = Level::parse(&text).map_err(|e| invalid("level", &label, e))?;
 
-    let (text, quest_label, note) = read("quests", sources.quests_custom, sources.quests_default, HOLLOWMERE_QUESTS)?;
+    let (text, quest_label, note) = read("quests", sources.quests_custom, sources.quests_default, BLUEBROOK_QUESTS)?;
     take(note);
     let quests = QuestBook::parse(&text).map_err(|e| invalid("quest", &quest_label, e))?;
 
-    let (text, dialogue_label, note) = read("dialogue", sources.dialogue_custom, sources.dialogue_default, HOLLOWMERE_DIALOGUE)?;
+    let (text, dialogue_label, note) = read("dialogue", sources.dialogue_custom, sources.dialogue_default, BLUEBROOK_DIALOGUE)?;
     take(note);
     let dialogue = DialogueBook::parse(&text).map_err(|e| invalid("dialogue", &dialogue_label, e))?;
     dialogue
@@ -134,18 +150,61 @@ pub fn load(sources: &Sources) -> Result<Loaded, String> {
     let recipes = crafting::load(sources.recipes_custom, sources.recipes_default)?;
     take(recipes.note.clone());
 
-    let world = World { level, content: Content { quests, dialogue }, bestiary, recipes: recipes.book };
+    let (text, locations_label, note) = read("locations", sources.locations_custom, sources.locations_default, DEFAULT_LOCATIONS)?;
+    take(note);
+    let locations = Locations::parse(&text).map_err(|e| invalid("locations", &locations_label, e))?;
+    let regions = load_regions(&locations, sources, &mut notes)?;
+
+    let world = World { level, locations, regions, content: Content { quests, dialogue }, bestiary, recipes: recipes.book };
     check(&world).map_err(|e| format!("the world does not hold together: {e}"))?;
     Ok(Loaded { world, notes })
+}
+
+/// Loads every playable region except the starting one (whose level is read separately, so a
+/// custom `OZBOUND_MAP` can replace it). A map file is read from `sources.maps_dir`; a missing
+/// file falls back to the identical built-in copy with a note, like the other content files.
+fn load_regions(locations: &Locations, sources: &Sources, notes: &mut Vec<String>) -> Result<Vec<(String, Level)>, String> {
+    let mut regions = Vec::new();
+    for location in locations.playable().filter(|l| !l.start) {
+        let file = location.map.as_deref().expect("playable locations have a map");
+        let builtin = BUILTIN_REGION_MAPS
+            .iter()
+            .find(|(name, _)| *name == file)
+            .map(|(_, text)| *text)
+            .ok_or_else(|| format!("location `{}` uses map {file}, which has no built-in copy; add it to BUILTIN_REGION_MAPS", location.id))?;
+        let (text, label, note) = read("region map", None, &sources.maps_dir.join(file), builtin)?;
+        notes.extend(note);
+        let level = Level::parse(&text).map_err(|e| invalid("region map", &label, e))?;
+        regions.push((location.id.clone(), level));
+    }
+    Ok(regions)
+}
+
+impl World {
+    /// The level of a playable region by location id: the story level for the starting
+    /// region, the loaded level for any other.
+    pub fn level_of(&self, id: &str) -> Option<&Level> {
+        if id == self.locations.start().id {
+            return Some(&self.level);
+        }
+        self.regions.iter().find(|(region, _)| region == id).map(|(_, level)| level)
+    }
+
+    /// The location id of the starting region.
+    pub fn start_id(&self) -> &str {
+        &self.locations.start().id
+    }
 }
 
 /// The built-in world (used by tests, and by the game when no files are found).
 pub fn builtin() -> Result<World, String> {
     let sources = Sources {
-        map_default: Path::new("/nonexistent/hollowmere.map"),
-        quests_default: Path::new("/nonexistent/hollowmere.quest"),
-        dialogue_default: Path::new("/nonexistent/hollowmere.dialogue"),
-        bestiary_default: Path::new("/nonexistent/hollowmere.bestiary"),
+        locations_default: Path::new("/nonexistent/locations.world"),
+        maps_dir: Path::new("/nonexistent/maps"),
+        map_default: Path::new("/nonexistent/bluebrook.map"),
+        quests_default: Path::new("/nonexistent/bluebrook.quest"),
+        dialogue_default: Path::new("/nonexistent/bluebrook.dialogue"),
+        bestiary_default: Path::new("/nonexistent/bluebrook.bestiary"),
         recipes_default: Path::new("/nonexistent/meadow.recipes"),
         ..Sources::defaults()
     };
@@ -185,6 +244,7 @@ fn obtainable_items(world: &World, gathered: &BTreeSet<ItemId>) -> BTreeSet<Item
 
 /// Checks that the files fit together. See the module docs for why.
 pub fn check(world: &World) -> Result<(), String> {
+    locations::check_world(&world.locations, |id| world.level_of(id)).map_err(|e| e.to_string())?;
     let level = &world.level;
     let quests = &world.content.quests;
     let dialogue = &world.content.dialogue;
@@ -296,12 +356,17 @@ mod tests {
     use super::*;
 
     fn world() -> World {
-        builtin().expect("the built-in Hollowmere world must load")
+        builtin().expect("the built-in Bluebrook world must load")
     }
 
     fn rebuild(map: &str, quests: &str, dialogue: &str, bestiary: &str) -> Result<(), String> {
+        let locations = Locations::parse(DEFAULT_LOCATIONS).map_err(|e| e.to_string())?;
+        let mut notes = Vec::new();
+        let regions = load_regions(&locations, &Sources { maps_dir: Path::new("/nonexistent/maps"), ..Sources::defaults() }, &mut notes)?;
         let world = World {
             level: Level::parse(map).map_err(|e| e.to_string())?,
+            locations,
+            regions,
             content: Content {
                 quests: QuestBook::parse(quests).map_err(|e| e.to_string())?,
                 dialogue: DialogueBook::parse(dialogue).map_err(|e| e.to_string())?,
@@ -321,9 +386,9 @@ mod tests {
             None => text.to_string(),
         };
         rebuild(
-            &swap(HOLLOWMERE_MAP, map),
-            &swap(HOLLOWMERE_QUESTS, quests),
-            &swap(HOLLOWMERE_DIALOGUE, dialogue),
+            &swap(BLUEBROOK_MAP, map),
+            &swap(BLUEBROOK_QUESTS, quests),
+            &swap(BLUEBROOK_DIALOGUE, dialogue),
             &swap(DEFAULT_BESTIARY, bestiary),
         )
     }
@@ -341,9 +406,9 @@ mod tests {
     fn the_shipped_files_equal_the_built_in_copies() {
         let root = env!("CARGO_MANIFEST_DIR");
         for (path, builtin) in [
-            ("assets/maps/hollowmere.map", HOLLOWMERE_MAP),
-            ("assets/quests/hollowmere.quest", HOLLOWMERE_QUESTS),
-            ("assets/dialogue/hollowmere.dialogue", HOLLOWMERE_DIALOGUE),
+            ("assets/maps/bluebrook.map", BLUEBROOK_MAP),
+            ("assets/quests/bluebrook.quest", BLUEBROOK_QUESTS),
+            ("assets/dialogue/bluebrook.dialogue", BLUEBROOK_DIALOGUE),
         ] {
             assert_eq!(std::fs::read_to_string(format!("{root}/{path}")).unwrap(), builtin, "{path}");
         }
@@ -432,8 +497,8 @@ mod tests {
 
     #[test]
     fn a_conversation_for_someone_absent_is_refused() {
-        let extra = format!("{HOLLOWMERE_DIALOGUE}\n[conversation ghost]\nnpc = ghost\nspeaker = Ghost\nentry = hi\n\n[node hi]\ntext = Boo.\nchoice = Bye. -> end\n");
-        let error = rebuild(HOLLOWMERE_MAP, HOLLOWMERE_QUESTS, &extra, DEFAULT_BESTIARY).unwrap_err();
+        let extra = format!("{BLUEBROOK_DIALOGUE}\n[conversation ghost]\nnpc = ghost\nspeaker = Ghost\nentry = hi\n\n[node hi]\ntext = Boo.\nchoice = Bye. -> end\n");
+        let error = rebuild(BLUEBROOK_MAP, BLUEBROOK_QUESTS, &extra, DEFAULT_BESTIARY).unwrap_err();
         assert!(error.contains("`ghost`, who does not appear in the level"), "{error}");
     }
 
@@ -466,12 +531,12 @@ mod tests {
     #[test]
     fn quests_cannot_ask_for_what_the_world_never_supplies() {
         // No copper veins and no timber trees means the staff and charm chains are impossible.
-        let no_trees = HOLLOWMERE_MAP
+        let no_trees = BLUEBROOK_MAP
             .lines()
             .filter(|l| !l.starts_with("tree "))
             .collect::<Vec<_>>()
             .join("\n");
-        let error = rebuild(&no_trees, HOLLOWMERE_QUESTS, HOLLOWMERE_DIALOGUE, DEFAULT_BESTIARY).unwrap_err();
+        let error = rebuild(&no_trees, BLUEBROOK_QUESTS, BLUEBROOK_DIALOGUE, DEFAULT_BESTIARY).unwrap_err();
         assert!(error.contains("bridge_staff") && error.contains("ingredients cannot all be obtained"), "{error}");
         let error = with(None, Some(("collect moonpetal 3", "collect moonpetal 5")), None, None).unwrap_err();
         assert!(error.contains("moonpetals but the level has only 4"), "{error}");
@@ -497,9 +562,9 @@ mod tests {
 
     #[test]
     fn handing_in_an_item_that_cannot_be_had_is_refused() {
-        let no_copper = HOLLOWMERE_MAP.lines().filter(|l| !l.starts_with("copper ")).collect::<Vec<_>>().join("\n");
-        let quests = HOLLOWMERE_QUESTS.replace("takes = walking_staff 1", "takes = copper_charm 1");
-        let error = rebuild(&no_copper, &quests, HOLLOWMERE_DIALOGUE, DEFAULT_BESTIARY).unwrap_err();
+        let no_copper = BLUEBROOK_MAP.lines().filter(|l| !l.starts_with("copper ")).collect::<Vec<_>>().join("\n");
+        let quests = BLUEBROOK_QUESTS.replace("takes = walking_staff 1", "takes = copper_charm 1");
+        let error = rebuild(&no_copper, &quests, BLUEBROOK_DIALOGUE, DEFAULT_BESTIARY).unwrap_err();
         assert!(error.contains("`bridge_staff`") && error.contains("copper charm"), "{error}");
     }
 

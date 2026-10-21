@@ -1,0 +1,125 @@
+; Ozbound level data: Bluebrook, the vertical-slice world (meadow, village, forest).
+;
+; Same format as assets/maps/meadow.map, plus optional sections for the village slice.
+; Lines starting with ';' are comments. Blank lines are ignored. Sections may appear in any
+; order, each at most once. Required: [map], [player]. [guide] makes this a story level; a
+; level without one is a region (scenery only, see yellow_road_east.map).
+; Optional: [guide], [moonpetals], [nodes], [signs], [npcs], [places], [creatures], [houses],
+; [plots], [exits].
+;
+; Coordinates are "x y" in tiles. x counts right from the left edge; y counts UP from the
+; BOTTOM row of [map] (the last row listed is y = 0).
+;
+; [npcs]      id x y appearance Display name    (the guide is NOT listed here; id `guide` is reserved)
+;             appearances: traveller, guide, apothecary, woodcutter, ferrywoman, surveyor
+; [places]    id x y Display name               (targets for `visit <id>` quest objectives)
+; [creatures] id x y                            (ids come from assets/bestiary/*.bestiary)
+; [houses]    id x y width height door_side Name (door_side: north, south, east, west; x y is the
+;             south-west corner; walls, doorway and floor are stamped over open grass or path)
+; [plots]     id x y width height Name           (a plot holds whole houses and a garden or vineyard)
+; [exits]     x y LOCATION_ID arrive_x arrive_y Label   (stepping on x y travels to that region)
+;
+; Geography: a meadow in the south-west, a river at x = 20-21 crossed by the wooden bridge
+; on the main road (y = 9), the village of Bluebrook east of the river (three plots, each with
+; a house and a garden or vineyard), and a forest along the north edge. The road leaves the
+; map at its east end (x = 38, y = 9) for the Yellow Brick Road.
+
+[map]
+; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost,
+; 'g' garden bed, 'v' vineyard row (both block movement; walk the grass lanes between).
+; Houses are not drawn here: the [houses] section stamps walls, a doorway, and floor.
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT....TT....T....TT~~T....T.T.TT..TTT.T
+T.TTT..T.T...TT..T..~~TTTT.....T...TT.TT
+T......TT.T..T.TTT..~~T.T.TT.T.T..TTT.TT
+T..TTT...TTTT.......~~T.TTTT..T....T.T.T
+T...TTTT...T.T....TT~~TT.TT.T.TT...T...T
+T...................~~........=........T
+T...................~~..ggggg.=..gSggg.T
+T..#......~~~.......~~........=........T
+T.........~~~.......~~........=........T
+T...................~~........=........T
+T...................~~........=........T
+T....S..............~~.......S=........T
+T======================================T
+T..................S~~........=...vvvv.T
+T...................~~........=...vvvv.T
+T...................~~........=........T
+T...................~~........=........T
+T...................~~........=........T
+T...............#...~~........=......#.T
+T...................~~........=........T
+T...................~~.................T
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+
+[player]
+4 3
+
+[guide]
+17 10
+
+[moonpetals]
+14 2
+8 12
+16 6
+5 15
+
+[nodes]
+; kind x y actions yield_per_action
+tree 6 17 3 1
+tree 11 17 3 1
+tree 13 17 3 1
+tree 25 17 3 1
+tree 28 17 3 1
+tree 35 17 3 1
+tree 9 18 3 1
+copper 3 14 2 1
+copper 16 3 2 1
+copper 37 3 2 1
+herb 4 6 3 1
+herb 15 13 3 1
+herb 27 5 3 1
+herb 31 12 3 1
+berry 7 3 3 1
+berry 17 12 3 1
+berry 31 6 3 1
+berry 33 17 3 1
+
+[signs]
+5 10 Bluebrook lies east across the bridge. The road is the pale line through the grass; follow it and you cannot lose your way.
+19 8 Bridge ahead. The river is deeper than it looks, so keep to the planks.
+29 10 Bluebrook village: the apothecary's house and physic garden to the north, the woodcutter's cottage and vineyard to the south-east, the surveyor's office to the east. The road east leads on to the Yellow Brick Road.
+34 15 The forest edge. Quiet folk and quieter creatures live here; walk gently.
+
+[npcs]
+apothecary 26 12 apothecary Mistress Pell
+woodcutter 33 6 woodcutter Brae the Woodcutter
+ferrywoman 19 10 ferrywoman Tamsin the Bridgewarden
+surveyor 32 13 surveyor Ivo the Surveyor
+
+[places]
+standing_stone 8 17 The Standing Stone
+heron_landing 13 12 Heron Landing
+lookout 32 18 Bluebrook Lookout
+
+[creatures]
+meadow_hare 6 6
+pond_heron 9 13
+lantern_moth 27 16
+
+[houses]
+; id x y width height door_side name   (x y is the south-west corner; the doorway is in the middle of the side)
+pell_house 24 11 5 4 south Mistress Pell's Apothecary
+brae_house 33 2 4 4 north Brae's Cottage
+ivo_house 33 11 5 4 west Ivo's Surveying Office
+
+[plots]
+; id x y width height name   (each plot holds a whole house and something growing)
+pell_plot 23 10 7 7 Pell's Physic Garden
+brae_plot 32 1 7 8 Brae's Vineyard
+ivo_plot 31 10 8 7 Ivo's Kitchen Garden
+
+[exits]
+; x y DESTINATION arrive_x arrive_y label
+38 9 YELLOW_BRICK_ROAD_EAST 2 9 The Yellow Brick Road, east

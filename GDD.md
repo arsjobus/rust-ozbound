@@ -130,9 +130,9 @@ Each region should have:
 - At least one meaningful activity or discovery.
 - Source and canon notes where the game adapts existing material.
 
-### 5.4 Starting Region: Hollowmere
+### 5.4 Starting Region: Bluebrook
 
-Hollowmere is an original starting village and surrounding landscape. It is the first playable content slice and establishes the game's systems before the world expands into larger Oz-inspired regions.
+Bluebrook is an original starting village and surrounding landscape. It is the first playable content slice and establishes the game's systems before the world expands into larger Oz-inspired regions.
 
 Current layout concept:
 
@@ -248,12 +248,12 @@ Quest objectives currently support talking to a character, collecting items, cra
 
 Dialogue is data-driven and can offer conditional choices, start quests, and complete hand-ins.
 
-Current Hollowmere quests:
+Current Bluebrook quests:
 
 - *Moonpetals for the Apothecary*
 - *Mint for the Apothecary*
 - *A Staff for the Bridgewarden*
-- *Waymarks of Hollowmere*
+- *Waymarks of Bluebrook*
 - *The Shy Hare*
 
 Quest rules:
@@ -388,13 +388,13 @@ The repository already includes:
 - Keyboard alternatives and UI fitting rules.
 - Pure Rust domain modules with unit and integration tests.
 
-Hollowmere is the current starting world, not the full map of Oz. Some systems are foundations and may not yet have final balance or presentation. Refer to [ROADMAP.md](ROADMAP.md) for implementation status and manual verification tasks.
+Bluebrook is the current starting world, not the full map of Oz. Some systems are foundations and may not yet have final balance or presentation. Refer to [ROADMAP.md](ROADMAP.md) for implementation status and manual verification tasks.
 
 ### 10.2 Near-Term Priorities
 
-1. Finish and manually verify the Hollowmere vertical slice.
+1. Finish and manually verify the Bluebrook vertical slice.
 2. Improve HUD, chat/journal, inventory, skills, and sign-reading UI (M8).
-3. Build out Hollowmere with reusable buildings, interiors, gardens, and an improved bridge (M9).
+3. Build out Bluebrook with reusable buildings, interiors, gardens, and an improved bridge (M9).
 4. Add restrained NPC movement and social behaviour (M10).
 5. Expand into additional authored regions only after the starting experience is readable and enjoyable.
 6. Evaluate Web builds and editor mode as separate technical milestones, without letting them delay core game quality.
@@ -467,7 +467,7 @@ Do not make irreversible decisions before the current slice has been play-tested
 - [x] How closely should named regions from the novel map onto the game's original geography?
 - Regions can map 1-1 as long as they remain in the realm of public domain.
 
-- [x] Which locations and book characters belong beyond Hollowmere?
+- [x] Which locations and book characters belong beyond Bluebrook?
 - All minor and major characters as long as they remain in the realm of public domain, have their own unique design that doesn't resemble anything from later copywritten works.
 
 - [x] Should the world be one connected overworld or compact maps with authored transitions?

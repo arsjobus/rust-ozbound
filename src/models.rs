@@ -79,6 +79,15 @@ pub struct Kit {
     pub bloom_glow: Handle<StandardMaterial>,
     pub petal_glow: Handle<StandardMaterial>,
 
+    pub roof_cone: Handle<Mesh>,
+    pub pile: Handle<Mesh>,
+    pub wall: Handle<StandardMaterial>,
+    pub roofs: [Handle<StandardMaterial>; 2],
+    pub soil: Handle<StandardMaterial>,
+    pub cabbage: Handle<StandardMaterial>,
+    pub grape: Handle<StandardMaterial>,
+    pub thicket: [Handle<StandardMaterial>; 2],
+
     pub cube: Handle<Mesh>,
     pub hat_cone: Handle<Mesh>,
     pub brim: Handle<Mesh>,
@@ -139,6 +148,15 @@ impl Kit {
                 perceptual_roughness: 0.6,
                 ..default()
             }),
+
+            roof_cone: meshes.add(flat(Cone::new(std::f32::consts::FRAC_1_SQRT_2, 1.0).mesh().resolution(4).into())),
+            pile: meshes.add(flat(Cylinder::new(0.06, 0.5).mesh().resolution(6).into())),
+            wall: material(materials, 0.93, 0.89, 0.80),
+            roofs: [material(materials, 0.22, 0.34, 0.62), material(materials, 0.62, 0.28, 0.22)],
+            soil: material(materials, 0.28, 0.19, 0.12),
+            cabbage: material(materials, 0.55, 0.72, 0.35),
+            grape: material(materials, 0.40, 0.18, 0.48),
+            thicket: [material(materials, 0.10, 0.26, 0.15), material(materials, 0.13, 0.31, 0.17)],
 
             cube: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
             hat_cone: meshes.add(flat(Cone::new(0.21, 0.32).mesh().resolution(8).into())),
@@ -371,4 +389,176 @@ pub fn spawn_creature(commands: &mut Commands, kit: &Kit, id: &str, at: Vec3, ya
     }
     commands.entity(root).add_children(&children);
     root
+}
+
+/// A thicket: a tangle of dark leafy mounds and bare branches that fills its tile. It marks a
+/// tree tile that cannot be chopped, so it never looks like the tall pine of a harvestable tree.
+pub fn spawn_thicket(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, shade: usize) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale)))).id();
+    let leaves = [&kit.thicket[shade % 2], &kit.thicket[(shade + 1) % 2]];
+    // (x, z, width, height, which leaf shade)
+    let mounds = [(0.0, 0.0, 1.0, 0.95, 0), (0.28, 0.22, 0.7, 0.75, 1), (-0.27, 0.2, 0.72, 0.7, 1), (0.22, -0.28, 0.68, 0.8, 1), (-0.25, -0.26, 0.74, 0.65, 0), (0.0, 0.34, 0.5, 0.55, 0)];
+    for (x, z, size, tall, which) in mounds {
+        let mound = commands.spawn(part(&kit.rock, leaves[which], Transform::from_xyz(x, 0.3 * tall + 0.05, z).with_scale(Vec3::new(size, tall, size)))).id();
+        commands.entity(root).add_child(mound);
+    }
+    // Bare, crooked branches poking out of the top.
+    for (x, z, lean_x, lean_z) in [(0.1, 0.05, 0.35, -0.2), (-0.15, -0.05, -0.3, 0.25), (0.02, -0.2, 0.1, 0.4)] {
+        let branch = commands
+            .spawn(part(&kit.trunk, &kit.bark, Transform::from_xyz(x, 0.95, z).with_rotation(Quat::from_euler(EulerRot::XYZ, lean_x, 0.0, lean_z)).with_scale(Vec3::new(0.45, 0.8, 0.45))))
+            .id();
+        commands.entity(root).add_child(branch);
+    }
+    root
+}
+
+/// One tile of wooden bridge. The deck runs along east-west, or north-south when `along_x` is
+/// false. Rails stand on both water-facing sides; end posts stand only where the bridge
+/// starts (`first`) or finishes (`last`), so a long bridge has one post at each end.
+pub fn spawn_bridge_tile(commands: &mut Commands, kit: &Kit, at: Vec3, along_x: bool, first: bool, last: bool) -> Entity {
+    // Everything is built along local x, then the whole bridge tile is turned for north-south.
+    let turn = if along_x { 0.0 } else { std::f32::consts::FRAC_PI_2 };
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(turn)))).id();
+    let deck = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(0.0, 0.03, 0.0).with_scale(Vec3::new(1.0, 0.1, 0.94)))).id();
+    commands.entity(root).add_child(deck);
+    // Plank seams: thin dark strips across the deck.
+    for i in 0..5 {
+        let x = -0.4 + 0.2 * i as f32;
+        let seam = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(x, 0.085, 0.0).with_scale(Vec3::new(0.03, 0.01, 0.94)))).id();
+        commands.entity(root).add_child(seam);
+    }
+    for side in [-1.0f32, 1.0] {
+        let z = side * 0.44;
+        let rail = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.62, z).with_scale(Vec3::new(1.0, 0.07, 0.07)))).id();
+        let low = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(0.0, 0.36, z).with_scale(Vec3::new(1.0, 0.05, 0.05)))).id();
+        let mid_post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.34, z).with_scale(Vec3::new(0.09, 0.62, 0.09)))).id();
+        commands.entity(root).add_children(&[rail, low, mid_post]);
+        for (wanted, x) in [(first, -0.46), (last, 0.46)] {
+            if wanted {
+                let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(x, 0.4, z).with_scale(Vec3::new(0.13, 0.78, 0.13)))).id();
+                let cap = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(x, 0.8, z).with_scale(Vec3::new(0.19, 0.05, 0.19)))).id();
+                commands.entity(root).add_children(&[post, cap]);
+            }
+        }
+        // Piles going down into the river under each side.
+        let pile = commands.spawn(part(&kit.pile, &kit.bark, Transform::from_xyz(0.0, -0.22, side * 0.38))).id();
+        commands.entity(root).add_child(pile);
+    }
+    root
+}
+
+/// A raised garden bed: a wooden frame round dark soil, planted with one of three crops.
+pub fn spawn_garden_bed(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, crop: usize) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
+    let soil = commands.spawn(part(&kit.cube, &kit.soil, Transform::from_xyz(0.0, 0.1, 0.0).with_scale(Vec3::new(0.86, 0.2, 0.86)))).id();
+    commands.entity(root).add_child(soil);
+    for (x, z, sx, sz) in [(0.0, 0.45, 0.96, 0.08), (0.0, -0.45, 0.96, 0.08), (0.45, 0.0, 0.08, 0.86), (-0.45, 0.0, 0.08, 0.86)] {
+        let board = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(x, 0.14, z).with_scale(Vec3::new(sx, 0.28, sz)))).id();
+        commands.entity(root).add_child(board);
+    }
+    for row in 0..3 {
+        for col in 0..3 {
+            let x = -0.26 + 0.26 * col as f32;
+            let z = -0.26 + 0.26 * row as f32;
+            let (mesh, material, size, lift) = match crop % 3 {
+                0 => (&kit.rock, &kit.cabbage, Vec3::new(0.26, 0.2, 0.26), 0.3), // cabbages
+                1 => (&kit.rock, &kit.leaves[1], Vec3::new(0.2, 0.34, 0.2), 0.36), // tomato bushes
+                _ => (&kit.rock, &kit.copper, Vec3::new(0.24, 0.18, 0.24), 0.29), // pumpkins
+            };
+            let plant = commands.spawn(part(mesh, material, Transform::from_xyz(x, lift, z).with_scale(size))).id();
+            commands.entity(root).add_child(plant);
+            if crop % 3 == 1 && (row + col) % 2 == 0 {
+                let fruit = commands.spawn(part(&kit.berry, &kit.berry_red, Transform::from_xyz(x + 0.05, lift + 0.12, z + 0.05))).id();
+                commands.entity(root).add_child(fruit);
+            }
+        }
+    }
+    root
+}
+
+/// One tile of a vineyard row: a trellis (two posts and two wires) hung with leafy vine and
+/// bunches of grapes. The row runs east-west, or north-south when `along_x` is false.
+pub fn spawn_vine_row(commands: &mut Commands, kit: &Kit, at: Vec3, along_x: bool, bunches: usize) -> Entity {
+    let turn = if along_x { 0.0 } else { std::f32::consts::FRAC_PI_2 };
+    let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(turn)))).id();
+    for x in [-0.46, 0.46] {
+        let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(x, 0.5, 0.0).with_scale(Vec3::new(0.09, 1.0, 0.09)))).id();
+        commands.entity(root).add_child(post);
+    }
+    for height in [0.55, 0.95] {
+        let wire = commands.spawn(part(&kit.cube, &kit.dark, Transform::from_xyz(0.0, height, 0.0).with_scale(Vec3::new(1.0, 0.02, 0.02)))).id();
+        commands.entity(root).add_child(wire);
+    }
+    // Leafy clumps along the trellis.
+    for (i, x) in [-0.32f32, -0.1, 0.12, 0.34].into_iter().enumerate() {
+        let shade = &kit.leaves[i % 3];
+        let tall = 0.5 + 0.1 * (i % 2) as f32;
+        let clump = commands.spawn(part(&kit.rock, shade, Transform::from_xyz(x, 0.62 + 0.05 * tall, 0.0).with_scale(Vec3::new(0.32, tall, 0.42)))).id();
+        commands.entity(root).add_child(clump);
+    }
+    // Grape bunches hanging below the leaves, on both sides.
+    for i in 0..bunches.min(4) {
+        let x = -0.3 + 0.2 * i as f32;
+        let z = if i % 2 == 0 { 0.17 } else { -0.17 };
+        let bunch = commands.spawn(part(&kit.berry, &kit.grape, Transform::from_xyz(x, 0.4, z).with_scale(Vec3::new(1.1, 1.5, 1.1)))).id();
+        commands.entity(root).add_child(bunch);
+    }
+    root
+}
+
+/// A walk-in house. Returns `(walls, roof)`: the walls (with the doorway frame) and the roof
+/// are separate roots so the game can lower the walls and hide the roof while the player is
+/// inside. The doorway is an open gap; the floor is planking under the interior and doorway.
+pub fn spawn_house(commands: &mut Commands, kit: &Kit, map: &ozbound::world::WorldMap, house: &ozbound::homestead::HouseSpawn, roof_variant: usize) -> (Entity, Entity) {
+    use ozbound::homestead::Side;
+    use ozbound::world::{Tile, TilePos};
+    let corner_a = map.tile_center_3d(house.origin, 0.0);
+    let corner_b = map.tile_center_3d(TilePos::new(house.origin.x + house.width - 1, house.origin.y + house.height - 1), 0.0);
+    let center = Vec3::new((corner_a[0] + corner_b[0]) / 2.0, 0.0, (corner_a[2] + corner_b[2]) / 2.0);
+    let at = |tile: TilePos| Vec3::from_array(map.tile_center_3d(tile, 0.0)) - center;
+
+    let walls = commands.spawn(pivot(Transform::from_translation(center))).id();
+    let wall_height = 1.5;
+    let door_on_x_wall = matches!(house.door, Side::North | Side::South);
+    for tile in house.footprint() {
+        let local = at(tile);
+        match house.tile_at(tile) {
+            Some(Tile::Wall) => {
+                let block = commands.spawn(part(&kit.cube, &kit.wall, Transform::from_xyz(local.x, wall_height / 2.0, local.z).with_scale(Vec3::new(1.0, wall_height, 1.0)))).id();
+                // A darker timber band along the top of each wall tile.
+                let band = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(local.x, wall_height - 0.06, local.z).with_scale(Vec3::new(1.02, 0.12, 1.02)))).id();
+                commands.entity(walls).add_children(&[block, band]);
+            }
+            Some(Tile::Door) => {
+                let (lintel, post_offset, post_size) = if door_on_x_wall {
+                    (Vec3::new(1.0, 0.4, 0.9), Vec3::new(0.43, 0.0, 0.0), Vec3::new(0.14, 1.1, 0.9))
+                } else {
+                    (Vec3::new(0.9, 0.4, 1.0), Vec3::new(0.0, 0.0, 0.43), Vec3::new(0.9, 1.1, 0.14))
+                };
+                let top = commands.spawn(part(&kit.cube, &kit.wall, Transform::from_xyz(local.x, wall_height - 0.2, local.z).with_scale(lintel))).id();
+                commands.entity(walls).add_child(top);
+                for sign in [-1.0f32, 1.0] {
+                    let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_translation(Vec3::new(local.x, 0.55, local.z) + post_offset * sign).with_scale(post_size))).id();
+                    commands.entity(walls).add_child(post);
+                }
+                let sill = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(local.x, 0.03, local.z).with_scale(Vec3::new(1.0, 0.08, 1.0)))).id();
+                commands.entity(walls).add_child(sill);
+            }
+            Some(Tile::Floor) => {
+                let plank = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(local.x, 0.03, local.z).with_scale(Vec3::new(1.0, 0.08, 1.0)))).id();
+                commands.entity(walls).add_child(plank);
+            }
+            _ => {}
+        }
+    }
+
+    // A hip roof over the whole footprint with a small overhang, in its own root so it can be hidden.
+    let roof = commands.spawn(pivot(Transform::from_translation(center + Vec3::Y * wall_height).with_scale(Vec3::new(house.width as f32 + 0.5, 1.0, house.height as f32 + 0.5)))).id();
+    // The cone's base sits at the bottom of its own height, so lift it by half the rise.
+    let rise = 1.0 + 0.1 * house.height.min(house.width) as f32;
+    let cone = commands
+        .spawn(part(&kit.roof_cone, &kit.roofs[roof_variant % kit.roofs.len()], Transform::from_xyz(0.0, 0.02 + 0.5 * rise, 0.0).with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)).with_scale(Vec3::new(1.0, rise, 1.0))))
+        .id();
+    commands.entity(roof).add_child(cone);
+    (walls, roof)
 }

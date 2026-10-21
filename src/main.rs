@@ -15,12 +15,14 @@ mod keyboard;
 mod menu;
 mod models;
 mod movement;
+mod music_ui;
 mod pack_ui;
 mod pause_ui;
 mod persist;
 mod pointer;
 mod settings_ui;
 mod setup;
+mod travel;
 
 use std::path::PathBuf;
 
@@ -31,17 +33,17 @@ use ozbound::{
     settings::Settings,
     settings_store, skills,
     text_fit::MIN_WINDOW,
-    village::{self, World as Hollowmere},
+    village::{self, World as Bluebrook},
 };
 
 use components::{
-    ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
+    Atlas, BgmState, CurrentRegion, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
     SettingsStore, StartingSave, TalkPortrait, TalkState, UserSettings, Wildlife,
 };
 use pause_ui::running;
 
 /// Set these to play other files; a missing or invalid file is then an error. Without them the
-/// shipped Hollowmere files are used, or the identical built-in copies when the game is started
+/// shipped Bluebrook files are used, or the identical built-in copies when the game is started
 /// from another directory.
 const MAP_ENV: &str = "OZBOUND_MAP";
 const QUESTS_ENV: &str = "OZBOUND_QUESTS";
@@ -76,7 +78,7 @@ fn load_settings() -> (UserSettings, SettingsStore, String) {
 
 /// Loads the level, quests, dialogue, bestiary, and recipes, and checks that they fit
 /// together (see `ozbound::village`). An invalid file stops startup with its name and line.
-fn load_world() -> Result<Hollowmere, String> {
+fn load_world() -> Result<Bluebrook, String> {
     let env_path = |name: &str| std::env::var_os(name).map(PathBuf::from);
     let (map, quests, dialogue, bestiary, recipes) =
         (env_path(MAP_ENV), env_path(QUESTS_ENV), env_path(DIALOGUE_ENV), env_path(BESTIARY_ENV), env_path(RECIPES_ENV));
@@ -97,12 +99,22 @@ fn load_world() -> Result<Hollowmere, String> {
 /// Restores the saved game (see `ozbound::save` for what it holds). An unreadable or invalid
 /// save is reported and left alone: the game starts fresh and does not save over the old file
 /// this session, so the player can still recover it.
-fn restore_game(world: &Hollowmere) -> (SaveGame, SaveState, String) {
+fn restore_game(world: &Bluebrook) -> (SaveGame, SaveState, String) {
     let env_path = |name: &str, default: &str| std::env::var_os(name).map_or_else(|| PathBuf::from(default), PathBuf::from);
     let path = env_path(SAVE_ENV, SAVE_PATH);
     let legacy = env_path(LEGACY_QUEST_SAVE_ENV, LEGACY_QUEST_SAVE_PATH);
-    let ctx = SaveContext { level: &world.level, quests: &world.content.quests, bestiary: &world.bestiary };
-    match save_store::load(&path, Some(&legacy), &ctx) {
+    // A save made in another region is checked against that region's map, so read its
+    // `region` line first. An unknown region is reported like any other unreadable save.
+    let saved_region = std::fs::read_to_string(&path).ok().and_then(|text| SaveGame::peek_region(&text));
+    let level = match saved_region.as_deref() {
+        None => Some(&world.level),
+        Some(id) => world.level_of(id),
+    };
+    let result = match level {
+        Some(level) => save_store::load(&path, Some(&legacy), &SaveContext { level, quests: &world.content.quests, bestiary: &world.bestiary }),
+        None => Err(ozbound::save_store::StoreError::unknown_region(&path, saved_region.as_deref().unwrap_or(""))),
+    };
+    match result {
         Ok(Loaded { game, start }) => {
             if start == Start::Loaded {
                 // Keep the save that just loaded, in case a later session writes something worse.
@@ -145,7 +157,14 @@ fn main() {
     if !settings_note.is_empty() {
         welcome = if welcome.is_empty() { settings_note } else { format!("{welcome} {settings_note}") };
     }
-    let Hollowmere { level, content, bestiary, recipes } = world;
+    // Every playable region's level, and the one the save left the player in.
+    let start_id = world.start_id().to_string();
+    let region_id = game.region.clone().unwrap_or_else(|| start_id.clone());
+    let mut levels = vec![(start_id, world.level.clone())];
+    levels.extend(world.regions.iter().cloned());
+    let atlas = Atlas { locations: world.locations.clone(), levels };
+    let Bluebrook { content, bestiary, recipes, .. } = world;
+    let level = atlas.level(&region_id).expect("restore_game only accepts playable regions").clone();
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -190,11 +209,26 @@ fn main() {
         .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(level.map.clone()))
         .insert_resource(LevelData(level))
-        .add_systems(Startup, (setup::setup, chat_ui::spawn_chat_panel))
+        .insert_resource(atlas)
+        .insert_resource(CurrentRegion(region_id))
+        .insert_resource(TravelOrder::default())
+        .insert_resource(BgmState::default())
+        .add_systems(Startup, ((setup::setup_shell, setup::build_world).chain(), chat_ui::spawn_chat_panel))
         .add_systems(Last, (persist::save_on_exit, settings_ui::report_on_exit))
         .add_systems(
             Update,
             (
+                // Journeys between regions: leave, rebuild, tag what was built, then the
+                // per-frame world tweaks that depend on where the player is.
+                (
+                    travel::apply_travel,
+                    setup::build_world.run_if(resource_exists::<components::RebuildWorld>),
+                    travel::finish_rebuild,
+                    travel::tag_region_entities,
+                    travel::house_cutaways,
+                    music_ui::sync_music,
+                )
+                    .chain(),
                 // Gameplay input and the world: all of it stands aside while the game is paused.
                 (
                     settings_ui::toggle_overlay,

@@ -30,7 +30,7 @@ pub fn apply_settings(
     mut progress: ResMut<GameProgress>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
-    sinks: Query<&AudioSink, With<AmbientSound>>,
+    sinks: Query<&AudioSink, Or<(With<AmbientSound>, With<BgmSound>)>>,
     mut overlays: Query<&mut Visibility, With<PerfHud>>,
 ) {
     // Text size, limited by the window (checked every frame so resizing is handled too).

@@ -6,7 +6,9 @@
 src/
 ├── main.rs          # Bevy app wiring and system order (binary crate)
 ├── setup.rs         # Startup: terrain, props, characters, lights, camera, HUD
-├── models.rs        # Original low-poly models built from primitives
+├── models.rs        # Original low-poly models built from primitives (trees, thickets, houses, bridges, gardens, vines, people)
+├── travel.rs        # Journeys between regions, region entity tagging, house roof/wall cutaway
+├── music_ui.rs      # Plays the current region's music and swaps it when travelling
 ├── components.rs    # Bevy components and resources
 ├── pointer.rs       # INPUT: hover label, left-click walk/interact, click markers
 ├── movement.rs      # MOVEMENT: glides the player along the planned route
@@ -38,7 +40,10 @@ src/
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
-├── level.rs         # Level data file parser/validator: map, player, guide, moonpetals, nodes, signs, npcs, places, creatures
+├── level.rs         # Level data file parser/validator: map, player, guide (optional), moonpetals, nodes, signs, npcs, places, creatures, houses, plots, exits
+├── homestead.rs     # Walk-in houses and plots: stamping, doorway and plot rules (pure)
+├── locations.rs     # The location register (assets/world/locations.world), exit checks across regions (pure)
+├── music.rs         # Picks a region's track from the bgm folder, or a built-in theme generated in code (pure)
 ├── village.rs       # Loads level + quests + dialogue + bestiary + recipes together and cross-checks them
 ├── bestiary.rs      # Creatures, field notes, and the non-lethal, all-or-nothing `approach` encounter
 ├── appearance.rs    # Character looks as data, plus the 16x16 dialogue portrait drawn from them
@@ -59,7 +64,7 @@ src/
 ├── save_store.rs    # Reads/writes the save file (temp file + rename, backup, bad saves never overwritten, legacy migration)
 ├── content.rs       # Loads quest + dialogue files (custom path, default path, built-in fallback)
 ├── talk.rs          # One open conversation: current view, choices, chat lines per step
-├── scene.rs         # Built-in default level (compiled in), per-tile variation, fence rail links
+├── scene.rs         # Built-in default level (compiled in), per-tile variation, fence rail links, bridge and thicket rules
 └── quest.rs         # Original moonpetal counter (only used by level validation now)
 ```
 
@@ -98,7 +103,7 @@ src/
 - Recipes are plain text too (`assets/recipes/*.recipes`, `crafting::RecipeBook::parse`) and load like the other content files (`crafting::load`). Plants that grow on open ground (herbs, berries) are `InteractionKind::Forage` with `Approach::OnTile`; level validation checks their own tile is reachable.
 - Saves are text with a version header. `QuestLog::from_text` refuses states that play could not have produced and never loads partially. The full save (`save.rs`) embeds the quest log's own lines and adds everything else; `save_store.rs` writes it to disk (see below).
 
-- The Hollowmere world is several files that must agree, so `village::check` validates them together after each parses on its own: every person in the level has a conversation and vice versa, `talk`/`visit`/`befriend` targets exist, every quest has a dialogue node that starts it and one that hands it in, and every item a quest collects, crafts, or takes can actually be had (ignoring quest rewards, so a quest never depends on its own reward). Quest events come from the Bevy layer and nowhere else: `interact` (gathered, befriended), `pack_ui` (crafted, from what actually arrived in the bag), and `movement` (visited, when a tile is reached).
+- The Bluebrook world is several files that must agree, so `village::check` validates them together after each parses on its own: every person in the level has a conversation and vice versa, `talk`/`visit`/`befriend` targets exist, every quest has a dialogue node that starts it and one that hands it in, and every item a quest collects, crafts, or takes can actually be had (ignoring quest rewards, so a quest never depends on its own reward). Quest events come from the Bevy layer and nowhere else: `interact` (gathered, befriended), `pack_ui` (crafted, from what actually arrived in the bag), and `movement` (visited, when a tile is reached).
 - Portraits and 3D models share one `Appearance`, and the ambient sound is synthesised, so the game still ships no art or audio files. Creature approaches and quest events never change anything unless the pure rule says so (`bestiary::approach` takes the offering only if the gift fits).
 
 - The save (M6) is one file, `saves/game.txt`, read once at startup (`main::restore_game`) and written by `persist.rs`. `save.rs` owns the format and every validation rule (the save is checked against the loaded level, quests, and bestiary, and never loads partly); `save_store.rs` owns the file safety (temp file + flush + rename; an invalid file is never overwritten; `.bak` copy after a good load). `setup.rs` reads `StartingSave` to place the player and to skip picked moonpetals and restore used nodes; after that the ECS is the live state and `persist.rs` snapshots it (`WorldChanges::capture`) and compares with what was last written. Respawn timers are deliberately not saved: a node saved as spent starts regrowing again at load.

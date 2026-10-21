@@ -162,7 +162,7 @@ fn a_session_survives_a_restart_and_play_carries_on() {
     one.bag.add(ItemId::WalkingStaff, 1).unwrap();
     one.gear.equip(ItemId::WalkingStaff, &mut one.bag).unwrap();
 
-    let hare = world.level.creatures.iter().find(|c| c.id == "meadow_hare").expect("the hare lives in Hollowmere");
+    let hare = world.level.creatures.iter().find(|c| c.id == "meadow_hare").expect("the hare lives in Bluebrook");
     one.bag.add(ItemId::Honeyberry, 1).unwrap();
     one.walk_to(hare.tile, Approach::Adjacent);
     let met = approach(&world.bestiary, &mut one.notes, &mut one.bag, "meadow_hare").unwrap();

@@ -1,0 +1,175 @@
+# Ozbound location register: the data form of LOCATIONS.md.
+#
+# One [location ID] section per place. Ids, names, source labels, priorities, and exits follow
+# LOCATIONS.md; a unit test (locations.rs) checks every row of its register table against this
+# file, so the two cannot drift apart. A place with a `map` can be played; the rest are planned.
+# Fields: name, source, priority, summary, exits, map (assets/maps/), music (assets/bgm/ .ogg,
+# .wav, or .mp4), theme (built-in fallback: village or road), start (exactly one place).
+
+[location KANSAS_FARM]
+name = Dorothy's home and Kansas prairie
+source = NOVEL_1900
+priority = P0
+summary = Opening and ending; tutorial and return-home context.
+exits = MUNCHKIN_LANDS
+
+[location MUNCHKIN_LANDS]
+name = Land of the Munchkins
+source = NOVEL_1900
+priority = P0
+summary = Arrival region and first friendly settlement (the village of Bluebrook); the way onward is the road east.
+exits = YELLOW_BRICK_ROAD_EAST
+map = bluebrook.map
+music = bluebrook.mp3
+theme = village
+start = yes
+
+[location YELLOW_BRICK_ROAD_EAST]
+name = Yellow Brick Road, eastern stretch
+source = NOVEL_1900
+priority = P0
+summary = Main navigation spine with a wooden bridge, thickets, and travel encounters.
+exits = MUNCHKIN_LANDS, WOODS_FIRST, TIN_WOODSMAN_CLEARING, LION_FOREST, EMERALD_CITY_GATE
+map = yellow_road_east.map
+music = yellow_road_east.ogg
+theme = road
+
+[location WOODS_FIRST]
+name = Forest where the Scarecrow is found
+source = NOVEL_1900 / ADAPTATION
+priority = P0
+summary = First companion encounter.
+exits = YELLOW_BRICK_ROAD_EAST
+
+[location TIN_WOODSMAN_CLEARING]
+name = Clearing where the Tin Woodman is found
+source = NOVEL_1900 / ADAPTATION
+priority = P0
+summary = Companion encounter and tool or interaction tutorial.
+exits = YELLOW_BRICK_ROAD_EAST
+
+[location LION_FOREST]
+name = Forest where the Cowardly Lion joins
+source = NOVEL_1900 / ADAPTATION
+priority = P0
+summary = Companion encounter and courage-themed challenge.
+exits = YELLOW_BRICK_ROAD_EAST
+
+[location KALIDAH_FOREST]
+name = Kalidah encounter area
+source = NOVEL_1900
+priority = P1
+summary = Hazard encounter and traversal challenge.
+
+[location BROKEN_BRIDGE]
+name = Broken bridge across a ravine
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Teamwork and route-solving obstacle.
+
+[location WIDE_RIVER]
+name = River crossing
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Environmental traversal and companion utility.
+
+[location POPPY_FIELD]
+name = Field of deadly poppies
+source = NOVEL_1900
+priority = P1
+summary = Sleep hazard and rescue sequence.
+
+[location EMERALD_CITY_GATE]
+name = Emerald City entrance and gate
+source = NOVEL_1900
+priority = P0
+summary = Arrival checkpoint and city access condition.
+exits = YELLOW_BRICK_ROAD_EAST, EMERALD_CITY
+
+[location EMERALD_CITY]
+name = Emerald City streets and public spaces
+source = NOVEL_1900
+priority = P0
+summary = Central hub, services, NPCs, and the Wizard storyline.
+exits = EMERALD_CITY_GATE, WIZARD_PALACE, WESTERN_ROAD, SOUTHERN_ROUTE
+
+[location WIZARD_PALACE]
+name = Wizard's palace and audience chambers
+source = NOVEL_1900
+priority = P0
+summary = Main story objective and reveal.
+exits = EMERALD_CITY
+
+[location WESTERN_ROAD]
+name = Route into the Winkie Country
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Second major expedition.
+exits = EMERALD_CITY, WINKIE_COUNTRY
+
+[location WINKIE_COUNTRY]
+name = Country of the Winkies
+source = NOVEL_1900
+priority = P1
+summary = Western region and Witch storyline.
+exits = WESTERN_ROAD, WITCH_FORTRESS
+
+[location WITCH_FORTRESS]
+name = Wicked Witch of the West's stronghold
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Infiltration, rescue, and climax.
+exits = WINKIE_COUNTRY
+
+[location SOUTHERN_ROUTE]
+name = Route toward the Quadlings
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Final journey and exploration.
+exits = QUADLING_COUNTRY, EMERALD_CITY
+
+[location HAMMER_HEADS]
+name = Hammer-Heads' territory
+source = NOVEL_1900
+priority = P2
+summary = Hostile boundary and route obstacle.
+exits = SOUTHERN_ROUTE
+
+[location CHINA_COUNTRY]
+name = Dainty China Country
+source = NOVEL_1900
+priority = P2
+summary = Optional miniature region with fragile-world rules.
+exits = SOUTHERN_ROUTE
+
+[location QUADLING_COUNTRY]
+name = Country of the Quadlings
+source = NOVEL_1900
+priority = P1
+summary = Southern region and approach to Glinda.
+exits = SOUTHERN_ROUTE, GLINDA_PALACE
+
+[location GLINDA_PALACE]
+name = Glinda's home and palace
+source = NOVEL_1900 / ADAPTATION
+priority = P1
+summary = Endgame guidance and return-home resolution.
+exits = QUADLING_COUNTRY, KANSAS_FARM
+
+[location NORTH_REGION]
+name = Area around the Good Witch of the North
+source = NOVEL_1900 / ADAPTATION
+priority = P2
+summary = Optional northern story content. Not labelled Gillikin Country in the 1900-canon layer; exits are decided when it is built.
+
+[location GILLIKIN_COUNTRY]
+name = Named northern country
+source = LATER_OZ
+priority = P3
+summary = Expansion only; later-book material, kept apart from the 1900 route.
+
+[location OZ_VILLAGE_TEMPLATE]
+name = Additional small Oz village
+source = GAME_ORIGINAL
+priority = P2
+summary = Reusable settlement template for side quests and services.

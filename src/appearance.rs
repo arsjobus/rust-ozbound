@@ -3,7 +3,7 @@
 //! Pure Rust (no Bevy). An [`Appearance`] is four colours and a hat shape. The 3D models
 //! (`models.rs`) and the 16x16 dialogue portraits are both built from the same value, so a
 //! character always looks like their portrait. Level files choose an appearance by name
-//! (`[npcs]` in `assets/maps/hollowmere.map`); [`Appearance::from_key`] is the only lookup,
+//! (`[npcs]` in `assets/maps/bluebrook.map`); [`Appearance::from_key`] is the only lookup,
 //! and [`Appearance::KEYS`] lists every name the game knows.
 
 /// An sRGB colour, 0-255 per channel.

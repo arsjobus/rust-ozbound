@@ -117,7 +117,7 @@ fn every_camera_angle_still_reaches_everywhere_with_four_keys() {
 fn tab_offers_every_person_plant_tree_sign_creature_and_petal_and_each_can_be_used() {
     let world = world();
     let list = candidates(&world);
-    assert!(list.len() > 20, "Hollowmere has plenty to visit ({} things)", list.len());
+    assert!(list.len() > 20, "Bluebrook has plenty to visit ({} things)", list.len());
     let start = world.level.player_start;
     let ranked = rank(&world.level.map, start, &list);
     assert_eq!(ranked.len(), list.len(), "nothing the mouse could use is missing from the Tab list");

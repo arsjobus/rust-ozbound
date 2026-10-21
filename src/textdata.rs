@@ -102,6 +102,13 @@ pub fn is_valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// Location ids are capital ASCII letters, digits, and underscores (`MUNCHKIN_LANDS`), and
+/// start with a letter. They match the stable ids in `LOCATIONS.md`.
+pub fn is_valid_location_id(id: &str) -> bool {
+    id.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+        && id.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
 /// Checks an id, naming what it identifies in the error (`what` is e.g. "quest id").
 pub fn check_id(line: usize, what: &str, id: &str) -> Result<(), ContentError> {
     if is_valid_id(id) {
@@ -186,6 +193,16 @@ mod tests {
         assert_eq!(parse_positive(1, "count", "3"), Ok(3));
         for bad in ["0", "-1", "x", "", "99999999999"] {
             assert!(parse_positive(1, "count", bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn location_ids_are_capitals_digits_and_underscores() {
+        assert!(is_valid_location_id("MUNCHKIN_LANDS"));
+        assert!(is_valid_location_id("WOODS_FIRST"));
+        assert!(is_valid_location_id("A1"));
+        for bad in ["", "munchkin", "Munchkin_Lands", "_START", "1ST", "A-B", "A B", "É"] {
+            assert!(!is_valid_location_id(bad), "{bad}");
         }
     }
 

@@ -6,15 +6,24 @@
 //! Signposts (`S` tiles listed in `[signs]`) are validated like resources: right tile,
 //! no duplicates, reachable from the player start.
 //! The file format is documented at the top of `assets/maps/meadow.map`.
+//!
+//! A level with a `[guide]` is a *story level*: the guide, villagers, places, and creatures
+//! that quests and dialogue refer to live there. A level without one is a *region*: scenery,
+//! resources, signs, houses, and exits only. Regions may not list `[npcs]`, `[places]`, or
+//! `[creatures]` yet, because story content is validated against a single story level.
+//! `[houses]` stamps walk-in houses onto the map, `[plots]` groups houses with gardens and
+//! vineyards (see `homestead.rs`), and `[exits]` links tiles to other regions (see
+//! `locations.rs`).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use crate::appearance::Appearance;
 use crate::gathering::{validate_node_placement, PlacementError, ResourceKind};
+use crate::homestead::{self, HomesteadError, HouseSpawn, PlotSpawn, Side};
 use crate::pathfinding::Approach;
 use crate::quest::MoonpetalQuest;
-use crate::textdata::is_valid_id;
+use crate::textdata::{is_valid_id, is_valid_location_id};
 use crate::world::{MapError, Tile, TilePos, WorldMap};
 
 /// A gatherable resource standing on a specific tile.
@@ -59,12 +68,25 @@ pub struct CreatureSpawn {
     pub tile: TilePos,
 }
 
+/// A tile that leads to another region. Walking onto it travels to `region`, arriving on
+/// `arrive` (a tile of that region's map; `locations::check_world` validates it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExitSpawn {
+    pub tile: TilePos,
+    /// The destination's location id (for example `YELLOW_BRICK_ROAD_EAST`).
+    pub region: String,
+    pub arrive: TilePos,
+    /// Shown when hovering the exit and in the chat when travelling.
+    pub label: String,
+}
+
 /// Everything the world needs to be built: the tile map plus what stands on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Level {
     pub map: WorldMap,
     pub player_start: TilePos,
-    pub guide: TilePos,
+    /// The village guide. `None` marks a region (no story content); see the module docs.
+    pub guide: Option<TilePos>,
     pub moonpetals: Vec<TilePos>,
     /// Trees, copper veins, herb patches, and berry bushes. Moonpetals are listed separately.
     pub nodes: Vec<NodeSpawn>,
@@ -76,22 +98,44 @@ pub struct Level {
     pub places: Vec<PlaceSpawn>,
     /// Creatures to meet (see `bestiary.rs`).
     pub creatures: Vec<CreatureSpawn>,
+    /// Walk-in houses, already stamped onto `map` as walls, doorways, and floor.
+    pub houses: Vec<HouseSpawn>,
+    /// Plots that group houses with gardens and vineyards.
+    pub plots: Vec<PlotSpawn>,
+    /// Tiles that lead to other regions.
+    pub exits: Vec<ExitSpawn>,
 }
 
 /// The id the guide always has in dialogue and quests.
 pub const GUIDE_ID: &str = "guide";
 
 impl Level {
+    /// True when this is a story level (it has a guide) rather than a region.
+    pub fn is_story_level(&self) -> bool { self.guide.is_some() }
+
+    /// The house the player is standing in (on its floor or doorway), if any.
+    pub fn house_at(&self, tile: TilePos) -> Option<&HouseSpawn> {
+        self.houses.iter().find(|house| house.is_inside(tile))
+    }
+
+    /// The exit on `tile`, if any.
+    pub fn exit_at(&self, tile: TilePos) -> Option<&ExitSpawn> {
+        self.exits.iter().find(|exit| exit.tile == tile)
+    }
+
     /// Every NPC as `(id, tile, display name)`, the guide first.
     pub fn npc_list(&self) -> Vec<(&str, TilePos, &str)> {
-        let mut all = vec![(GUIDE_ID, self.guide, "Village Guide")];
+        let mut all = Vec::new();
+        if let Some(guide) = self.guide {
+            all.push((GUIDE_ID, guide, "Village Guide"));
+        }
         all.extend(self.npcs.iter().map(|n| (n.id.as_str(), n.tile, n.name.as_str())));
         all
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs, Npcs, Places, Creatures }
+enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs, Npcs, Places, Creatures, Houses, Plots, Exits }
 
 impl Section {
     fn from_name(name: &str) -> Option<Self> {
@@ -105,6 +149,9 @@ impl Section {
             "npcs" => Self::Npcs,
             "places" => Self::Places,
             "creatures" => Self::Creatures,
+            "houses" => Self::Houses,
+            "plots" => Self::Plots,
+            "exits" => Self::Exits,
             _ => return None,
         })
     }
@@ -119,6 +166,9 @@ impl Section {
             Self::Npcs => "npcs",
             Self::Places => "places",
             Self::Creatures => "creatures",
+            Self::Houses => "houses",
+            Self::Plots => "plots",
+            Self::Exits => "exits",
         }
     }
 }
@@ -159,6 +209,12 @@ pub enum LevelErrorKind {
     UnknownAppearance(String),
     /// Two things stand on the same tile (an NPC on a place, a creature on a moonpetal, ...).
     Overlap { what: &'static str, other: &'static str, tile: TilePos },
+    /// A house or plot problem (see `homestead.rs`).
+    Homestead(HomesteadError),
+    /// A region (a level with no `[guide]`) lists story content.
+    RegionHasStory(&'static str),
+    /// An exit's destination is not a location id such as `YELLOW_BRICK_ROAD_EAST`.
+    InvalidLocationId(String),
 }
 
 /// A level-data problem, with the 1-based line of the file it belongs to when there is one.
@@ -181,7 +237,7 @@ impl fmt::Display for LevelError {
             ContentBeforeSection => write!(f, "content before the first [section] header"),
             UnknownSection(name) => write!(
                 f,
-                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes], [signs], [npcs], [places] or [creatures])"
+                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes], [signs], [npcs], [places], [creatures], [houses], [plots] or [exits])"
             ),
             DuplicateSection(name) => write!(f, "section [{name}] appears more than once"),
             MissingSection(name) => write!(f, "required section [{name}] is missing"),
@@ -191,7 +247,7 @@ impl fmt::Display for LevelError {
             }
             UnknownGlyph { glyph, column } => write!(
                 f,
-                "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock, F fence, S signpost)"
+                "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock, F fence, S signpost, W wall, + doorway, , floor, g garden, v vineyard)"
             ),
             Malformed { expected, found } => write!(f, "expected {expected}, found {found:?}"),
             UnknownResource(name) => write!(f, "unknown resource {name:?} (use tree, copper, herb, or berry)"),
@@ -233,6 +289,15 @@ impl fmt::Display for LevelError {
             Overlap { what, other, tile } => {
                 write!(f, "{what} at ({}, {}) stands on the same tile as a {other}", tile.x, tile.y)
             }
+            Homestead(error) => write!(f, "{error}"),
+            RegionHasStory(section) => write!(
+                f,
+                "[{section}] needs a [guide]: a level without one is a region, and regions cannot have villagers, places, or creatures yet"
+            ),
+            InvalidLocationId(id) => write!(
+                f,
+                "exit destination {id:?} must be a location id: capital letters, digits, and underscores (for example YELLOW_BRICK_ROAD_EAST)"
+            ),
         }
     }
 }
@@ -355,6 +420,58 @@ fn parse_creature(text: &str, line: usize) -> Result<CreatureSpawn, LevelError> 
     })
 }
 
+/// `id x y width height door_side name...`: a walk-in house. `x y` is its south-west corner.
+fn parse_house(text: &str, line: usize) -> Result<HouseSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"id x y width height door_side name\" for a house", found: text.to_string() });
+    let mut parts = text.splitn(7, char::is_whitespace);
+    let id = parts.next().filter(|t| !t.is_empty()).ok_or_else(malformed)?;
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let width = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let height = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let side = parts.next().ok_or_else(malformed)?;
+    let name = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "house", id: id.to_string() }));
+    }
+    let door = Side::from_name(side).ok_or_else(|| {
+        LevelError::at(line, LevelErrorKind::Malformed { expected: "a door side: north, south, east, or west", found: side.to_string() })
+    })?;
+    Ok(HouseSpawn { id: id.to_string(), origin: TilePos::new(x, y), width, height, door, name: name.to_string() })
+}
+
+/// `id x y width height name...`: a plot of land. `x y` is its south-west corner.
+fn parse_plot(text: &str, line: usize) -> Result<PlotSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"id x y width height name\" for a plot", found: text.to_string() });
+    let mut parts = text.splitn(6, char::is_whitespace);
+    let id = parts.next().filter(|t| !t.is_empty()).ok_or_else(malformed)?;
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let width = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let height = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let name = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "plot", id: id.to_string() }));
+    }
+    Ok(PlotSpawn { id: id.to_string(), origin: TilePos::new(x, y), width, height, name: name.to_string() })
+}
+
+/// `x y DESTINATION tx ty label...`: a tile that leads to another region.
+fn parse_exit(text: &str, line: usize) -> Result<ExitSpawn, LevelError> {
+    let malformed = || LevelError::at(line, LevelErrorKind::Malformed { expected: "\"x y DESTINATION tx ty label\" for an exit", found: text.to_string() });
+    let mut parts = text.splitn(6, char::is_whitespace);
+    let x = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let y = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let region = parts.next().filter(|t| !t.is_empty()).ok_or_else(malformed)?;
+    let tx = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let ty = parts.next().and_then(|t| t.parse().ok()).ok_or_else(malformed)?;
+    let label = parts.next().map(str::trim).filter(|m| !m.is_empty()).ok_or_else(malformed)?;
+    if !is_valid_location_id(region) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidLocationId(region.to_string())));
+    }
+    Ok(ExitSpawn { tile: TilePos::new(x, y), region: region.to_string(), arrive: TilePos::new(tx, ty), label: label.to_string() })
+}
+
 fn check_walkable(map: &WorldMap, what: &'static str, tile: TilePos, line: usize) -> Result<(), LevelError> {
     match map.tile_at(tile) {
         Err(_) => Err(LevelError::at(line, LevelErrorKind::OffMap { what, tile })),
@@ -387,6 +504,9 @@ impl Level {
         let mut npcs: Vec<Entry<NpcSpawn>> = Vec::new();
         let mut places: Vec<Entry<PlaceSpawn>> = Vec::new();
         let mut creatures: Vec<Entry<CreatureSpawn>> = Vec::new();
+        let mut houses: Vec<Entry<HouseSpawn>> = Vec::new();
+        let mut plots: Vec<Entry<PlotSpawn>> = Vec::new();
+        let mut exits: Vec<Entry<ExitSpawn>> = Vec::new();
 
         for (index, raw) in text.lines().enumerate() {
             let line_no = index + 1;
@@ -427,10 +547,13 @@ impl Level {
                 Section::Npcs => npcs.push(Entry { line: line_no, value: parse_npc(line, line_no)? }),
                 Section::Places => places.push(Entry { line: line_no, value: parse_place(line, line_no)? }),
                 Section::Creatures => creatures.push(Entry { line: line_no, value: parse_creature(line, line_no)? }),
+                Section::Houses => houses.push(Entry { line: line_no, value: parse_house(line, line_no)? }),
+                Section::Plots => plots.push(Entry { line: line_no, value: parse_plot(line, line_no)? }),
+                Section::Exits => exits.push(Entry { line: line_no, value: parse_exit(line, line_no)? }),
             }
         }
 
-        for (required, section) in [("map", Section::Map), ("player", Section::Player), ("guide", Section::Guide)] {
+        for (required, section) in [("map", Section::Map), ("player", Section::Player)] {
             if !seen.contains(&section) {
                 return Err(LevelError::general(LevelErrorKind::MissingSection(required)));
             }
@@ -442,13 +565,19 @@ impl Level {
         if let Some(&(line, found)) = map_rows.iter().find(|(_, width)| *width != expected) {
             return Err(LevelError::at(line, LevelErrorKind::RaggedMapRow { expected, found }));
         }
-        let map = WorldMap::from_ascii(&map_text).map_err(|error| match error {
+        let mut map = WorldMap::from_ascii(&map_text).map_err(|error| match error {
             MapError::UnknownGlyph { glyph, line, column } => {
                 LevelError::at(line, LevelErrorKind::UnknownGlyph { glyph, column })
             }
             // Rows were checked above, so only an empty map can remain.
             _ => LevelError::general(LevelErrorKind::EmptyMap),
         })?;
+
+        // Houses are stamped onto the map first, so every later check (player, guide, villagers,
+        // reachability) sees walls, doorways, and floors exactly as the player will.
+        let house_list: Vec<HouseSpawn> = houses.iter().map(|e| e.value.clone()).collect();
+        homestead::stamp_houses(&mut map, &house_list)
+            .map_err(|(i, error)| LevelError::at(houses[i].line, LevelErrorKind::Homestead(error)))?;
 
         let single = |entries: &[Entry<TilePos>], section: &'static str| -> Result<(usize, TilePos), LevelError> {
             match entries {
@@ -457,16 +586,34 @@ impl Level {
             }
         };
         let (player_line, player_start) = single(&player, "player")?;
-        let (guide_line, guide_tile) = single(&guide, "guide")?;
-
         check_walkable(&map, "player start", player_start, player_line)?;
-        check_walkable(&map, "guide", guide_tile, guide_line)?;
-        if guide_tile == player_start {
-            return Err(LevelError::at(guide_line, LevelErrorKind::Duplicate { what: "guide (on the player start)", tile: guide_tile }));
-        }
-        if !map.is_reachable(player_start, guide_tile) {
-            return Err(LevelError::at(guide_line, LevelErrorKind::Unreachable { what: "guide", tile: guide_tile }));
-        }
+
+        // The guide is optional: without one the level is a region (scenery, resources, signs,
+        // houses, and exits), and it may not carry story content.
+        let guide_tile = if seen.contains(&Section::Guide) {
+            let (guide_line, guide_tile) = single(&guide, "guide")?;
+            check_walkable(&map, "guide", guide_tile, guide_line)?;
+            if guide_tile == player_start {
+                return Err(LevelError::at(guide_line, LevelErrorKind::Duplicate { what: "guide (on the player start)", tile: guide_tile }));
+            }
+            if !map.is_reachable(player_start, guide_tile) {
+                return Err(LevelError::at(guide_line, LevelErrorKind::Unreachable { what: "guide", tile: guide_tile }));
+            }
+            Some(guide_tile)
+        } else {
+            for (section, found) in [("npcs", &npcs.first().map(|e| e.line)), ("places", &places.first().map(|e| e.line)), ("creatures", &creatures.first().map(|e| e.line))] {
+                if let Some(line) = found {
+                    return Err(LevelError::at(*line, LevelErrorKind::RegionHasStory(section)));
+                }
+            }
+            None
+        };
+
+        homestead::check_doors(&map, &house_list, player_start)
+            .map_err(|(i, error)| LevelError::at(houses[i].line, LevelErrorKind::Homestead(error)))?;
+        let plot_list: Vec<PlotSpawn> = plots.iter().map(|e| e.value.clone()).collect();
+        homestead::check_plots(&map, &house_list, &plot_list)
+            .map_err(|(i, error)| LevelError::at(plots[i].line, LevelErrorKind::Homestead(error)))?;
 
         for (i, petal) in moonpetals.iter().enumerate() {
             let tile = petal.value;
@@ -481,7 +628,7 @@ impl Level {
             }
         }
         let need = MoonpetalQuest::default().required() as usize;
-        if moonpetals.len() < need {
+        if guide_tile.is_some() && moonpetals.len() < need {
             return Err(LevelError::general(LevelErrorKind::NotEnoughMoonpetals { have: moonpetals.len(), need }));
         }
 
@@ -527,7 +674,10 @@ impl Level {
 
         // Villagers, places, and creatures. Each needs a valid unique id, a walkable and
         // reachable tile, and a tile of its own, so nothing is hidden under or blocks another.
-        let mut occupied: Vec<(&'static str, TilePos)> = vec![("player start", player_start), ("guide", guide_tile)];
+        let mut occupied: Vec<(&'static str, TilePos)> = vec![("player start", player_start)];
+        occupied.extend(guide_tile.map(|tile| ("guide", tile)));
+        // A doorway must stay clear of people and creatures (a place or plant may mark it).
+        occupied.extend(house_list.iter().map(|h| ("doorway", h.door_tile())));
         occupied.extend(moonpetals.iter().map(|e| ("moonpetal", e.value)));
         occupied.extend(nodes.iter().filter(|e| e.value.kind.interaction().approach() == Approach::OnTile).map(|e| ("plant", e.value.tile)));
         let mut claim = |what: &'static str, tile: TilePos, line: usize| -> Result<(), LevelError> {
@@ -582,10 +732,29 @@ impl Level {
             occupied.push(("creature", creature.tile));
         }
 
+        // Exits: a walkable, reachable tile of their own, listed once. The destination is
+        // checked against the other region's map by `locations::check_world`.
+        for (i, entry) in exits.iter().enumerate() {
+            let exit = &entry.value;
+            check_walkable(&map, "exit", exit.tile, entry.line)?;
+            if exits[..i].iter().any(|other| other.value.tile == exit.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Duplicate { what: "exit", tile: exit.tile }));
+            }
+            if !map.is_reachable(player_start, exit.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Unreachable { what: "exit", tile: exit.tile }));
+            }
+            if let Some((other, _)) = occupied.iter().find(|(_, t)| *t == exit.tile) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::Overlap { what: "exit", other, tile: exit.tile }));
+            }
+        }
+
         Ok(Self {
             map,
             player_start,
             guide: guide_tile,
+            houses: house_list,
+            plots: plot_list,
+            exits: exits.into_iter().map(|e| e.value).collect(),
             moonpetals: moonpetals.into_iter().map(|e| e.value).collect(),
             nodes: nodes.into_iter().map(|e| e.value).collect(),
             signs: signs.into_iter().map(|e| e.value).collect(),
@@ -658,7 +827,7 @@ copper 1 1 2 1
     fn meadow_matches_the_original_hand_written_layout() {
         let level = meadow();
         assert_eq!(level.player_start, TilePos::new(8, 3));
-        assert_eq!(level.guide, TilePos::new(24, 9));
+        assert_eq!(level.guide, Some(TilePos::new(24, 9)));
         assert_eq!(level.moonpetals, vec![TilePos::new(14, 2), TilePos::new(21, 3), TilePos::new(23, 12)]);
         let nodes: Vec<(ResourceKind, i32, i32, u32, u32)> =
             level.nodes.iter().map(|n| (n.kind, n.tile.x, n.tile.y, n.actions, n.yield_per_action)).collect();
@@ -690,8 +859,9 @@ copper 1 1 2 1
         let ends_beside = |route: &Vec<TilePos>, target: TilePos| {
             is_orthogonally_adjacent(route.last().copied().unwrap_or(start), target)
         };
-        let to_guide = plan_route(&level.map, start, level.guide, Approach::Adjacent).expect("guide route");
-        assert!(ends_beside(&to_guide, level.guide));
+        let guide = level.guide.expect("the meadow has a guide");
+        let to_guide = plan_route(&level.map, start, guide, Approach::Adjacent).expect("guide route");
+        assert!(ends_beside(&to_guide, guide));
         for petal in &level.moonpetals {
             let route = plan_route(&level.map, start, *petal, Approach::OnTile).expect("petal route");
             assert_eq!(route.last(), Some(petal));
@@ -718,7 +888,7 @@ copper 1 1 2 1
         assert_eq!(level.map.tile_at(TilePos::new(5, 3)), Ok(Tile::Tree));
         assert_eq!(level.map.tile_at(TilePos::new(1, 1)), Ok(Tile::Rock));
         assert_eq!(level.player_start, TilePos::new(0, 0));
-        assert_eq!(level.guide, TilePos::new(5, 0));
+        assert_eq!(level.guide, Some(TilePos::new(5, 0)));
         assert_eq!(level.moonpetals.len(), 3);
         assert_eq!(level.nodes.len(), 2);
     }
@@ -771,7 +941,11 @@ copper 1 1 2 1
     #[test]
     fn missing_required_sections_are_named() {
         assert_eq!(err(&small_with("[player]\n0 0\n", "")).kind, LevelErrorKind::MissingSection("player"));
-        assert_eq!(err(&small_with("[guide]\n5 0\n", "")).kind, LevelErrorKind::MissingSection("guide"));
+        // Without a guide the level is a region, which is valid (and has no story content).
+        let region = Level::parse(&small_with("[guide]\n5 0\n", "")).expect("a level with no guide is a region");
+        assert_eq!(region.guide, None);
+        assert!(!region.is_story_level());
+        assert!(region.npc_list().is_empty());
         assert_eq!(err("[player]\n0 0\n[guide]\n1 0\n").kind, LevelErrorKind::MissingSection("map"));
     }
 
@@ -1318,5 +1492,216 @@ copper 1 1 2 1
         let e = err("[monsters]\nx");
         let text = e.to_string();
         assert!(text.contains("[npcs]") && text.contains("[places]") && text.contains("[creatures]"), "{text}");
+    }
+
+    // ---- houses, plots, exits, and regions ----
+
+    /// A 12 x 8 open map with a guide, so houses have room. `x y` coordinates count up from the
+    /// bottom row.
+    fn open_level(extra: &str) -> String {
+        format!(
+            "[map]\n{}\n[player]\n0 0\n[guide]\n11 0\n[moonpetals]\n0 7\n1 7\n2 7\n{extra}",
+            vec!["............"; 8].join("\n")
+        )
+    }
+
+    fn open_err(extra: &str) -> LevelError { Level::parse(&open_level(extra)).unwrap_err() }
+
+    #[test]
+    fn a_house_is_stamped_onto_the_map_and_found_by_house_at() {
+        let level = Level::parse(&open_level("[houses]\nhut 3 2 5 4 south The Hut\n")).unwrap();
+        assert_eq!(level.houses.len(), 1);
+        assert_eq!(level.houses[0].name, "The Hut");
+        assert_eq!(level.map.tile_at(TilePos::new(5, 2)), Ok(Tile::Door), "the middle of the south side");
+        assert_eq!(level.map.tile_at(TilePos::new(3, 2)), Ok(Tile::Wall));
+        assert_eq!(level.map.tile_at(TilePos::new(5, 3)), Ok(Tile::Floor));
+        assert!(level.map.can_walk_to(TilePos::new(5, 3)));
+        assert!(!level.map.can_walk_to(TilePos::new(3, 3)));
+        assert!(level.house_at(TilePos::new(5, 3)).is_some());
+        assert!(level.house_at(TilePos::new(5, 2)).is_some(), "the doorway counts as inside");
+        assert!(level.house_at(TilePos::new(5, 1)).is_none(), "outside the door");
+        assert!(level.house_at(TilePos::new(3, 3)).is_none(), "a wall");
+        // The player can walk from the start into the house through its door.
+        assert!(level.map.is_reachable(level.player_start, TilePos::new(5, 3)));
+    }
+
+    #[test]
+    fn house_lines_must_be_well_formed_and_errors_name_the_line() {
+        for (line, what) in [
+            ("hut 3 2 5 4 south", "house"),
+            ("hut 3 2 5 4 up The Hut", "door side"),
+            ("hut x 2 5 4 south The Hut", "house"),
+            ("hut 3 2 5 four south The Hut", "house"),
+            ("hut 3 2 5 south The Hut", "house"),
+        ] {
+            let e = open_err(&format!("[houses]\n{line}\n"));
+            assert!(matches!(e.kind, LevelErrorKind::Malformed { .. }), "{line}: {e}");
+            assert!(e.to_string().contains(what), "{line}: {e}");
+            assert!(e.line.is_some());
+        }
+        let e = open_err("[houses]\nBad-Id 3 2 5 4 south The Hut\n");
+        assert!(matches!(e.kind, LevelErrorKind::InvalidId { what: "house", .. }));
+    }
+
+    #[test]
+    fn houses_that_do_not_fit_or_overlap_are_refused() {
+        let e = open_err("[houses]\nhut 9 2 5 4 south The Hut\n");
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::HouseOffMap { .. })), "{e}");
+        assert_eq!(e.line, Some(open_level("").lines().count() + 2), "points at the house line, below its [houses] header");
+        let e = open_err("[houses]\nhut 3 2 5 4 south A\nshed 5 3 4 4 south B\n");
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::HouseOverlap { .. })), "{e}");
+        let e = open_err("[houses]\nhut 3 2 2 4 south A\n");
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::HouseSize { .. })), "{e}");
+    }
+
+    #[test]
+    fn a_house_whose_door_faces_the_map_edge_is_refused() {
+        let e = open_err("[houses]\nhut 3 0 5 4 south A\n");
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::DoorBlocked { .. })), "{e}");
+    }
+
+    #[test]
+    fn houses_only_go_on_open_ground_not_trees_or_water() {
+        let with_tree = open_level("[houses]\nhut 3 2 5 4 south A\n").replacen("............", "......T.....", 3);
+        let e = Level::parse(&with_tree).unwrap_err();
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::HouseBlocked { .. })), "{e}");
+    }
+
+    #[test]
+    fn people_may_stand_inside_a_house_but_not_in_its_doorway() {
+        let inside = "[houses]\nhut 3 2 5 4 south The Hut\n[npcs]\nmiller 5 3 woodcutter Old Miller\n";
+        let level = Level::parse(&open_level(inside)).unwrap();
+        assert_eq!(level.npcs[0].tile, TilePos::new(5, 3));
+        let doorway = "[houses]\nhut 3 2 5 4 south The Hut\n[npcs]\nmiller 5 2 woodcutter Old Miller\n";
+        let e = open_err(doorway);
+        assert!(matches!(e.kind, LevelErrorKind::Overlap { what: "npc", other: "doorway", .. }), "{e}");
+        let creature = "[houses]\nhut 3 2 5 4 south The Hut\n[creatures]\nmeadow_hare 5 2\n";
+        let e = open_err(creature);
+        assert!(matches!(e.kind, LevelErrorKind::Overlap { what: "creature", other: "doorway", .. }), "{e}");
+        // Nothing may be drawn into a wall either.
+        let walled = "[houses]\nhut 3 2 5 4 south The Hut\n[npcs]\nmiller 3 3 woodcutter Old Miller\n";
+        assert!(matches!(open_err(walled).kind, LevelErrorKind::NotWalkable { what: "npc", found: Tile::Wall, .. }));
+    }
+
+    #[test]
+    fn a_plot_needs_its_house_and_something_growing() {
+        let house = "[houses]\nhut 3 2 5 4 south The Hut\n";
+        let e = open_err(&format!("{house}[plots]\nfarm 2 1 8 6 The Farm\n"));
+        assert!(matches!(e.kind, LevelErrorKind::Homestead(HomesteadError::PlotWithoutCrops { .. })), "{e}");
+        let crops = open_level(&format!("{house}[plots]\nfarm 2 1 8 6 The Farm\n")).replacen("............", "..g.........", 1);
+        // The first map row is the top (y = 7), outside the plot, so the plot is still bare.
+        assert!(Level::parse(&crops).is_err());
+        // A garden bed on y = 1, inside the plot (and not in the way of the door at (5, 2)).
+        let rows: Vec<&str> = vec!["............"; 8];
+        let mut rows: Vec<String> = rows.iter().map(|r| r.to_string()).collect();
+        rows[6].replace_range(8..9, "g"); // text row 6 is y = 1
+        let text = format!("[map]\n{}\n[player]\n0 0\n[guide]\n11 0\n[moonpetals]\n0 7\n1 7\n2 7\n{house}[plots]\nfarm 2 1 8 6 The Farm\n", rows.join("\n"));
+        let level = Level::parse(&text).unwrap();
+        assert_eq!(level.plots.len(), 1);
+        assert_eq!(level.plots[0].name, "The Farm");
+        let e = Level::parse(&text.replace("farm 2 1 8 6", "farm 2 1 8 6")).map(|_| ());
+        assert!(e.is_ok());
+    }
+
+    #[test]
+    fn plot_lines_must_be_well_formed() {
+        for line in ["farm 2 1 8 6", "farm 2 1 8 six The Farm", "farm 2 1 8 The Farm"] {
+            let e = open_err(&format!("[plots]\n{line}\n"));
+            assert!(matches!(e.kind, LevelErrorKind::Malformed { .. }), "{line}: {e}");
+        }
+        assert!(matches!(open_err("[plots]\nFarm 2 1 8 6 The Farm\n").kind, LevelErrorKind::InvalidId { what: "plot", .. }));
+    }
+
+    #[test]
+    fn exits_parse_validate_and_are_found_by_exit_at() {
+        let level = Level::parse(&open_level("[exits]\n11 4 ROAD_EAST 2 9 To the road\n")).unwrap();
+        assert_eq!(level.exits.len(), 1);
+        let exit = level.exit_at(TilePos::new(11, 4)).expect("exit");
+        assert_eq!((exit.region.as_str(), exit.arrive, exit.label.as_str()), ("ROAD_EAST", TilePos::new(2, 9), "To the road"));
+        assert!(level.exit_at(TilePos::new(10, 4)).is_none());
+        for line in ["11 4 ROAD_EAST 2 9", "11 4 ROAD_EAST 2 x Label", "11 4 ROAD_EAST 2 Label", "x 4 ROAD_EAST 2 9 L"] {
+            let e = open_err(&format!("[exits]\n{line}\n"));
+            assert!(matches!(e.kind, LevelErrorKind::Malformed { .. }), "{line}: {e}");
+        }
+        let e = open_err("[exits]\n11 4 road_east 2 9 To the road\n");
+        assert_eq!(e.kind, LevelErrorKind::InvalidLocationId("road_east".into()));
+        assert!(e.to_string().contains("capital letters"));
+    }
+
+    #[test]
+    fn exits_need_walkable_reachable_unique_unshared_tiles() {
+        let e = open_err("[exits]\n12 4 ROAD_EAST 2 9 L\n");
+        assert!(matches!(e.kind, LevelErrorKind::OffMap { what: "exit", .. }), "{e}");
+        let e = open_err("[exits]\n11 4 ROAD_EAST 2 9 A\n11 4 ROAD_EAST 2 9 B\n");
+        assert!(matches!(e.kind, LevelErrorKind::Duplicate { what: "exit", .. }), "{e}");
+        let e = open_err("[exits]\n11 0 ROAD_EAST 2 9 On the guide\n");
+        assert!(matches!(e.kind, LevelErrorKind::Overlap { what: "exit", other: "guide", .. }), "{e}");
+        let e = open_err("[exits]\n0 0 ROAD_EAST 2 9 On the start\n");
+        assert!(matches!(e.kind, LevelErrorKind::Overlap { what: "exit", other: "player start", .. }), "{e}");
+        let e = open_err("[houses]\nhut 3 2 5 4 south A\n[exits]\n3 3 ROAD_EAST 2 9 In a wall\n");
+        assert!(matches!(e.kind, LevelErrorKind::NotWalkable { what: "exit", .. }), "{e}");
+        let walled = "[map]\n..T.\n..T.\n\n[player]\n0 0\n[exits]\n3 0 ROAD_EAST 2 9 Cut off\n";
+        assert!(matches!(Level::parse(walled).unwrap_err().kind, LevelErrorKind::Unreachable { what: "exit", .. }));
+    }
+
+    #[test]
+    fn a_level_without_a_guide_is_a_region_and_may_not_hold_story_content() {
+        let region = "[map]\n......\n......\n\n[player]\n0 0\n";
+        let level = Level::parse(region).unwrap();
+        assert!(!level.is_story_level());
+        assert!(level.moonpetals.is_empty(), "regions need no moonpetals");
+        for (section, entry) in [("npcs", "miller 3 0 woodcutter Old Miller"), ("places", "mill 3 0 The Mill"), ("creatures", "meadow_hare 3 0")] {
+            let e = Level::parse(&format!("{region}[{section}]\n{entry}\n")).unwrap_err();
+            assert_eq!(e.kind, LevelErrorKind::RegionHasStory(match section { "npcs" => "npcs", "places" => "places", _ => "creatures" }));
+            assert!(e.line.is_some());
+            assert!(e.to_string().contains("needs a [guide]"));
+        }
+        // Resources, signs, houses, and exits are fine in a region.
+        let rich = format!("{region}[nodes]\nherb 4 1 3 1\n[exits]\n5 0 ROAD_EAST 1 1 Onward\n");
+        assert!(Level::parse(&rich).is_ok());
+    }
+
+    #[test]
+    fn story_levels_still_need_enough_moonpetals() {
+        let e = Level::parse("[map]\n......\n......\n\n[player]\n0 0\n[guide]\n5 0\n").unwrap_err();
+        assert!(matches!(e.kind, LevelErrorKind::NotEnoughMoonpetals { have: 0, .. }), "{e}");
+    }
+
+    #[test]
+    fn the_shipped_bluebrook_has_plots_houses_gardens_vineyards_and_a_road_east() {
+        let level = Level::parse(crate::village::BLUEBROOK_MAP).unwrap();
+        assert!(level.plots.len() >= 3, "several plots");
+        assert!(level.houses.len() >= 3, "a house on each plot");
+        for plot in &level.plots {
+            let holds: Vec<_> = level.houses.iter().filter(|h| plot.holds(h)).collect();
+            assert!(!holds.is_empty(), "plot {} has no house", plot.id);
+        }
+        let count = |wanted: Tile| {
+            (0..level.map.height() as i32)
+                .flat_map(|y| (0..level.map.width() as i32).map(move |x| TilePos::new(x, y)))
+                .filter(|t| level.map.tile_at(*t) == Ok(wanted))
+                .count()
+        };
+        assert!(count(Tile::Garden) >= 5, "gardens");
+        assert!(count(Tile::Vine) >= 5, "a vineyard");
+        assert_eq!(level.exits.len(), 1);
+        assert_eq!(level.exits[0].region, "YELLOW_BRICK_ROAD_EAST");
+        // The apothecary now keeps shop inside her house.
+        let pell = level.npcs.iter().find(|n| n.id == "apothecary").expect("Mistress Pell");
+        assert!(level.house_at(pell.tile).is_some(), "Pell stands inside her house");
+        // You can walk in through every door.
+        for house in &level.houses {
+            assert!(level.map.is_reachable(level.player_start, house.door_tile()), "{}", house.id);
+        }
+    }
+
+    #[test]
+    fn the_shipped_road_region_is_a_region_with_a_wooden_bridge_and_a_way_back() {
+        let level = Level::parse(crate::village::BUILTIN_REGION_MAPS[0].1).unwrap();
+        assert!(!level.is_story_level());
+        assert_eq!(level.exits.len(), 1);
+        assert_eq!(level.exits[0].region, "MUNCHKIN_LANDS");
+        assert!(!level.houses.is_empty() && !level.plots.is_empty());
+        assert!(level.map.is_reachable(level.player_start, level.exits[0].tile));
     }
 }

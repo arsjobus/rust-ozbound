@@ -11,14 +11,15 @@ impl TilePos {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tile { Grass, Path, Water, Tree, Rock, Fence, Sign }
+pub enum Tile { Grass, Path, Water, Tree, Rock, Fence, Sign, Wall, Door, Floor, Garden, Vine }
 
 impl Tile {
-    pub fn is_walkable(self) -> bool { matches!(self, Tile::Grass | Tile::Path) }
+    pub fn is_walkable(self) -> bool { matches!(self, Tile::Grass | Tile::Path | Tile::Door | Tile::Floor) }
 
     /// Legend used by text maps: `.` grass, `=` path, `~` water, `T` tree, `#` rock,
-    /// `F` fence, `S` signpost. Only grass and path can be walked on; everything else blocks
-    /// movement, so collision is decided in one place: [`Tile::is_walkable`].
+    /// `F` fence, `S` signpost, `W` house wall, `+` doorway, `,` house floor, `g` garden bed,
+    /// `v` vineyard row. Grass, path, doorways, and house floors can be walked on; everything
+    /// else blocks movement, so collision is decided in one place: [`Tile::is_walkable`].
     pub fn from_glyph(glyph: char) -> Option<Self> {
         Some(match glyph {
             '.' => Tile::Grass,
@@ -28,9 +29,17 @@ impl Tile {
             '#' => Tile::Rock,
             'F' => Tile::Fence,
             'S' => Tile::Sign,
+            'W' => Tile::Wall,
+            '+' => Tile::Door,
+            ',' => Tile::Floor,
+            'g' => Tile::Garden,
+            'v' => Tile::Vine,
             _ => return None,
         })
     }
+
+    /// True for the tiles that make up a house (walls, doorway, floor).
+    pub fn is_house(self) -> bool { matches!(self, Tile::Wall | Tile::Door | Tile::Floor) }
 }
 
 /// Small rectangular map. Data is supplied row-by-row from bottom to top.
@@ -85,6 +94,14 @@ impl WorldMap {
 
     pub fn width(&self) -> usize { self.width }
     pub fn height(&self) -> usize { self.height }
+
+    /// Replaces one tile. Used when level data stamps houses onto the map after parsing;
+    /// returns `OutOfBounds` (and changes nothing) for a position off the map.
+    pub fn set_tile(&mut self, pos: TilePos, tile: Tile) -> Result<(), MapError> {
+        self.tile_at(pos)?;
+        self.tiles[pos.y as usize * self.width + pos.x as usize] = tile;
+        Ok(())
+    }
     pub fn tile_at(&self, pos: TilePos) -> Result<Tile, MapError> {
         if pos.x < 0 || pos.y < 0 || pos.x as usize >= self.width || pos.y as usize >= self.height {
             return Err(MapError::OutOfBounds);
@@ -181,10 +198,35 @@ mod tests {
     }
     #[test]
     fn every_blocking_tile_kind_refuses_walking() {
-        // One of each tile in a row: only grass and path may be walked on.
-        let map = WorldMap::from_ascii(".=~T#FS").unwrap();
-        let walkable: Vec<bool> = (0..7).map(|x| map.can_walk_to(TilePos::new(x, 0))).collect();
-        assert_eq!(walkable, vec![true, true, false, false, false, false, false]);
+        // One of each tile in a row: only grass, path, doorways, and house floors may be walked on.
+        let map = WorldMap::from_ascii(".=~T#FSW+,gv").unwrap();
+        let walkable: Vec<bool> = (0..12).map(|x| map.can_walk_to(TilePos::new(x, 0))).collect();
+        assert_eq!(
+            walkable,
+            vec![true, true, false, false, false, false, false, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn house_garden_and_vineyard_glyphs_parse() {
+        let map = WorldMap::from_ascii("W+,gv").unwrap();
+        let tiles: Vec<Tile> = (0..5).map(|x| map.tile_at(TilePos::new(x, 0)).unwrap()).collect();
+        assert_eq!(tiles, vec![Tile::Wall, Tile::Door, Tile::Floor, Tile::Garden, Tile::Vine]);
+        assert!(Tile::Wall.is_house() && Tile::Door.is_house() && Tile::Floor.is_house());
+        assert!(!Tile::Garden.is_house() && !Tile::Vine.is_house() && !Tile::Grass.is_house());
+        assert_eq!(Tile::from_glyph('w'), None, "glyphs are case-sensitive");
+        assert_eq!(Tile::from_glyph('G'), None);
+    }
+
+    #[test]
+    fn set_tile_changes_one_tile_and_refuses_off_map_positions() {
+        let mut map = WorldMap::from_ascii("...").unwrap();
+        map.set_tile(TilePos::new(1, 0), Tile::Wall).unwrap();
+        assert_eq!(map.tile_at(TilePos::new(1, 0)), Ok(Tile::Wall));
+        assert_eq!(map.tile_at(TilePos::new(0, 0)), Ok(Tile::Grass));
+        assert_eq!(map.set_tile(TilePos::new(3, 0), Tile::Wall), Err(MapError::OutOfBounds));
+        assert_eq!(map.set_tile(TilePos::new(0, -1), Tile::Wall), Err(MapError::OutOfBounds));
+        assert_eq!(map.tile_at(TilePos::new(2, 0)), Ok(Tile::Grass));
     }
 
     #[test]
