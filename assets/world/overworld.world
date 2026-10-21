@@ -1,0 +1,42 @@
+# Ozbound overworld: where the playable regions sit in the one big open world, and which
+# zones (named music areas) cover it. Read by src/overworld.rs, which checks the layout.
+#
+# [world]       load_margin / unload_margin: a chunk is loaded while the player is within
+#               load_margin tiles of it, and dropped beyond unload_margin (the gap keeps a
+#               chunk from flickering on and off at its border). Both optional.
+# [chunk ID]    a playable location from locations.world. `at = x y` is the world tile of the
+#               region's own tile (0, 0); world tiles never go below 0. Chunks must not overlap.
+#               Chunks that touch are joined by walking: put a path tile on both sides of the
+#               shared border (and list each as an exit of the other in locations.world). A level
+#               `[exits]` tile is only for places off the overworld, such as caves.
+# [zone id]     a rectangle of the world, `rect = x0 y0 x1 y1` (world tiles, both corners
+#               included), with a `name` shown when you cross into it, and `music` (a file in
+#               assets/bgm) and/or `theme` (built-in: village, road). Zones need not match chunk
+#               borders. Where zones overlap the one declared last wins. Every walkable tile
+#               must be in some zone. When you cross a zone boundary the old music fades out as
+#               the new fades in; two zones that name the same track keep playing it unbroken.
+
+[world]
+load_margin = 20
+unload_margin = 28
+
+# Bluebrook, in the Land of the Munchkins: 40 x 24 tiles at the world's origin.
+[chunk MUNCHKIN_LANDS]
+at = 0 0
+
+# The Yellow Brick Road, eastern stretch: 48 x 20 tiles, starting where Bluebrook ends.
+# Its road (y = 9) meets Bluebrook's road at the shared border.
+[chunk YELLOW_BRICK_ROAD_EAST]
+at = 40 0
+
+[zone bluebrook]
+name = Bluebrook
+rect = 0 0 39 23
+music = bluebrook.mp3
+theme = village
+
+[zone yellow_brick_road]
+name = The Yellow Brick Road
+rect = 40 0 87 23
+music = yellow_road_east.ogg
+theme = road

@@ -125,6 +125,13 @@ impl WorldChanges {
         Self { picked, nodes }
     }
 
+    /// The same changes with every tile moved by `(dx, dy)`. The overworld uses this to move a
+    /// chunk's changes between the chunk's own tiles and world tiles.
+    pub fn shifted(&self, dx: i32, dy: i32) -> Self {
+        let mv = |tile: &TilePos| TilePos::new(tile.x + dx, tile.y + dy);
+        Self { picked: self.picked.iter().map(mv).collect(), nodes: self.nodes.iter().map(|(tile, left)| (mv(tile), *left)).collect() }
+    }
+
     /// Whether the moonpetal on `tile` has been picked up.
     pub fn is_picked(&self, tile: TilePos) -> bool {
         self.picked.contains(&tile)

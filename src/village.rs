@@ -22,6 +22,7 @@ use crate::dialogue::{DialogueBook, Effect};
 use crate::inventory::ItemId;
 use crate::level::{Level, GUIDE_ID};
 use crate::locations::{self, Locations, DEFAULT_LOCATIONS, LOCATIONS_PATH, MAPS_DIR};
+use crate::overworld::Overworld;
 use crate::quests::{Objective, QuestBook};
 
 /// The built-in copies, identical to the files under `assets/`.
@@ -31,6 +32,10 @@ pub const BLUEBROOK_DIALOGUE: &str = include_str!("../assets/dialogue/bluebrook.
 
 /// Built-in copies of the other regions' maps, by file name (see `assets/world/locations.world`).
 pub const BUILTIN_REGION_MAPS: [(&str, &str); 1] = [("yellow_road_east.map", include_str!("../assets/maps/yellow_road_east.map"))];
+
+/// The open-world layout (see `overworld.rs`): the built-in copy, and where the file lives.
+pub const DEFAULT_OVERWORLD: &str = include_str!("../assets/world/overworld.world");
+pub const OVERWORLD_PATH: &str = "assets/world/overworld.world";
 
 pub const MAP_PATH: &str = "assets/maps/bluebrook.map";
 pub const QUESTS_PATH: &str = "assets/quests/bluebrook.quest";
@@ -48,6 +53,10 @@ pub struct World {
     pub content: Content,
     pub bestiary: Bestiary,
     pub recipes: RecipeBook,
+    /// How the playable regions are placed side by side as one open world, with its music
+    /// zones. `None` when a custom starting map replaces Bluebrook (the layout was written for
+    /// the shipped map), in which case regions are separate places joined by exits.
+    pub overworld: Option<Overworld>,
 }
 
 /// Which files to read. `None` for a custom path means "use the default".
@@ -67,6 +76,7 @@ pub struct Sources<'a> {
     pub dialogue_default: &'a Path,
     pub bestiary_default: &'a Path,
     pub recipes_default: &'a Path,
+    pub overworld_default: &'a Path,
 }
 
 impl Sources<'_> {
@@ -86,6 +96,7 @@ impl Sources<'_> {
             dialogue_default: Path::new(DIALOGUE_PATH),
             bestiary_default: Path::new(BESTIARY_PATH),
             recipes_default: Path::new(crafting::RECIPES_PATH),
+            overworld_default: Path::new(OVERWORLD_PATH),
         }
     }
 }
@@ -155,7 +166,13 @@ pub fn load(sources: &Sources) -> Result<Loaded, String> {
     let locations = Locations::parse(&text).map_err(|e| invalid("locations", &locations_label, e))?;
     let regions = load_regions(&locations, sources, &mut notes)?;
 
-    let world = World { level, locations, regions, content: Content { quests, dialogue }, bestiary, recipes: recipes.book };
+    let mut world = World { level, locations, regions, content: Content { quests, dialogue }, bestiary, recipes: recipes.book, overworld: None };
+    if sources.map_custom.is_none() {
+        let (text, label, note) = read("overworld", None, sources.overworld_default, DEFAULT_OVERWORLD)?;
+        notes.extend(note);
+        let parsed = Overworld::parse(&text, &world.locations, |id| world.level_of(id)).map_err(|e| invalid("overworld", &label, e))?;
+        world.overworld = Some(parsed);
+    }
     check(&world).map_err(|e| format!("the world does not hold together: {e}"))?;
     Ok(Loaded { world, notes })
 }
@@ -206,6 +223,7 @@ pub fn builtin() -> Result<World, String> {
         dialogue_default: Path::new("/nonexistent/bluebrook.dialogue"),
         bestiary_default: Path::new("/nonexistent/bluebrook.bestiary"),
         recipes_default: Path::new("/nonexistent/meadow.recipes"),
+        overworld_default: Path::new("/nonexistent/overworld.world"),
         ..Sources::defaults()
     };
     load(&sources).map(|loaded| loaded.world)
@@ -373,6 +391,7 @@ mod tests {
             },
             bestiary: Bestiary::parse(bestiary).map_err(|e| e.to_string())?,
             recipes: RecipeBook::builtin().map_err(|e| e.to_string())?,
+            overworld: None,
         };
         check(&world)
     }

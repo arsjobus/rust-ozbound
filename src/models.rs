@@ -52,6 +52,7 @@ pub struct Look {
 }
 
 /// Shared mesh and material handles, built once at startup.
+#[derive(Resource)]
 pub struct Kit {
     pub slab: Handle<Mesh>,
     pub grass: [Handle<StandardMaterial>; 3],

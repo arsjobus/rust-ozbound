@@ -263,7 +263,7 @@ mod tests {
         for ok in ["theme.ogg", "Theme.OGG", "a.b.wav", "village-1.mp3", "x.WaV"] {
             assert!(is_valid_track_name(ok), "{ok}");
         }
-        for bad in ["", "theme", "theme.mp3", ".ogg", ".hidden.ogg", "dir/theme.ogg", "dir\\theme.ogg", "../theme.ogg", "c:theme.ogg", "theme.ogg.txt", "theme.", "nul\0.ogg"] {
+        for bad in ["", "theme", "theme.mp4", ".ogg", ".hidden.ogg", "dir/theme.ogg", "dir\\theme.ogg", "../theme.ogg", "c:theme.ogg", "theme.ogg.txt", "theme.", "nul\0.ogg"] {
             assert!(!is_valid_track_name(bad), "{bad:?}");
         }
         assert_eq!(format_of("a.OGG"), Some("ogg"));
@@ -332,7 +332,7 @@ mod tests {
     fn bad_names_never_touch_the_filesystem() {
         let dir = TempDir::new();
         dir.write("secret.txt", b"RIFF....WAVE");
-        for name in ["../secret.txt", "secret.txt", "sub/x.ogg", "x.mp3"] {
+        for name in ["../secret.txt", "secret.txt", "sub/x.ogg", "x.mp4"] {
             let choice = choose(&dir.0, Some(name), None);
             assert_eq!(choice.track, Track::Silence, "{name}");
             assert!(choice.note.unwrap().contains("not a valid track name"), "{name}");

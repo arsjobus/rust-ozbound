@@ -20,7 +20,7 @@ priority = P0
 summary = Arrival region and first friendly settlement (the village of Bluebrook); the way onward is the road east.
 exits = YELLOW_BRICK_ROAD_EAST
 map = bluebrook.map
-music = bluebrook.mp3
+music = bluebrook.wav
 theme = village
 start = yes
 

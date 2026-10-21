@@ -76,6 +76,10 @@ pub fn setup_shell(
     mut sounds: ResMut<Assets<AudioSource>>,
     settings: Res<UserSettings>,
 ) {
+    // Meshes and materials shared by everything the world spawns, built once so chunks that
+    // stream in and out reuse them instead of making new ones.
+    commands.insert_resource(Kit::new(&mut meshes, &mut materials));
+
     // Click markers: a yellow cross for walking, a red one for interacting.
     let marker = |color: Color| StandardMaterial { base_color: color, unlit: true, ..default() };
     commands.insert_resource(ClickAssets {
@@ -267,33 +271,53 @@ pub fn setup_shell(
     ));
 }
 
-/// Builds the world of the region the player is in: terrain, props, houses, people, creatures,
-/// and the player. Runs at startup and again after every journey between regions (see
-/// `travel.rs`, which despawns the previous region's entities first). It reads `Meadow`,
-/// `LevelData`, and `StartingSave`, which always describe the current region.
-pub fn build_world(
-    mut commands: Commands,
-    meadow: Res<Meadow>,
-    level: Res<LevelData>,
-    saved: Res<StartingSave>,
-    wildlife: Res<Wildlife>,
-    mut portraits: ResMut<Portraits>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
-) {
-    let map = &meadow.0;
-    let level = &level.0;
-    let changes = &saved.0.changes;
-    let kit = Kit::new(&mut meshes, &mut materials);
+/// A rectangle of tiles in the map's frame: columns `x0..x1`, rows `y0..y1`.
+#[derive(Clone, Copy, Debug)]
+pub struct Area {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+}
 
+impl Area {
+    /// Every tile of the map.
+    pub fn of_map(map: &WorldMap) -> Self {
+        Self { x0: 0, y0: 0, x1: map.width() as i32, y1: map.height() as i32 }
+    }
+
+    /// The tiles of an overworld chunk, in world tiles.
+    pub fn of_chunk(chunk: &ozbound::overworld::Chunk) -> Self {
+        Self { x0: chunk.origin.x, y0: chunk.origin.y, x1: chunk.origin.x + chunk.width, y1: chunk.origin.y + chunk.height }
+    }
+
+    pub fn contains(&self, tile: TilePos) -> bool {
+        tile.x >= self.x0 && tile.x < self.x1 && tile.y >= self.y0 && tile.y < self.y1
+    }
+}
+
+/// Builds what stands on `area` of `map`: terrain, props, houses, people, and creatures, using
+/// the spawns of `level` that lie inside the area. `changes` (in the map's tiles) says what the
+/// player has already picked or used up there. Used for a whole region off the overworld and for
+/// each chunk as it streams in; nothing here touches the player, the camera, or the floor.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_area(
+    commands: &mut Commands,
+    kit: &Kit,
+    map: &WorldMap,
+    level: &ozbound::level::Level,
+    area: Area,
+    changes: &WorldChanges,
+    wildlife: &Wildlife,
+    portraits: &mut Portraits,
+    images: &mut Assets<Image>,
+) {
     let bridges = scene::bridge_tiles(map);
 
     // Ground: one slab per tile, tinted from a small palette so the meadow isn't one flat colour.
     // Water sits lower than the grass, so its banks read as little cliffs.
-    for y in 0..map.height() as i32 {
-        for x in 0..map.width() as i32 {
+    for y in area.y0..area.y1 {
+        for x in area.x0..area.x1 {
             let pos = TilePos::new(x, y);
             let tile = map.tile_at(pos).expect("loop stays inside the map");
             let (material, top) = match tile {
@@ -317,7 +341,7 @@ pub fn build_world(
 
     // Validate resource nodes once; scenery below attaches gameplay to the valid ones.
     let mut nodes: HashMap<TilePos, NodeSpawn> = HashMap::new();
-    for node in level.nodes.iter().copied() {
+    for node in level.nodes.iter().copied().filter(|n| area.contains(n.tile)) {
         match validate_node_placement(map, node.tile, node.kind) {
             Ok(()) => {
                 nodes.insert(node.tile, node);
@@ -326,14 +350,14 @@ pub fn build_world(
         }
     }
 
-    let signs: HashMap<TilePos, &SignSpawn> = level.signs.iter().map(|sign| (sign.tile, sign)).collect();
+    let signs: HashMap<TilePos, &SignSpawn> = level.signs.iter().filter(|s| area.contains(s.tile)).map(|sign| (sign.tile, sign)).collect();
 
     // Trees, rocks, fences, and signposts stand on every blocking tile. Only the trees and
     // rocks listed as resource nodes, and the signposts listed in `[signs]`, can be clicked;
     // the rest is scenery that shuts the player in. Collision itself comes from the tile
     // map (`Tile::is_walkable`), never from these models.
-    for y in 0..map.height() as i32 {
-        for x in 0..map.width() as i32 {
+    for y in area.y0..area.y1 {
+        for x in area.x0..area.x1 {
             let pos = TilePos::new(x, y);
             let tile = map.tile_at(pos).expect("loop stays inside the map");
             let at = vec3(map.tile_center_3d(pos, 0.0));
@@ -345,14 +369,14 @@ pub fn build_world(
                     // A tree tile with no chopping node is a thicket, so a tree that can be harvested
                     // is never confused with the scenery that closes the paths.
                     let Some(node) = nodes.get(&pos).filter(|n| n.kind == ResourceKind::Tree) else {
-                        models::spawn_thicket(&mut commands, &kit, at, yaw, scale, leaf);
+                        models::spawn_thicket(commands, kit, at, yaw, scale, leaf);
                         continue;
                     };
-                    let (root, crown) = models::spawn_tree(&mut commands, &kit, at, yaw, scale, leaf);
+                    let (root, crown) = models::spawn_tree(commands, kit, at, yaw, scale, leaf);
                     {
                         let (pick_min, pick_max) = pick_box(map, pos, 0.45, 2.5 * scale);
                         let gathering = node_for(node, changes);
-                        show_spent(&mut commands, root, crown, &gathering);
+                        show_spent(commands, root, crown, &gathering);
                         commands.entity(root).insert((
                             ResourceNode(gathering),
                             SpentVisual(crown),
@@ -364,11 +388,11 @@ pub fn build_world(
                     let scale = 0.95 + scene::tile_noise(pos, 7) * 0.2;
                     let shade = scene::tile_variant(pos, 8, 2);
                     let node = nodes.get(&pos).filter(|n| n.kind == ResourceKind::CopperVein);
-                    let (root, flecks) = models::spawn_rock(&mut commands, &kit, at, yaw, scale, shade, node.is_some());
+                    let (root, flecks) = models::spawn_rock(commands, kit, at, yaw, scale, shade, node.is_some());
                     if let (Some(node), Some(flecks)) = (node, flecks) {
                         let (pick_min, pick_max) = pick_box(map, pos, 0.5, 1.0);
                         let gathering = node_for(node, changes);
-                        show_spent(&mut commands, root, flecks, &gathering);
+                        show_spent(commands, root, flecks, &gathering);
                         commands.entity(root).insert((
                             ResourceNode(gathering),
                             SpentVisual(flecks),
@@ -377,18 +401,18 @@ pub fn build_world(
                     }
                 }
                 Tile::Garden => {
-                    models::spawn_garden_bed(&mut commands, &kit, at, (scene::tile_noise(pos, 11) - 0.5) * 0.12, scene::tile_variant(pos, 12, 3));
+                    models::spawn_garden_bed(commands, kit, at, (scene::tile_noise(pos, 11) - 0.5) * 0.12, scene::tile_variant(pos, 12, 3));
                 }
                 Tile::Vine => {
                     let along_x = scene::vine_runs_along_x(map, pos);
-                    models::spawn_vine_row(&mut commands, &kit, at, along_x, 2 + scene::tile_variant(pos, 13, 3));
+                    models::spawn_vine_row(commands, kit, at, along_x, 2 + scene::tile_variant(pos, 13, 3));
                 }
                 Tile::Fence => {
                     let rails = scene::fence_links(map, pos).rails();
-                    models::spawn_fence(&mut commands, &kit, at, &rails);
+                    models::spawn_fence(commands, kit, at, &rails);
                 }
                 Tile::Sign => {
-                    let post = models::spawn_signpost(&mut commands, &kit, at, (scene::tile_noise(pos, 9) - 0.5) * 0.5);
+                    let post = models::spawn_signpost(commands, kit, at, (scene::tile_noise(pos, 9) - 0.5) * 0.5);
                     if let Some(sign) = signs.get(&pos) {
                         let (pick_min, pick_max) = pick_box(map, pos, 0.4, 1.2);
                         commands.entity(post).insert((
@@ -403,20 +427,20 @@ pub fn build_world(
     }
 
     // Wooden bridges where the path crosses water.
-    for bridge in &bridges {
+    for bridge in bridges.iter().filter(|b| area.contains(b.tile)) {
         let at = vec3(map.tile_center_3d(bridge.tile, 0.0));
-        models::spawn_bridge_tile(&mut commands, &kit, at, bridge.along_x, bridge.first, bridge.last);
+        models::spawn_bridge_tile(commands, kit, at, bridge.along_x, bridge.first, bridge.last);
     }
 
     // Houses: walls (lowered while the player is inside) and a roof (hidden while inside).
-    for (index, house) in level.houses.iter().enumerate() {
-        let (walls, roof) = models::spawn_house(&mut commands, &kit, map, house, scene::tile_variant(house.origin, 14, 2));
-        commands.entity(walls).insert(HouseWalls(index));
-        commands.entity(roof).insert(HouseRoof(index));
+    for house in level.houses.iter().filter(|h| area.contains(h.origin)) {
+        let (walls, roof) = models::spawn_house(commands, kit, map, house, scene::tile_variant(house.origin, 14, 2));
+        commands.entity(walls).insert(HouseWalls(house.id.clone()));
+        commands.entity(roof).insert(HouseRoof(house.id.clone()));
     }
 
     // Moonpetals along the path. They are picked up by clicking them.
-    for (i, tile) in level.moonpetals.iter().copied().enumerate() {
+    for (i, tile) in level.moonpetals.iter().copied().enumerate().filter(|(_, t)| area.contains(*t)) {
         // A petal picked in an earlier session stays picked.
         if changes.is_picked(tile) {
             continue;
@@ -427,7 +451,7 @@ pub fn build_world(
         }
         let at = vec3(map.tile_center_3d(tile, 0.12));
         let (pick_min, pick_max) = pick_box(map, tile, 0.4, 0.7);
-        let flower = models::spawn_moonpetal(&mut commands, &kit, at);
+        let flower = models::spawn_moonpetal(commands, kit, at);
         commands.entity(flower).insert((
             Moonpetal,
             Floaty { base_y: at.y, phase: i as f32 * 2.1 },
@@ -437,7 +461,7 @@ pub fn build_world(
 
     // Herb patches and berry bushes grow on open ground and are used by standing on them.
     // Only valid, listed nodes become clickable; the crop (not the soil or bush) hides when spent.
-    for spawn in level.nodes.iter().filter(|n| matches!(n.kind, ResourceKind::HerbPatch | ResourceKind::BerryBush)) {
+    for spawn in level.nodes.iter().filter(|n| area.contains(n.tile) && matches!(n.kind, ResourceKind::HerbPatch | ResourceKind::BerryBush)) {
         let pos = spawn.tile;
         if !nodes.contains_key(&pos) {
             continue;
@@ -446,18 +470,18 @@ pub fn build_world(
         let yaw = scene::tile_noise(pos, 10) * TAU;
         let (root, crop, height) = match spawn.kind {
             ResourceKind::HerbPatch => {
-                let (root, plants) = models::spawn_herb_patch(&mut commands, &kit, at, yaw);
+                let (root, plants) = models::spawn_herb_patch(commands, kit, at, yaw);
                 (root, plants, 0.5)
             }
             _ => {
-                let (root, berries) = models::spawn_berry_bush(&mut commands, &kit, at, yaw);
+                let (root, berries) = models::spawn_berry_bush(commands, kit, at, yaw);
                 (root, berries, 0.8)
             }
         };
         let (pick_min, pick_max) = pick_box(map, pos, 0.42, height);
         let kind = InteractionKind::Forage;
         let gathering = node_for(spawn, changes);
-        show_spent(&mut commands, root, crop, &gathering);
+        show_spent(commands, root, crop, &gathering);
         commands.entity(root).insert((
             ResourceNode(gathering),
             SpentVisual(crop),
@@ -482,48 +506,48 @@ pub fn build_world(
     };
 
     // The village guide faces the player's starting tile. Only the story level has one.
-    if let Some(guide_tile) = level.guide {
+    if let Some(guide_tile) = level.guide.filter(|t| area.contains(*t)) {
         let guide_at = vec3(map.tile_center_3d(guide_tile, 0.0));
         let toward_start = ozbound::task::facing_yaw(start_at.x - guide_at.x, start_at.z - guide_at.z).unwrap_or(0.0);
-        let guide = models::spawn_humanoid(&mut commands, &kit, &kit.guide, guide_at, toward_start);
+        let guide = models::spawn_humanoid(commands, kit, &kit.guide, guide_at, toward_start);
         let (pick_min, pick_max) = pick_box(map, guide_tile, 0.4, 1.95);
         commands.entity(guide).insert((
             Guide,
             Npc(ozbound::level::GUIDE_ID.to_string()),
             Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: guide_tile, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
         ));
-        portraits.0.insert(ozbound::level::GUIDE_ID.to_string(), portrait_for("guide", &mut images));
+        portraits.0.insert(ozbound::level::GUIDE_ID.to_string(), portrait_for("guide", images));
     }
 
     // The other villagers, each facing the player's starting tile like the guide does.
     // Interactable names are `&'static str`; the few names in the level file are leaked once
     // at startup, which is simpler than threading a lifetime through every system.
-    for npc in &level.npcs {
+    for npc in level.npcs.iter().filter(|n| area.contains(n.tile)) {
         let at = vec3(map.tile_center_3d(npc.tile, 0.0));
         let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
-        let body = models::spawn_humanoid(&mut commands, &kit, kit.look_for(npc.look.key().unwrap_or("traveller")), at, toward);
+        let body = models::spawn_humanoid(commands, kit, kit.look_for(npc.look.key().unwrap_or("traveller")), at, toward);
         let (pick_min, pick_max) = pick_box(map, npc.tile, 0.4, 1.95);
         let name: &'static str = Box::leak(npc.name.clone().into_boxed_str());
         commands.entity(body).insert((
             Npc(npc.id.clone()),
             Interactable { kind: InteractionKind::TalkTo, name, tile: npc.tile, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
         ));
-        portraits.0.insert(npc.id.clone(), portrait_for(npc.look.key().unwrap_or("traveller"), &mut images));
+        portraits.0.insert(npc.id.clone(), portrait_for(npc.look.key().unwrap_or("traveller"), images));
     }
 
     // Named places are marked by a standing stone, so the player can see where to walk to.
-    for place in &level.places {
+    for place in level.places.iter().filter(|p| area.contains(p.tile)) {
         let at = vec3(map.tile_center_3d(place.tile, 0.0));
-        models::spawn_waymark(&mut commands, &kit, at, scene::tile_noise(place.tile, 11) * TAU);
+        models::spawn_waymark(commands, kit, at, scene::tile_noise(place.tile, 11) * TAU);
     }
 
     // Creatures stand on open ground and are approached from beside, never clicked through.
-    for (i, spawn) in level.creatures.iter().enumerate() {
+    for (i, spawn) in level.creatures.iter().enumerate().filter(|(_, c)| area.contains(c.tile)) {
         let Some(creature) = wildlife.bestiary.get(&spawn.id) else { continue };
         let moth = spawn.id == "lantern_moth";
         let at = vec3(map.tile_center_3d(spawn.tile, if moth { 0.8 } else { 0.0 }));
         let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
-        let body = models::spawn_creature(&mut commands, &kit, &spawn.id, at, toward);
+        let body = models::spawn_creature(commands, kit, &spawn.id, at, toward);
         let (pick_min, pick_max) = pick_box(map, spawn.tile, 0.45, if moth { 1.3 } else { 1.6 });
         let name: &'static str = Box::leak(creature.name.clone().into_boxed_str());
         commands.entity(body).insert((
@@ -535,18 +559,72 @@ pub fn build_world(
         }
     }
 
+}
+
+/// Builds the world the player is in: the floor, the player, the camera, and the terrain and
+/// everything on it. Runs at startup and again after every journey that leaves or enters the
+/// overworld (see `travel.rs`, which despawns the previous world first).
+///
+/// On the overworld it works out which chunks are near the player, stitches them into
+/// `Meadow` / `LevelData` (in world coordinates), and spawns each; `streaming::stream_chunks`
+/// keeps that set up to date from then on. Off the overworld (a cave, or when a custom map
+/// replaces Bluebrook) `Meadow` / `LevelData` already hold the one region in its own tiles and
+/// the whole map is spawned.
+pub fn build_world(
+    mut commands: Commands,
+    mut meadow: ResMut<Meadow>,
+    mut level: ResMut<LevelData>,
+    saved: Res<StartingSave>,
+    atlas: Res<Atlas>,
+    current: Res<CurrentRegion>,
+    mut streaming: ResMut<Streaming>,
+    mut memory: ResMut<ChunkMemory>,
+    wildlife: Res<Wildlife>,
+    kit: Res<Kit>,
+    mut portraits: ResMut<Portraits>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+) {
+    let overworld = atlas.overworld.as_ref().filter(|o| o.chunk(&current.0).is_some());
+    let player_tile = if let Some(overworld) = overworld {
+        // The save's tile and changes belong to the region the player is in (its own tiles).
+        let tile = overworld.to_world(&current.0, saved.0.player).expect("the current region is a chunk");
+        memory.0.entry(current.0.clone()).or_insert_with(|| overworld.changes_to_world(&current.0, &saved.0.changes));
+        let loaded = overworld.wanted(tile, &[]);
+        let composite = overworld.compose(&|id| atlas.level(id), &loaded);
+        for id in &loaded {
+            let chunk = overworld.chunk(id).expect("wanted chunks exist");
+            let none = WorldChanges::none();
+            spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, &mut portraits, &mut images);
+        }
+        meadow.0 = composite.map;
+        level.0 = composite.level;
+        streaming.loaded = loaded;
+        streaming.interior = false;
+        tile
+    } else {
+        streaming.loaded.clear();
+        streaming.interior = true;
+        spawn_area(&mut commands, &kit, &meadow.0, &level.0, Area::of_map(&meadow.0), &saved.0.changes, &wildlife, &mut portraits, &mut images);
+        saved.0.player
+    };
+    let map = &meadow.0;
+
     // The player stands where the save left them (the level's start in a new game).
-    let player_tile = saved.0.player;
     let player_at = vec3(map.tile_center_3d(player_tile, 0.0));
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, player_at, 0.0);
     commands.entity(player).insert(Player { tile: player_tile, task: Task::idle(), work: None, emote: None });
 
-    // A wide dark floor under the meadow so the map edge doesn't float in the sky colour.
+    // A wide dark floor under the world so the map edge doesn't float in the sky colour.
+    let floor = (map.width().max(map.height()) as f32 + 160.0).max(240.0);
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(240.0, 240.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(floor, floor))),
         MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.16, 0.30, 0.20), perceptual_roughness: 1.0, ..default() })),
         Transform::from_xyz(0.0, -0.55, 0.0),
         NotShadowCaster,
+        WorldFloor,
     ));
 
     // The follow camera starts south of the player looking north; `Rig` keeps it following.
@@ -556,4 +634,3 @@ pub fn build_world(
     }
     commands.insert_resource(rig);
 }
-

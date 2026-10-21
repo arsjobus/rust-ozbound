@@ -333,20 +333,24 @@ pub struct AmbientSound;
 #[derive(Component)]
 pub struct RegionEntity;
 
-/// The walls of a house (lowered while the player is inside); `0` indexes `Level::houses`.
+/// The walls of a house (lowered while the player is inside); `0` is the house's id. Houses are
+/// found by id, not by position in a list, because the list changes as chunks load and unload.
 #[derive(Component)]
-pub struct HouseWalls(pub usize);
+pub struct HouseWalls(pub String);
 
-/// The roof of a house (hidden while the player is inside); `0` indexes `Level::houses`.
+/// The roof of a house (hidden while the player is inside); `0` is the house's id.
 #[derive(Component)]
-pub struct HouseRoof(pub usize);
+pub struct HouseRoof(pub String);
 
-/// Every playable region's level, so travelling can switch maps. `LevelData` and `Meadow`
-/// always hold the region the player is in; this keeps the others.
+/// Every playable region's level, in the region's own tile coordinates, plus how the regions
+/// are placed in the open world. `LevelData` and `Meadow` hold what is loaded right now (in
+/// world coordinates while on the overworld); this keeps the originals.
 #[derive(Resource)]
 pub struct Atlas {
     pub locations: ozbound::locations::Locations,
     pub levels: Vec<(String, Level)>,
+    /// `None` when a custom starting map replaces Bluebrook: regions are then separate places.
+    pub overworld: Option<ozbound::overworld::Overworld>,
 }
 
 impl Atlas {
@@ -367,10 +371,42 @@ pub struct TravelOrder(pub Option<ozbound::level::ExitSpawn>);
 #[derive(Resource)]
 pub struct RebuildWorld;
 
-/// The looping background music of the current region.
+/// Marks everything a loaded overworld chunk put into the world (terrain, props, people).
+/// `stream_chunks` despawns it when the chunk is dropped; the id is the chunk's location id.
 #[derive(Component)]
-pub struct BgmSound;
+pub struct ChunkEntity(pub String);
 
-/// The region whose music is playing (or was last started).
+/// The wide floor under the world (rebuilt with the world, not part of any chunk).
+#[derive(Component)]
+pub struct WorldFloor;
+
+/// Which chunks are loaded, and whether the player is on the overworld at all.
 #[derive(Resource, Default)]
-pub struct BgmState(pub Option<String>);
+pub struct Streaming {
+    /// Location ids of the chunks that are spawned right now.
+    pub loaded: Vec<String>,
+    /// True inside a place off the overworld (a cave): `Meadow` and `LevelData` then hold that
+    /// one region in its own coordinates and nothing streams.
+    pub interior: bool,
+}
+
+/// What the player has changed in chunks that are not loaded right now (picked moonpetals,
+/// used trees), in world tiles. A chunk's entry is applied when it loads again, so walking
+/// away and back keeps the world as it was left (until the game is closed: only the chunk the
+/// player stands in is written to the save, see `ozbound::save`).
+#[derive(Resource, Default)]
+pub struct ChunkMemory(pub HashMap<String, ozbound::save::WorldChanges>);
+
+/// One playing background track of a zone. The volume is `settings * gain`, set every frame.
+#[derive(Component)]
+pub struct BgmVoice(pub ozbound::overworld::TrackSpec);
+
+/// The zone music: the crossfading mixer, the zone the player was last in, and the loaded track
+/// files (read when a chunk that has the zone loads, dropped when no loaded chunk needs them).
+#[derive(Resource, Default)]
+pub struct Soundscape {
+    pub mixer: Option<ozbound::soundscape::Mixer<ozbound::overworld::TrackSpec>>,
+    /// The id of the zone (or, off the overworld, the region) the player is in.
+    pub zone: Option<String>,
+    pub tracks: HashMap<ozbound::overworld::TrackSpec, Option<Handle<AudioSource>>>,
+}

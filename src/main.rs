@@ -16,6 +16,7 @@ mod menu;
 mod models;
 mod movement;
 mod music_ui;
+mod streaming;
 mod pack_ui;
 mod pause_ui;
 mod persist;
@@ -37,7 +38,7 @@ use ozbound::{
 };
 
 use components::{
-    Atlas, BgmState, CurrentRegion, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
+    Atlas, ChunkMemory, CurrentRegion, Soundscape, Streaming, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
     SettingsStore, StartingSave, TalkPortrait, TalkState, UserSettings, Wildlife,
 };
 use pause_ui::running;
@@ -162,7 +163,7 @@ fn main() {
     let region_id = game.region.clone().unwrap_or_else(|| start_id.clone());
     let mut levels = vec![(start_id, world.level.clone())];
     levels.extend(world.regions.iter().cloned());
-    let atlas = Atlas { locations: world.locations.clone(), levels };
+    let atlas = Atlas { locations: world.locations.clone(), levels, overworld: world.overworld.clone() };
     let Bluebrook { content, bestiary, recipes, .. } = world;
     let level = atlas.level(&region_id).expect("restore_game only accepts playable regions").clone();
     App::new()
@@ -212,19 +213,22 @@ fn main() {
         .insert_resource(atlas)
         .insert_resource(CurrentRegion(region_id))
         .insert_resource(TravelOrder::default())
-        .insert_resource(BgmState::default())
+        .insert_resource(Streaming::default())
+        .insert_resource(ChunkMemory::default())
+        .insert_resource(Soundscape::default())
         .add_systems(Startup, ((setup::setup_shell, setup::build_world).chain(), chat_ui::spawn_chat_panel))
         .add_systems(Last, (persist::save_on_exit, settings_ui::report_on_exit))
         .add_systems(
             Update,
             (
-                // Journeys between regions: leave, rebuild, tag what was built, then the
-                // per-frame world tweaks that depend on where the player is.
+                // Journeys off the overworld, then chunk streaming, tagging what was built, and the
+                // per-frame world tweaks that depend on where the player is (roofs, zone music).
                 (
                     travel::apply_travel,
                     setup::build_world.run_if(resource_exists::<components::RebuildWorld>),
                     travel::finish_rebuild,
-                    travel::tag_region_entities,
+                    streaming::stream_chunks,
+                    streaming::tag_world_entities,
                     travel::house_cutaways,
                     music_ui::sync_music,
                 )

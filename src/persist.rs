@@ -23,7 +23,9 @@ const SAVE_INTERVAL: f32 = 1.0;
 /// has been picked or used up in the world.
 fn current_game(
     level: &Level,
-    region: Option<String>,
+    atlas: &Atlas,
+    streaming: &Streaming,
+    region: &CurrentRegion,
     progress: &GameProgress,
     wildlife: &Wildlife,
     players: &Query<&Player>,
@@ -31,24 +33,29 @@ fn current_game(
     nodes: &Query<(&ResourceNode, &Interactable)>,
 ) -> Option<SaveGame> {
     let player = players.get_single().ok()?;
-    let mut game = SaveGame::new_game(level);
-    game.region = region;
-    game.player = player.tile;
+    let petals_left: Vec<TilePos> = petals.iter().map(|petal| petal.tile).collect();
+    let node_state: Vec<(TilePos, u32)> = nodes.iter().map(|(node, at)| (at.tile, node.0.remaining_actions())).collect();
+    // On the overworld the world holds several chunks in world tiles; the save describes the one
+    // the player stands in, in that region's own tiles, which is what a restart loads.
+    let (region_id, local_level, tile, changes) = match atlas.overworld.as_ref().filter(|_| !streaming.interior) {
+        Some(overworld) => {
+            let chunk = overworld.chunk_at(player.tile)?;
+            let local_level = atlas.level(&chunk.id)?;
+            let in_world = overworld.capture_changes(&chunk.id, local_level, &petals_left, &node_state);
+            (chunk.id.clone(), local_level, chunk.to_local(player.tile)?, overworld.changes_to_local(&chunk.id, &in_world))
+        }
+        None => (region.0.clone(), level, player.tile, WorldChanges::capture(level, &petals_left, &node_state)),
+    };
+    let mut game = SaveGame::new_game(local_level);
+    game.region = (region_id != atlas.locations.start().id).then_some(region_id);
+    game.player = tile;
     game.bag = progress.inventory.clone();
     game.equipment = progress.equipment.clone();
     game.skills = progress.skills.clone();
     game.quests = progress.log.clone();
     game.notes = wildlife.notes.clone();
-    let petals_left: Vec<TilePos> = petals.iter().map(|petal| petal.tile).collect();
-    let node_state: Vec<(TilePos, u32)> = nodes.iter().map(|(node, at)| (at.tile, node.0.remaining_actions())).collect();
-    game.changes = WorldChanges::capture(level, &petals_left, &node_state);
+    game.changes = changes;
     Some(game)
-}
-
-/// The region to write into the save: `None` for the starting region, which keeps the file
-/// identical to what version 1 wrote.
-fn saved_region(region: &CurrentRegion, atlas: &Atlas) -> Option<String> {
-    (region.0 != atlas.locations.start().id).then(|| region.0.clone())
 }
 
 /// Writes `game` if it differs from what is on disk.
@@ -71,6 +78,7 @@ pub fn persist_game(
     level: Res<LevelData>,
     region: Res<CurrentRegion>,
     atlas: Res<Atlas>,
+    streaming: Res<Streaming>,
     mut progress: ResMut<GameProgress>,
     wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
@@ -86,7 +94,7 @@ pub fn persist_game(
         return;
     }
     save.idle = 0.0;
-    if let Some(game) = current_game(&level.0, saved_region(&region, &atlas), &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &progress, &wildlife, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }
@@ -98,6 +106,7 @@ pub fn save_on_exit(
     level: Res<LevelData>,
     region: Res<CurrentRegion>,
     atlas: Res<Atlas>,
+    streaming: Res<Streaming>,
     mut progress: ResMut<GameProgress>,
     wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
@@ -108,7 +117,7 @@ pub fn save_on_exit(
     if exits.read().next().is_none() || !save.enabled {
         return;
     }
-    if let Some(game) = current_game(&level.0, saved_region(&region, &atlas), &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &progress, &wildlife, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }

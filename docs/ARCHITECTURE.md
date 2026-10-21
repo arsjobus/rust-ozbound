@@ -7,8 +7,9 @@ src/
 ├── main.rs          # Bevy app wiring and system order (binary crate)
 ├── setup.rs         # Startup: terrain, props, characters, lights, camera, HUD
 ├── models.rs        # Original low-poly models built from primitives (trees, thickets, houses, bridges, gardens, vines, people)
-├── travel.rs        # Journeys between regions, region entity tagging, house roof/wall cutaway
-├── music_ui.rs      # Plays the current region's music and swaps it when travelling
+├── streaming.rs     # Loads/unloads overworld chunks around the player, tags what each chunk spawned
+├── travel.rs        # Journeys off the overworld (caves), house roof/wall cutaway
+├── music_ui.rs      # Plays zone music: one looping voice per audible track, volumes from the mixer
 ├── components.rs    # Bevy components and resources
 ├── pointer.rs       # INPUT: hover label, left-click walk/interact, click markers
 ├── movement.rs      # MOVEMENT: glides the player along the planned route
@@ -42,6 +43,8 @@ src/
 ├── respawn.rs       # One-shot countdown for respawning nodes
 ├── level.rs         # Level data file parser/validator: map, player, guide (optional), moonpetals, nodes, signs, npcs, places, creatures, houses, plots, exits
 ├── homestead.rs     # Walk-in houses and plots: stamping, doorway and plot rules (pure)
+├── overworld.rs     # The open world: chunks placed in one coordinate frame, zones, streaming rules, composing the loaded map (pure)
+├── soundscape.rs    # Crossfading music mixer for zone changes (pure)
 ├── locations.rs     # The location register (assets/world/locations.world), exit checks across regions (pure)
 ├── music.rs         # Picks a region's track from the bgm folder, or a built-in theme generated in code (pure)
 ├── village.rs       # Loads level + quests + dialogue + bestiary + recipes together and cross-checks them

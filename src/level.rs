@@ -1684,8 +1684,9 @@ copper 1 1 2 1
         };
         assert!(count(Tile::Garden) >= 5, "gardens");
         assert!(count(Tile::Vine) >= 5, "a vineyard");
-        assert_eq!(level.exits.len(), 1);
-        assert_eq!(level.exits[0].region, "YELLOW_BRICK_ROAD_EAST");
+        assert!(level.exits.is_empty(), "the road east is joined by walking: the overworld places it against the east edge");
+        let east = TilePos::new(level.map.width() as i32 - 1, 9);
+        assert!(level.map.can_walk_to(east) && level.map.is_reachable(level.player_start, east), "the road runs off the east edge");
         // The apothecary now keeps shop inside her house.
         let pell = level.npcs.iter().find(|n| n.id == "apothecary").expect("Mistress Pell");
         assert!(level.house_at(pell.tile).is_some(), "Pell stands inside her house");
@@ -1699,9 +1700,9 @@ copper 1 1 2 1
     fn the_shipped_road_region_is_a_region_with_a_wooden_bridge_and_a_way_back() {
         let level = Level::parse(crate::village::BUILTIN_REGION_MAPS[0].1).unwrap();
         assert!(!level.is_story_level());
-        assert_eq!(level.exits.len(), 1);
-        assert_eq!(level.exits[0].region, "MUNCHKIN_LANDS");
+        assert!(level.exits.is_empty(), "the road is joined to Bluebrook by walking, not by an exit");
+        let west = TilePos::new(0, 9);
+        assert!(level.map.can_walk_to(west) && level.map.is_reachable(level.player_start, west), "the road runs off the west edge");
         assert!(!level.houses.is_empty() && !level.plots.is_empty());
-        assert!(level.map.is_reachable(level.player_start, level.exits[0].tile));
     }
 }

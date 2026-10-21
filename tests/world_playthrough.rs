@@ -62,33 +62,32 @@ fn people_can_be_visited_inside_their_houses() {
 }
 
 #[test]
-fn a_journey_east_across_the_bridge_and_back_again() {
+fn a_journey_east_across_the_bridge_and_back_again_without_a_scene_change() {
     let world = world();
-    let village = &world.level;
+    let overworld = world.overworld.as_ref().expect("the shipped world is an open world");
+    let village = world.level_of("MUNCHKIN_LANDS").unwrap();
     let road = world.level_of("YELLOW_BRICK_ROAD_EAST").unwrap();
-
-    // Walk from the village start to its east exit; that exit says where it arrives.
-    let exit = village.exits.iter().find(|e| e.region == "YELLOW_BRICK_ROAD_EAST").expect("an exit east");
-    let there = walk(village, village.player_start, exit.tile);
-    assert_eq!(*there.last().unwrap(), exit.tile);
+    assert!(village.exits.is_empty() && road.exits.is_empty(), "no exit tile stands between the village and the road");
     assert!(world.locations.can_travel("MUNCHKIN_LANDS", "YELLOW_BRICK_ROAD_EAST"));
-    let arrival = exit.arrive;
-    assert!(road.map.can_walk_to(arrival));
-    assert!(road.exit_at(arrival).is_none(), "arriving does not send you straight back");
 
-    // On the road the way east crosses a river on a bridge; the way west returns home.
-    let bridges = scene::bridge_tiles(&road.map);
+    // Both chunks stitched into one map: one continuous route from the village start to the far bank.
+    let both = ["MUNCHKIN_LANDS", "YELLOW_BRICK_ROAD_EAST"];
+    let composite = overworld.compose(&|id: &str| world.level_of(id), &both);
+    let origin = overworld.chunk("YELLOW_BRICK_ROAD_EAST").unwrap().origin;
+    let bridges: Vec<_> = scene::bridge_tiles(&road.map).into_iter().map(|b| TilePos::new(b.tile.x + origin.x, b.tile.y + origin.y)).collect();
     assert!(bridges.len() >= 3, "a proper bridge");
-    let far_bank = TilePos::new(bridges.last().unwrap().tile.x + 2, bridges[0].tile.y);
-    let across = walk(road, arrival, far_bank);
+    let far_bank = TilePos::new(bridges.last().unwrap().x + 2, bridges[0].y);
+    let across = walk(&composite.level, composite.level.player_start, far_bank);
     for b in &bridges {
-        assert!(across.contains(&b.tile), "the crossing goes over {:?}", b.tile);
+        assert!(across.contains(b), "the crossing goes over {b:?}");
     }
-    let back = road.exits.iter().find(|e| e.region == "MUNCHKIN_LANDS").expect("an exit west");
-    let home = walk(road, far_bank, back.tile);
-    assert_eq!(*home.last().unwrap(), back.tile);
-    assert!(village.map.can_walk_to(back.arrive));
-    assert!(village.exit_at(back.arrive).is_none());
+    assert!(across.iter().all(|t| composite.level.exit_at(*t).is_none()), "no tile on the way sends you anywhere");
+    let seam = TilePos::new(origin.x, 9);
+    assert!(across.contains(&seam) && across.contains(&TilePos::new(origin.x - 1, 9)), "the route runs straight over the border");
+
+    // And back again.
+    let home = walk(&composite.level, far_bank, composite.level.player_start);
+    assert_eq!(*home.last().unwrap(), composite.level.player_start);
 }
 
 #[test]
@@ -160,7 +159,8 @@ fn a_file_in_the_bgm_folder_replaces_the_builtin_theme() {
     let dir = scratch_dir();
     let location = world.locations.start();
     let name = location.music.clone().expect("the start region names a track");
-    std::fs::write(dir.join(&name), b"OggS\0\x02pretend this is vorbis").unwrap();
+    let bytes: &[u8] = if name.ends_with(".mp3") { b"\0\0\0\x18ftypisom\0\0\0\0isomiso2" } else { b"OggS\0\x02pretend this is vorbis" };
+    std::fs::write(dir.join(&name), bytes).unwrap();
     let choice = music::choose(&dir, Some(&name), location.theme.as_deref());
     assert!(matches!(choice.track, Track::File { .. }), "{}", choice.track.label());
     assert_eq!(choice.note, None);

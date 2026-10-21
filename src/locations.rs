@@ -545,7 +545,7 @@ summary = Not built yet.
             ("map = home.map", "map = maps/home.map", "plain file name"),
             ("map = home.map", "map = home.txt", "plain file name"),
             ("map = home.map", "map = ../home.map", "plain file name"),
-            ("music = home.ogg", "music = home.mp3", "must be a plain file name"),
+            ("music = home.ogg", "music = home.mp4", "must be a plain file name"),
             ("music = home.ogg", "music = dir/home.ogg", "must be a plain file name"),
             ("theme = village", "theme = polka", "unknown theme"),
             ("start = yes", "start = maybe", "yes or no"),

@@ -30,7 +30,7 @@ pub fn apply_settings(
     mut progress: ResMut<GameProgress>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut ui_scale: ResMut<UiScale>,
-    sinks: Query<&AudioSink, Or<(With<AmbientSound>, With<BgmSound>)>>,
+    sinks: Query<&AudioSink, With<AmbientSound>>,
     mut overlays: Query<&mut Visibility, With<PerfHud>>,
 ) {
     // Text size, limited by the window (checked every frame so resizing is handled too).
@@ -40,6 +40,8 @@ pub fn apply_settings(
             ui_scale.0 = scale;
         }
     }
+    // The wind and birdsong follow the setting directly; the zone music applies it together with
+    // each track's fade (`music_ui::sync_music`).
     let gain = settings.0.ambient_gain();
     for sink in &sinks {
         if (sink.volume() - gain).abs() > 1.0e-4 {

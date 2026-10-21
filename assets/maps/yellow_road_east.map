@@ -4,7 +4,8 @@
 ; bluebrook.map for the full format). Registered in assets/world/locations.world as
 ; YELLOW_BRICK_ROAD_EAST. The road runs west to east at y = 9, crosses a river on a wooden
 ; bridge (x = 21-23), and passes a waystation with a house, a garden, and two vineyard rows.
-; Its west end (x = 1) returns to Bluebrook; the east end is not open yet.
+; Its west edge (x = 0, y = 9) is where the path joins Bluebrook's east edge in the overworld, so
+; the road is walked straight on from the village; the east end is not open yet.
 
 [map]
 ; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'S' signpost, 'g' garden bed, 'v' vineyard row.
@@ -18,7 +19,7 @@ T....................~~~....v.......v..........T
 T....................~~~....v.......v..........T
 T....................~~~....v.......v..........T
 T..S...............S.~~~.....................S.T
-T==============================================T
+===============================================T
 T....................~~~.......................T
 T....................~~~.......................T
 T....................~~~.......................T
@@ -55,6 +56,3 @@ waystation 30 11 5 3 south The Wayfarer's Rest
 
 [plots]
 waystation_plot 28 10 9 5 The Wayfarer's Plot
-
-[exits]
-1 9 MUNCHKIN_LANDS 37 9 Back to Bluebrook

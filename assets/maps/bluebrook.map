@@ -17,12 +17,15 @@
 ; [houses]    id x y width height door_side Name (door_side: north, south, east, west; x y is the
 ;             south-west corner; walls, doorway and floor are stamped over open grass or path)
 ; [plots]     id x y width height Name           (a plot holds whole houses and a garden or vineyard)
-; [exits]     x y LOCATION_ID arrive_x arrive_y Label   (stepping on x y travels to that region)
+; [exits]     x y LOCATION_ID arrive_x arrive_y Label   (stepping on x y travels to that region; only for
+;             places off the overworld, such as caves. Regions placed in assets/world/overworld.world
+;             join by walking: their paths simply meet at the shared border)
 ;
 ; Geography: a meadow in the south-west, a river at x = 20-21 crossed by the wooden bridge
 ; on the main road (y = 9), the village of Bluebrook east of the river (three plots, each with
-; a house and a garden or vineyard), and a forest along the north edge. The road leaves the
-; map at its east end (x = 38, y = 9) for the Yellow Brick Road.
+; a house and a garden or vineyard), and a forest along the north edge. The road runs on through
+; the map's east edge (x = 39, y = 9) and continues as the Yellow Brick Road: the next region
+; is placed against that edge in the overworld, so the walk never stops for a loading screen.
 
 [map]
 ; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost,
@@ -42,7 +45,7 @@ T.........~~~.......~~........=........T
 T...................~~........=........T
 T...................~~........=........T
 T....S..............~~.......S=........T
-T======================================T
+T=======================================
 T..................S~~........=...vvvv.T
 T...................~~........=...vvvv.T
 T...................~~........=........T
@@ -119,7 +122,3 @@ ivo_house 33 11 5 4 west Ivo's Surveying Office
 pell_plot 23 10 7 7 Pell's Physic Garden
 brae_plot 32 1 7 8 Brae's Vineyard
 ivo_plot 31 10 8 7 Ivo's Kitchen Garden
-
-[exits]
-; x y DESTINATION arrive_x arrive_y label
-38 9 YELLOW_BRICK_ROAD_EAST 2 9 The Yellow Brick Road, east
