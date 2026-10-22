@@ -265,14 +265,12 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: tests pass (`cargo test`: 773 unit tests in the library plus the integration tests, nine of them new in `tests/npc_playthrough.rs`).
   - Limits, stated plainly: nothing was run in a window, so how the strolling, turning, and waving look, how a villager walks past the player, and whether stride speed (1.7 tiles per second) feels right are unchecked by eye; run section 10 of `docs/SMOKE_TEST.md`. NPC tiles still do not block the player (as before), so the player can walk through a villager; villagers only avoid stepping onto the player. Villagers' positions are not saved: a chunk that streams back in puts them on their home tile again, and a village in a chunk the player has left is frozen (only loaded chunks think). Wanderers roam within their own chunk (a range that crosses a chunk edge is cut off by that chunk's map). A stationary NPC keeps facing the player after a conversation instead of turning back.
 
-## M11 - WebGL Build
-- [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
-
-## M12 - Fixing Saving
+## M12 - Fixing Saving & Use ECS & Networking / Online Capability
 - [ ] Saving is no longer working and needs to persist the player's progress once again
+- [ ] Sweep through and identify game objects that should use ECS and make them use ECS that Bevy claims to have available.
+- [ ] Should design this system in such a way that the game world and assets could be networked for multiplayer
 
 ## M13 - Editor Mode and Basic Adjustments
-- [ ] Should design this system in such a way that the game world and assets could be networked for multiplayer
 - [ ] Should be able to enter world edit mode with the /edit command
 - [ ] Should convert in game objects and NPCs to some standalone reusable asset files
 - [ ] Should convert the low-poly terrain into a stitchable terrain mesh that belongs to a scene
@@ -280,7 +278,10 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [ ] Should be able to select and choose to remove an asset from a scene
 - [ ] Should be able to undo / redo each edit
 
-## M14 — Optional future directions (not committed)
+## M14 - WebGL Build
+- [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
+
+## M15 — Optional future directions (not committed)
 - [ ] Consider controller support.
 - [ ] Consider a larger world split into local map regions.
 - [ ] Evaluate multiplayer only if there is a compelling reason; do not make it a prerequisite.
