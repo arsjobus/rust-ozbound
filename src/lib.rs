@@ -1,5 +1,6 @@
 pub mod ambient;
 pub mod appearance;
+pub mod behavior;
 pub mod bestiary;
 pub mod chat;
 pub mod content;
@@ -18,6 +19,7 @@ pub mod locations;
 pub mod orbit;
 pub mod overworld;
 pub mod music;
+pub mod npc;
 pub mod pack;
 pub mod pathfinding;
 pub mod picking;

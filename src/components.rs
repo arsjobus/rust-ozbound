@@ -96,6 +96,26 @@ pub struct StartingSave(pub SaveGame);
 #[derive(Component)]
 pub struct Npc(pub String);
 
+/// An NPC's mind (see `ozbound::npc`): decides when it walks, rests, gestures, and turns.
+#[derive(Component)]
+pub struct NpcBrain(pub ozbound::npc::Brain);
+
+/// An NPC's body: where it is gliding to, which way it wants to face, and the emote it plays.
+/// Only `npc_ui` writes it; `animation::animate_limbs` reads it to pose the limbs.
+#[derive(Component, Default)]
+pub struct NpcBody {
+    /// The point (world space) the body is gliding toward, if it is walking.
+    pub glide: Option<Vec3>,
+    /// The direction (yaw) to turn toward when standing still.
+    pub face_yaw: Option<f32>,
+    pub emote: Option<ActiveEmote>,
+}
+
+/// Who the open conversation is with (`None` for a sign or when nothing is open). Set when the
+/// player reaches an NPC; `npc_ui` clears it once the conversation is closed.
+#[derive(Resource, Default)]
+pub struct TalkPartner(pub Option<Entity>);
+
 /// Which bestiary entry a creature in the world is (`id` from `[creatures]`).
 #[derive(Component)]
 pub struct Creature(pub String);

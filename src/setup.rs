@@ -17,6 +17,7 @@ use ozbound::{
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
     interaction::InteractionKind,
     level::{NodeSpawn, SignSpawn},
+    npc::{seed_from, Brain},
     respawn::RespawnTimer,
     save::WorldChanges,
     scene,
@@ -513,6 +514,8 @@ pub fn spawn_area(
         let (pick_min, pick_max) = pick_box(map, guide_tile, 0.4, 1.95);
         commands.entity(guide).insert((
             Guide,
+            NpcBrain(Brain::new(level.behavior_of(ozbound::level::GUIDE_ID), guide_tile, seed_from(ozbound::level::GUIDE_ID))),
+            NpcBody::default(),
             Npc(ozbound::level::GUIDE_ID.to_string()),
             Interactable { kind: InteractionKind::TalkTo, name: "Village Guide", tile: guide_tile, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
         ));
@@ -529,6 +532,8 @@ pub fn spawn_area(
         let (pick_min, pick_max) = pick_box(map, npc.tile, 0.4, 1.95);
         let name: &'static str = Box::leak(npc.name.clone().into_boxed_str());
         commands.entity(body).insert((
+            NpcBrain(Brain::new(level.behavior_of(&npc.id), npc.tile, seed_from(&npc.id))),
+            NpcBody::default(),
             Npc(npc.id.clone()),
             Interactable { kind: InteractionKind::TalkTo, name, tile: npc.tile, approach: InteractionKind::TalkTo.approach(), pick_min, pick_max },
         ));

@@ -68,6 +68,7 @@ pub fn interact(
     content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
     mut talk: ResMut<TalkState>,
+    mut partner: ResMut<TalkPartner>,
     portraits: Res<Portraits>,
     mut portrait: ResMut<TalkPortrait>,
     mut wildlife: ResMut<Wildlife>,
@@ -98,6 +99,8 @@ pub fn interact(
                                     progress.notice = messages.join(" ");
                                 }
                                 talk.0 = Some(opened);
+                                // The NPC stops, faces the player, and waves when this closes (`npc_ui`).
+                                partner.0 = npc.map(|_| target);
                                 portrait.0 = npc.and_then(|n| portraits.0.get(&n.0).cloned());
                             }
                             Err(message) => progress.notice = message,
@@ -108,6 +111,7 @@ pub fn interact(
                             // The sign opens in the dialogue panel; the chat keeps a record.
                             progress.notice = format!("The signpost reads: \"{}\"", text.0);
                             talk.0 = Some(Talk::reading("Signpost", &text.0));
+                            partner.0 = None;
                             portrait.0 = None;
                         }
                         None => progress.notice = "The signpost is too weathered to read.".into(),

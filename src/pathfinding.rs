@@ -28,7 +28,7 @@ pub fn is_orthogonally_adjacent(a: TilePos, b: TilePos) -> bool {
 
 /// True when moving by `(dx, dy)` from `from` is allowed: the destination is walkable and,
 /// for diagonals, both orthogonal neighbours are walkable too (no corner cutting).
-fn step_allowed(map: &WorldMap, from: TilePos, dx: i32, dy: i32) -> bool {
+pub fn step_allowed(map: &WorldMap, from: TilePos, dx: i32, dy: i32) -> bool {
     if !map.can_walk_to(TilePos::new(from.x + dx, from.y + dy)) {
         return false;
     }

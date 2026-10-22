@@ -86,3 +86,15 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Walk back west to the road's west end: you return to Bluebrook beside its east end, not on the exit tile.
 - [ ] Quit while on the road and restart: you are on the road where you left off. Delete saves/game.txt and restart: you start in Bluebrook.
 - [ ] Music: the village and the road play different tunes. Drop an ogg, wav, or mp3 file into `assets/bgm/` under the name the zone asks for (the start village asks for `bluebrook.mp3`; see `assets/world/overworld.world`), restart: it plays instead. A text file renamed `bluebrook.ogg` is refused with a console note and the built-in theme plays. Turning ambient sound off (pause menu) silences the music too.
+
+## 10. Villagers walk and talk (M10)
+
+- [ ] Wait a minute near the village: Mistress Pell, Brae, and Ivo stroll around their homes (Pell a little, Ivo the most), pause, and stroll again. Tamsin by the bridge and the guide never leave their tiles. Nobody walks into water, trees, walls, plants, waymarks, the creatures, a doorway, or onto you.
+- [ ] Watch Brae, Ivo, Tamsin, and the guide for a few minutes: now and then one waves, dances, or cheers (Brae cheers, Ivo and Tamsin dance, the guide and Tamsin wave), with the same easing and hops as your own emotes, and then goes back to what they were doing. Pell never gestures.
+- [ ] Click a villager who is strolling: they finish their step, stop, and you walk up beside them; the conversation opens. They never wander off while you walk over, and the quest tracker/dialogue behave as before.
+- [ ] During a conversation the villager stands still and turns to face you (move the camera around to check). Pick "goodbye", then repeat with Esc, and again by walking away: each time the villager turns to you, waves once, and the chat says `<name> waves goodbye.`
+- [ ] After the wave they rest a moment and carry on with their day. Click a villager and then click the ground somewhere else before arriving: they just carry on, with no wave.
+- [ ] Read a signpost: nobody waves.
+- [ ] Walk so that a wandering villager is in your way: they stop short of your tile (you can still walk through them as before). Right-click a villager while they are moving: the menu opens for them, and Talk to still walks you to where they stop.
+- [ ] Hover over a moving villager: the "Talk to ..." label follows their body, not the tile they left.
+- [ ] Walk east across the chunk border and come back: the villagers are back on their home tiles (they are not saved) and carry on.

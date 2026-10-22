@@ -14,7 +14,8 @@ src/
 ├── pointer.rs       # INPUT: hover label, left-click walk/interact, click markers
 ├── movement.rs      # MOVEMENT: glides the player along the planned route
 ├── interact.rs      # WORLD INTERACTION: talk/read/pick/gather on arrival, node respawn
-├── animation.rs     # Visual-only: limb swings, emote poses, floating collectables
+├── animation.rs     # Visual-only: limb swings, emote poses (player and NPCs), floating collectables
+├── npc_ui.rs        # NPC glue: senses in, brain intent out; glides, turns, and poses villagers; keeps their click boxes with their bodies
 ├── camera_rig.rs    # Orbit camera that follows the player
 ├── menu.rs          # INPUT + UI: right-click menu open/choose, draws the panel
 ├── hud.rs           # UI: quest tracker, hover label, toolbar, and the paged side panels (B bag, K skills, J quest book)
@@ -35,13 +36,15 @@ src/
 ├── crafting.rs      # Recipes (parsed/validated), all-or-nothing crafting, recipe file loading
 ├── pack.rs          # Crafting-and-gear panel as data: rows, applying a row, bag/equipment lines
 ├── chat.rs          # Chat log, text-entry box, slash commands (pure)
-├── emote.rs         # Emotes: commands, durations, limb poses over time (pure; NPCs will reuse it)
+├── emote.rs         # Emotes: commands, durations, limb poses over time, chat lines (pure; the player and NPCs share it)
+├── behavior.rs      # Generic behavior-tree engine: sequence, selector, not, always, leaves run by a host (pure)
+├── npc.rs           # NPC behavior config (`[behaviors]`), the shared NPC tree and per-NPC `Brain`, wander planning, seeded RNG (pure)
 ├── side_panel.rs    # Which side panel is open; the bag and skills panel text (pure)
 ├── skills.rs        # Skills, XP curve, level requirements, XP sources, reachability check
 ├── gathering.rs     # Resource nodes, gather transaction, placement, keep-going rule
 ├── context_menu.rs  # Menu rows, placement on screen, row hit-testing
 ├── respawn.rs       # One-shot countdown for respawning nodes
-├── level.rs         # Level data file parser/validator: map, player, guide (optional), moonpetals, nodes, signs, npcs, places, creatures, houses, plots, exits
+├── level.rs         # Level data file parser/validator: map, player, guide (optional), moonpetals, nodes, signs, npcs, behaviors, places, creatures, houses, plots, exits
 ├── homestead.rs     # Walk-in houses and plots: stamping, doorway and plot rules (pure)
 ├── overworld.rs     # The open world: chunks placed in one coordinate frame, zones, streaming rules, composing the loaded map (pure)
 ├── soundscape.rs    # Crossfading music mixer for zone changes (pure)
@@ -117,6 +120,9 @@ src/
 - Nothing clips: `text_fit` owns each panel's width, padding, offset, and font sizes (`DIALOGUE_PANEL`, `PACK_PANEL`, `DOCK_PANEL`, `PAUSE_PANEL`), and the Bevy layer builds the panels from those constants and gives them text already wrapped to their inner width. Bevy's default font is monospaced, so the character counts are exact enough to estimate heights; `tests/accessibility_playthrough.rs` checks every shipped dialogue step, the crafting panel with a full bag, every pause page, and the journal against the smallest logical window (`MIN_LOGICAL`, 680 x 520, which an 800 x 600 window always provides at normal text size; larger sizes are scaled down by `fit_scale`). Adding a panel means adding its geometry there and a test.
 - M8 (HUD and chat): messages no longer sit in the HUD. Systems set `GameProgress::notice` and `chat_ui::collect_notices` moves it into the `ChatLog` each frame; examining writes an `Examine` line straight to the log. `chat.rs` owns the log (size-limited, wrapped, scrollable), the text-entry box (printable characters only, 100 at most), and the slash commands; `emote.rs` owns each emote's duration and pose, and `animation::tick_emotes` / `animate_limbs` only apply it. While the box is open `ChatState::keys_captured` is set, and every key handler (WASD, Tab/Enter/X, 1-9, B/K/J/C, camera keys) stands aside, so typing never moves the player or picks a row. Esc cancels typing first (`pause::on_escape`). The bag, skills, and quest book share one `DockPanel` and one `Dock` (one open at a time, so the right column cannot overflow a small window); each is paged by `text_fit::paginate`. Chat, toolbar, and side panels carry `UiBlocker`, so `pointer` and `menu_input` ignore clicks while the cursor is over them. A sign opens as `Talk::reading` in the ordinary dialogue panel with one choice, "Done reading", so Esc, walking away, and the number key close it like any conversation. The dialogue panel's offset is derived from the chat area's height so the two never overlap.
 - Settings live in their own file, not in the save. `settings_ui::apply_settings` is the only system that writes it; an unreadable file switches writing off for the session.
+
+- M10 (NPC behaviors): every villager owns an `npc::Brain` that runs one shared behavior tree (`behavior.rs` is the engine, `npc.rs` the leaves). The tree is re-read from the root each tick, with priorities: engaged (the player is walking up or talking) > goodbye wave > follow route > rest > choose a spot > settle. `npc_ui::drive_npcs` runs after `interact` and `movement` each frame: it works out each NPC's `Attention` (`Talking` when `TalkState` is open and `TalkPartner` is that NPC; `Approached` when the player's pending interaction target is that NPC), builds the set of tiles to avoid (waymarks, plants, creatures, doorways, exits from `Level::npc_keep_out`, every NPC's claimed tile, and the player's tile, next step, and destination), ticks the brain, and applies the `Intent`: a step claims the tile at once (`Interactable::tile` changes, so a click always plans to where the NPC will stand) and the body glides there; `face` and `emote` turn and pose it. Emotes are the player's (`emote.rs`), played through `NpcBody::emote` and the same limb code. The end of a conversation is detected by the brain itself (it saw `Talking`, now sees something else), so Esc, a closing choice, and walking away all get the same single wave. `TalkPartner` is set in `interact` when a conversation with an NPC opens (a sign clears it) and cleared by `drive_npcs` once the conversation is closed. Behavior is configured in the level file's `[behaviors]` section and validated at load (known person, one line each, wanderers have room).
+- NPC choices come from a seeded generator (`npc::seed_from(id)`), so a brain with the same behavior, seed, and senses always does the same thing; the tests rely on it.
 
 ## Testing strategy
 

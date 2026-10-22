@@ -39,6 +39,9 @@ impl<T: Copy> Task<T> {
 
     pub fn is_moving(&self) -> bool { !self.route.is_empty() }
 
+    /// The last tile of the route (where the walker will end up), if it is walking.
+    pub fn destination(&self) -> Option<TilePos> { self.route.back().copied() }
+
     pub fn remaining_steps(&self) -> usize { self.route.len() }
 
     /// The interaction waiting at the end of the route, whether or not the walker has arrived.
@@ -107,6 +110,17 @@ mod tests {
     use super::*;
 
     fn t(x: i32, y: i32) -> TilePos { TilePos::new(x, y) }
+
+    #[test]
+    fn the_destination_is_the_end_of_the_route() {
+        let mut task: Task<u32> = Task::walk(vec![t(1, 0), t(2, 0)]);
+        assert_eq!(task.destination(), Some(t(2, 0)));
+        task.complete_step();
+        assert_eq!(task.destination(), Some(t(2, 0)));
+        task.complete_step();
+        assert_eq!(task.destination(), None);
+        assert_eq!(Task::<u32>::idle().destination(), None);
+    }
 
     #[test]
     fn walking_consumes_the_route_one_step_at_a_time() {

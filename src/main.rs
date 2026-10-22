@@ -16,6 +16,7 @@ mod menu;
 mod models;
 mod movement;
 mod music_ui;
+mod npc_ui;
 mod streaming;
 mod pack_ui;
 mod pause_ui;
@@ -39,7 +40,7 @@ use ozbound::{
 
 use components::{
     Atlas, ChunkMemory, CurrentRegion, Soundscape, Streaming, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
-    SettingsStore, StartingSave, TalkPortrait, TalkState, UserSettings, Wildlife,
+    SettingsStore, StartingSave, TalkPartner, TalkPortrait, TalkState, UserSettings, Wildlife,
 };
 use pause_ui::running;
 
@@ -206,6 +207,7 @@ fn main() {
         .insert_resource(PerfStats::default())
         .insert_resource(StartingSave(game))
         .insert_resource(TalkState::default())
+        .insert_resource(TalkPartner::default())
         .insert_resource(HoverText::default())
         .insert_resource(ContextMenuState::default())
         .insert_resource(Meadow(level.map.clone()))
@@ -248,9 +250,10 @@ fn main() {
                     keyboard::keyboard_target.run_if(running),
                     keyboard::keyboard_hint.run_if(running),
                     dialogue_ui::dialogue_input.run_if(running),
-                    movement::follow_route,
-                    interact::interact,
-                    interact::respawn_nodes,
+                    // The world's own steps, grouped (a tuple holds at most 20 systems). The NPCs
+                    // come after the talk and walk systems, so a conversation that just opened, or
+                    // a route that was just clicked, is seen by them in the same frame.
+                    (movement::follow_route, interact::interact, interact::respawn_nodes, npc_ui::drive_npcs).chain(),
                     persist::persist_game,
                     animation::tick_emotes,
                     animation::animate_limbs,

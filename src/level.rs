@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use crate::appearance::Appearance;
 use crate::gathering::{validate_node_placement, PlacementError, ResourceKind};
+use crate::npc::{self, Behavior};
 use crate::homestead::{self, HomesteadError, HouseSpawn, PlotSpawn, Side};
 use crate::pathfinding::Approach;
 use crate::quest::MoonpetalQuest;
@@ -51,6 +52,13 @@ pub struct NpcSpawn {
     pub look: Appearance,
     /// Shown when hovering ("Talk to Mistress Pell").
     pub name: String,
+}
+
+/// How one NPC behaves when left alone (`[behaviors]`): `id` is an NPC's id or `guide`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BehaviorSpawn {
+    pub id: String,
+    pub behavior: Behavior,
 }
 
 /// A named place the player can reach, for `visit` objectives.
@@ -94,6 +102,8 @@ pub struct Level {
     pub signs: Vec<SignSpawn>,
     /// Villagers besides the guide (the guide is always the NPC with id `guide`).
     pub npcs: Vec<NpcSpawn>,
+    /// How listed NPCs behave when left alone; anyone not listed stands still.
+    pub behaviors: Vec<BehaviorSpawn>,
     /// Named places for `visit` objectives.
     pub places: Vec<PlaceSpawn>,
     /// Creatures to meet (see `bestiary.rs`).
@@ -123,6 +133,23 @@ impl Level {
         self.exits.iter().find(|exit| exit.tile == tile)
     }
 
+    /// How the NPC with this id behaves: its `[behaviors]` entry, or standing still.
+    pub fn behavior_of(&self, id: &str) -> Behavior {
+        self.behaviors.iter().find(|b| b.id == id).map(|b| b.behavior.clone()).unwrap_or_default()
+    }
+
+    /// Tiles an NPC must never step onto: waymarks, creatures, moonpetals, plants on open
+    /// ground, exits, and doorways (the player must always be able to use these).
+    pub fn npc_keep_out(&self) -> Vec<TilePos> {
+        let mut tiles: Vec<TilePos> = self.places.iter().map(|p| p.tile).collect();
+        tiles.extend(self.creatures.iter().map(|c| c.tile));
+        tiles.extend(self.moonpetals.iter().copied());
+        tiles.extend(self.nodes.iter().filter(|n| n.kind.interaction().approach() == Approach::OnTile).map(|n| n.tile));
+        tiles.extend(self.exits.iter().map(|e| e.tile));
+        tiles.extend(self.houses.iter().map(|h| h.door_tile()));
+        tiles
+    }
+
     /// Every NPC as `(id, tile, display name)`, the guide first.
     pub fn npc_list(&self) -> Vec<(&str, TilePos, &str)> {
         let mut all = Vec::new();
@@ -135,7 +162,7 @@ impl Level {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs, Npcs, Places, Creatures, Houses, Plots, Exits }
+enum Section { Map, Player, Guide, Moonpetals, Nodes, Signs, Npcs, Behaviors, Places, Creatures, Houses, Plots, Exits }
 
 impl Section {
     fn from_name(name: &str) -> Option<Self> {
@@ -147,6 +174,7 @@ impl Section {
             "nodes" => Self::Nodes,
             "signs" => Self::Signs,
             "npcs" => Self::Npcs,
+            "behaviors" => Self::Behaviors,
             "places" => Self::Places,
             "creatures" => Self::Creatures,
             "houses" => Self::Houses,
@@ -164,6 +192,7 @@ impl Section {
             Self::Nodes => "nodes",
             Self::Signs => "signs",
             Self::Npcs => "npcs",
+            Self::Behaviors => "behaviors",
             Self::Places => "places",
             Self::Creatures => "creatures",
             Self::Houses => "houses",
@@ -211,6 +240,12 @@ pub enum LevelErrorKind {
     Overlap { what: &'static str, other: &'static str, tile: TilePos },
     /// A house or plot problem (see `homestead.rs`).
     Homestead(HomesteadError),
+    /// A `[behaviors]` line that does not parse (the message says why).
+    BadBehavior(String),
+    /// A `[behaviors]` entry for someone who is neither the guide nor in `[npcs]`.
+    UnknownBehaviorTarget(String),
+    /// A wanderer with nowhere to wander: every tile around it is blocked or must stay clear.
+    WanderStuck { id: String, tile: TilePos, radius: u32 },
     /// A region (a level with no `[guide]`) lists story content.
     RegionHasStory(&'static str),
     /// An exit's destination is not a location id such as `YELLOW_BRICK_ROAD_EAST`.
@@ -237,7 +272,7 @@ impl fmt::Display for LevelError {
             ContentBeforeSection => write!(f, "content before the first [section] header"),
             UnknownSection(name) => write!(
                 f,
-                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes], [signs], [npcs], [places], [creatures], [houses], [plots] or [exits])"
+                "unknown or unclosed section header {name:?} (expected [map], [player], [guide], [moonpetals], [nodes], [signs], [npcs], [behaviors], [places], [creatures], [houses], [plots] or [exits])"
             ),
             DuplicateSection(name) => write!(f, "section [{name}] appears more than once"),
             MissingSection(name) => write!(f, "required section [{name}] is missing"),
@@ -293,6 +328,16 @@ impl fmt::Display for LevelError {
             RegionHasStory(section) => write!(
                 f,
                 "[{section}] needs a [guide]: a level without one is a region, and regions cannot have villagers, places, or creatures yet"
+            ),
+            BadBehavior(why) => write!(f, "bad behavior: {why}"),
+            UnknownBehaviorTarget(id) => write!(
+                f,
+                "behavior for {id:?}, who is neither the guide nor listed in [npcs]"
+            ),
+            WanderStuck { id, tile, radius } => write!(
+                f,
+                "{id:?} at ({}, {}) cannot move anywhere within {radius} tiles: the ground around is blocked or must stay clear (a waymark, plant, creature, doorway, or exit)",
+                tile.x, tile.y
             ),
             InvalidLocationId(id) => write!(
                 f,
@@ -390,6 +435,17 @@ fn parse_npc(text: &str, line: usize) -> Result<NpcSpawn, LevelError> {
     let look = Appearance::from_key(look_key)
         .ok_or_else(|| LevelError::at(line, LevelErrorKind::UnknownAppearance(look_key.to_string())))?;
     Ok(NpcSpawn { id: id.to_string(), tile: TilePos::new(x, y), look, name: name.to_string() })
+}
+
+/// `id behavior...`: how an NPC behaves when left alone (see `npc::Behavior::parse`).
+fn parse_behavior(text: &str, line: usize) -> Result<BehaviorSpawn, LevelError> {
+    let bad = |why: String| LevelError::at(line, LevelErrorKind::BadBehavior(why));
+    let (id, rest) = text.split_once(char::is_whitespace).ok_or_else(|| bad("expected \"id stay\" or \"id wander <radius>\"".into()))?;
+    if !is_valid_id(id) {
+        return Err(LevelError::at(line, LevelErrorKind::InvalidId { what: "behavior", id: id.to_string() }));
+    }
+    let behavior = Behavior::parse(rest).map_err(bad)?;
+    Ok(BehaviorSpawn { id: id.to_string(), behavior })
 }
 
 /// `id x y name...`: a named place. The name may contain spaces.
@@ -502,6 +558,7 @@ impl Level {
         let mut nodes: Vec<Entry<NodeSpawn>> = Vec::new();
         let mut signs: Vec<Entry<SignSpawn>> = Vec::new();
         let mut npcs: Vec<Entry<NpcSpawn>> = Vec::new();
+        let mut behaviors: Vec<Entry<BehaviorSpawn>> = Vec::new();
         let mut places: Vec<Entry<PlaceSpawn>> = Vec::new();
         let mut creatures: Vec<Entry<CreatureSpawn>> = Vec::new();
         let mut houses: Vec<Entry<HouseSpawn>> = Vec::new();
@@ -545,6 +602,7 @@ impl Level {
                 Section::Nodes => nodes.push(Entry { line: line_no, value: parse_node(line, line_no)? }),
                 Section::Signs => signs.push(Entry { line: line_no, value: parse_sign(line, line_no)? }),
                 Section::Npcs => npcs.push(Entry { line: line_no, value: parse_npc(line, line_no)? }),
+                Section::Behaviors => behaviors.push(Entry { line: line_no, value: parse_behavior(line, line_no)? }),
                 Section::Places => places.push(Entry { line: line_no, value: parse_place(line, line_no)? }),
                 Section::Creatures => creatures.push(Entry { line: line_no, value: parse_creature(line, line_no)? }),
                 Section::Houses => houses.push(Entry { line: line_no, value: parse_house(line, line_no)? }),
@@ -601,7 +659,7 @@ impl Level {
             }
             Some(guide_tile)
         } else {
-            for (section, found) in [("npcs", &npcs.first().map(|e| e.line)), ("places", &places.first().map(|e| e.line)), ("creatures", &creatures.first().map(|e| e.line))] {
+            for (section, found) in [("npcs", &npcs.first().map(|e| e.line)), ("behaviors", &behaviors.first().map(|e| e.line)), ("places", &places.first().map(|e| e.line)), ("creatures", &creatures.first().map(|e| e.line))] {
                 if let Some(line) = found {
                     return Err(LevelError::at(*line, LevelErrorKind::RegionHasStory(section)));
                 }
@@ -732,6 +790,32 @@ impl Level {
             occupied.push(("creature", creature.tile));
         }
 
+        // Behaviors: one per person, only for people who exist, and a wanderer needs room to roam.
+        let people: Vec<(&str, TilePos)> = guide_tile.iter().map(|t| (GUIDE_ID, *t)).chain(npcs.iter().map(|e| (e.value.id.as_str(), e.value.tile))).collect();
+        let keep_out: std::collections::HashSet<TilePos> = {
+            let mut tiles: Vec<TilePos> = places.iter().map(|e| e.value.tile).collect();
+            tiles.extend(creatures.iter().map(|e| e.value.tile));
+            tiles.extend(moonpetals.iter().map(|e| e.value));
+            tiles.extend(nodes.iter().filter(|e| e.value.kind.interaction().approach() == Approach::OnTile).map(|e| e.value.tile));
+            tiles.extend(exits.iter().map(|e| e.value.tile));
+            tiles.extend(house_list.iter().map(|h| h.door_tile()));
+            tiles.into_iter().collect()
+        };
+        for (i, entry) in behaviors.iter().enumerate() {
+            let spawn = &entry.value;
+            let Some(&(_, home)) = people.iter().find(|(id, _)| *id == spawn.id) else {
+                return Err(LevelError::at(entry.line, LevelErrorKind::UnknownBehaviorTarget(spawn.id.clone())));
+            };
+            if behaviors[..i].iter().any(|other| other.value.id == spawn.id) {
+                return Err(LevelError::at(entry.line, LevelErrorKind::DuplicateId { what: "behavior", id: spawn.id.clone() }));
+            }
+            if let Some(radius) = spawn.behavior.radius() {
+                if npc::wander_area(&map, home, radius, &keep_out) == 0 {
+                    return Err(LevelError::at(entry.line, LevelErrorKind::WanderStuck { id: spawn.id.clone(), tile: home, radius }));
+                }
+            }
+        }
+
         // Exits: a walkable, reachable tile of their own, listed once. The destination is
         // checked against the other region's map by `locations::check_world`.
         for (i, entry) in exits.iter().enumerate() {
@@ -759,6 +843,7 @@ impl Level {
             nodes: nodes.into_iter().map(|e| e.value).collect(),
             signs: signs.into_iter().map(|e| e.value).collect(),
             npcs: npcs.into_iter().map(|e| e.value).collect(),
+            behaviors: behaviors.into_iter().map(|e| e.value).collect(),
             places: places.into_iter().map(|e| e.value).collect(),
             creatures: creatures.into_iter().map(|e| e.value).collect(),
         })
@@ -1645,14 +1730,73 @@ copper 1 1 2 1
     }
 
     #[test]
+    fn behaviors_parse_for_the_guide_and_for_listed_villagers() {
+        let level = Level::parse(&with("[npcs]\nmiller 3 0 woodcutter Miller\n\n[behaviors]\n; who roams\nguide stay emotes wave\nmiller wander 2 pause 2 4\n")).unwrap();
+        assert_eq!(level.behaviors.len(), 2);
+        assert_eq!(level.behavior_of("guide").emotes.len(), 1);
+        assert_eq!(level.behavior_of("miller").radius(), Some(2));
+        assert_eq!(level.behavior_of("miller").pause, (2, 4));
+    }
+
+    #[test]
+    fn anyone_not_listed_stands_still() {
+        let level = Level::parse(&with("[npcs]\nmiller 3 0 woodcutter Miller\n")).unwrap();
+        assert!(level.behaviors.is_empty());
+        assert_eq!(level.behavior_of("miller"), Behavior::default());
+        assert_eq!(level.behavior_of("nobody"), Behavior::default());
+    }
+
+    #[test]
+    fn bad_behavior_lines_are_refused_with_their_line_number() {
+        for text in ["miller", "miller dance", "miller wander", "miller wander 99", "miller stay pause 9 1", "miller stay emotes jump"] {
+            let e = err(&format!("[npcs]\nmiller 3 0 woodcutter M\n[behaviors]\n{text}"));
+            assert!(matches!(e.kind, LevelErrorKind::BadBehavior(_)), "{text}: {e}");
+            assert!(e.line.is_some(), "{text}");
+            assert!(e.to_string().contains("bad behavior"), "{text}");
+        }
+        assert!(matches!(err("[npcs]\nmiller 3 0 woodcutter M\n[behaviors]\nBad-Id stay").kind, LevelErrorKind::InvalidId { what: "behavior", .. }));
+    }
+
+    #[test]
+    fn a_behavior_needs_a_real_person_and_only_one_line() {
+        let e = err("[behaviors]\nghost stay");
+        assert_eq!(e.kind, LevelErrorKind::UnknownBehaviorTarget("ghost".into()));
+        assert!(e.to_string().contains("neither the guide nor listed in [npcs]"));
+        let twice = err("[npcs]\nmiller 3 0 woodcutter M\n[behaviors]\nmiller stay\nmiller wander 2");
+        assert_eq!(twice.kind, LevelErrorKind::DuplicateId { what: "behavior", id: "miller".into() });
+        assert_eq!(twice.line, Some(twice.line.unwrap()));
+    }
+
+    #[test]
+    fn a_wanderer_with_nowhere_to_go_is_refused() {
+        // Waymarks on every tile around the miller leave him no room to move.
+        let e = err("[npcs]\nmiller 3 0 woodcutter M\n[places]\na 2 0 A\nb 4 0 B\nc 3 1 C\n[behaviors]\nmiller wander 1");
+        assert_eq!(e.kind, LevelErrorKind::WanderStuck { id: "miller".into(), tile: TilePos::new(3, 0), radius: 1 });
+        assert!(e.to_string().contains("cannot move anywhere within 1 tiles"));
+        // A wider range reaches open ground, and standing still never needs room.
+        assert!(Level::parse(&with("[npcs]\nmiller 3 0 woodcutter M\n[places]\na 2 0 A\nb 4 0 B\nc 3 1 C\n[behaviors]\nmiller wander 3")).is_ok());
+        assert!(Level::parse(&with("[npcs]\nmiller 3 0 woodcutter M\n[places]\na 2 0 A\nb 4 0 B\nc 3 1 C\n[behaviors]\nmiller stay")).is_ok());
+    }
+
+    #[test]
+    fn keep_out_tiles_cover_everything_the_player_must_be_able_to_use() {
+        let level = Level::parse(&with("herb 1 0 3 1\n[npcs]\nmiller 3 0 woodcutter M\n[places]\nmill 2 0 The Mill\n[creatures]\nmeadow_hare 4 0\n")).unwrap();
+        let keep = level.npc_keep_out();
+        for tile in [TilePos::new(2, 0), TilePos::new(4, 0), TilePos::new(1, 0), TilePos::new(0, 2), TilePos::new(2, 2), TilePos::new(3, 3)] {
+            assert!(keep.contains(&tile), "{tile:?}");
+        }
+        assert!(!keep.contains(&TilePos::new(5, 3)), "a tree is not walkable anyway and is not listed twice");
+    }
+
+    #[test]
     fn a_level_without_a_guide_is_a_region_and_may_not_hold_story_content() {
         let region = "[map]\n......\n......\n\n[player]\n0 0\n";
         let level = Level::parse(region).unwrap();
         assert!(!level.is_story_level());
         assert!(level.moonpetals.is_empty(), "regions need no moonpetals");
-        for (section, entry) in [("npcs", "miller 3 0 woodcutter Old Miller"), ("places", "mill 3 0 The Mill"), ("creatures", "meadow_hare 3 0")] {
+        for (section, entry) in [("npcs", "miller 3 0 woodcutter Old Miller"), ("behaviors", "miller stay"), ("places", "mill 3 0 The Mill"), ("creatures", "meadow_hare 3 0")] {
             let e = Level::parse(&format!("{region}[{section}]\n{entry}\n")).unwrap_err();
-            assert_eq!(e.kind, LevelErrorKind::RegionHasStory(match section { "npcs" => "npcs", "places" => "places", _ => "creatures" }));
+            assert_eq!(e.kind, LevelErrorKind::RegionHasStory(match section { "npcs" => "npcs", "behaviors" => "behaviors", "places" => "places", _ => "creatures" }));
             assert!(e.line.is_some());
             assert!(e.to_string().contains("needs a [guide]"));
         }

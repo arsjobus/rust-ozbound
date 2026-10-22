@@ -573,6 +573,7 @@ impl Overworld {
             nodes: Vec::new(),
             signs: Vec::new(),
             npcs: Vec::new(),
+            behaviors: Vec::new(),
             places: Vec::new(),
             creatures: Vec::new(),
             houses: Vec::new(),
@@ -590,6 +591,7 @@ impl Overworld {
             level.nodes.extend(local.nodes.iter().map(|n| crate::level::NodeSpawn { tile: at(n.tile), ..*n }));
             level.signs.extend(local.signs.iter().map(|s| crate::level::SignSpawn { tile: at(s.tile), text: s.text.clone() }));
             level.npcs.extend(local.npcs.iter().map(|n| crate::level::NpcSpawn { tile: at(n.tile), ..n.clone() }));
+            level.behaviors.extend(local.behaviors.iter().cloned());
             level.places.extend(local.places.iter().map(|p| crate::level::PlaceSpawn { tile: at(p.tile), ..p.clone() }));
             level.creatures.extend(local.creatures.iter().map(|c| crate::level::CreatureSpawn { tile: at(c.tile), ..c.clone() }));
             level.houses.extend(local.houses.iter().map(|h| crate::homestead::HouseSpawn { origin: at(h.origin), ..h.clone() }));

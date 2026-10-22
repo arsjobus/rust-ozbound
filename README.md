@@ -204,3 +204,10 @@ The starting village is now **Bluebrook**, in the Land of the Munchkins. It has 
 - Put your own music in `assets/bgm/` (ogg, wav, or mp3; see `assets/bgm/README.md`). Without it each area plays a short theme generated in code.
 - `OZBOUND_MAP` still replaces the starting village's map. Other regions are read from `assets/maps/` (or built-in copies).
 - Saves are now format 2 (they record which region you are in). Older saves still load.
+
+## v0.7 Villagers walk and talk (M10)
+
+Villagers now have lives. Each one thinks with a shared behavior tree: some stand still, some wander around their home, and they play the same wave, dance, and cheer emotes you can. Click one and they stop, turn to face you, and wave goodbye when you finish talking.
+
+- Set who does what in the `[behaviors]` section of the level file (`assets/maps/bluebrook.map` shows the format): `id stay` or `id wander <radius>`, optionally `pause <min> <max>` and `emotes wave dance cheer`.
+- The behavior engine (`src/behavior.rs`) and NPC rules (`src/npc.rs`) are pure Rust and unit-tested; `tests/npc_playthrough.rs` simulates the whole village.

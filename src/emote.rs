@@ -3,7 +3,7 @@
 //! An [`Emote`] knows its chat command, how long it lasts, what the chat says when it starts,
 //! and the [`Pose`] a character should hold `elapsed` seconds into it. The Bevy layer only
 //! applies the pose to a character's limbs, so the same emotes can later be played by NPCs
-//! (the NPC behaviour milestone) without any new rules.
+//! (see `npc.rs`) without any new rules.
 //!
 //! Rules:
 //!
@@ -87,6 +87,20 @@ impl Emote {
             Self::Dance => "You dance.",
             Self::Cheer => "You cheer!",
         }
+    }
+
+    /// The chat line when somebody else does it (an NPC): `Pell waves.`
+    pub fn message_for(self, name: &str) -> String {
+        match self {
+            Self::Wave => format!("{name} waves."),
+            Self::Dance => format!("{name} dances."),
+            Self::Cheer => format!("{name} cheers!"),
+        }
+    }
+
+    /// The chat line when an NPC waves goodbye at the end of a conversation.
+    pub fn farewell_message(name: &str) -> String {
+        format!("{name} waves goodbye.")
     }
 
     /// The pose `elapsed` seconds in. Before the start, after the end, or for a time that is
@@ -189,6 +203,17 @@ mod tests {
     fn samples(emote: Emote) -> impl Iterator<Item = f32> {
         let steps = (emote.duration() * 100.0) as usize;
         (0..=steps + 20).map(|i| i as f32 * 0.01)
+    }
+
+    #[test]
+    fn npc_lines_name_the_npc_and_the_gesture() {
+        assert_eq!(Emote::Wave.message_for("Mistress Pell"), "Mistress Pell waves.");
+        assert_eq!(Emote::Dance.message_for("Brae"), "Brae dances.");
+        assert_eq!(Emote::Cheer.message_for("Ivo"), "Ivo cheers!");
+        assert_eq!(Emote::farewell_message("Tamsin"), "Tamsin waves goodbye.");
+        for emote in Emote::ALL {
+            assert!(emote.message_for("X").starts_with("X "), "{emote:?}");
+        }
     }
 
     #[test]

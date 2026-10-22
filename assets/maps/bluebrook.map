@@ -107,6 +107,21 @@ woodcutter 43 12 woodcutter Brae the Woodcutter
 ferrywoman 25 21 ferrywoman Tamsin the Bridgewarden
 surveyor 47 26 surveyor Ivo the Surveyor
 
+[behaviors]
+; What each person does when nobody is talking to them (anyone not listed stands still):
+;   id stay                   never leaves their tile
+;   id wander <radius>        roams within <radius> tiles (1-10) of where they start
+; then optionally  pause <min> <max>  (seconds between moves, default 3 8)
+; and, last,       emotes <name> ...  (wave, dance, cheer: played now and then while resting).
+; An id is `guide` or one from [npcs]. Wanderers keep off waymarks, plants, creatures,
+; doorways, exits, the player, and each other. Whoever the player talks to stops, turns to
+; face the player, and waves goodbye when the conversation ends.
+guide stay emotes wave
+apothecary wander 2 pause 4 9
+woodcutter wander 3 pause 3 7 emotes cheer
+ferrywoman stay emotes wave dance
+surveyor wander 4 pause 5 12 emotes dance
+
 [places]
 standing_stone 10 33 The Standing Stone
 heron_landing 11 15 Heron Landing

@@ -1,4 +1,4 @@
-//! Purely visual animation: limb swings, emotes, and floating collectables. Nothing here
+//! Purely visual animation: limb swings, emotes (the player's and the NPCs'), and floating collectables. Nothing here
 //! changes game state.
 
 use bevy::prelude::*;
@@ -8,13 +8,19 @@ use ozbound::emote::Pose;
 
 /// Swings legs while walking, arms while chopping or mining, and holds the pose of any emote
 /// being played.
-pub fn animate_limbs(time: Res<Time>, players: Query<&Player>, mut limbs: Query<(&Limb, &mut Transform)>) {
+pub fn animate_limbs(time: Res<Time>, players: Query<&Player>, npcs: Query<&NpcBody>, mut limbs: Query<(&Limb, &mut Transform)>) {
     let t = time.elapsed_secs();
     let blend = 1.0 - (-18.0 * time.delta_secs()).exp();
     for (limb, mut transform) in &mut limbs {
-        let player = players.get(limb.owner).ok();
-        let (walking, working) = player.map_or((false, false), |p| (p.task.is_moving(), p.work.is_some()));
-        let emote_pose = player.and_then(|p| p.emote).map(|active| active.pose());
+        // A limb belongs to the player or to an NPC; both pose the same way.
+        let (walking, working, emote) = if let Ok(player) = players.get(limb.owner) {
+            (player.task.is_moving(), player.work.is_some(), player.emote)
+        } else if let Ok(body) = npcs.get(limb.owner) {
+            (body.glide.is_some(), false, body.emote)
+        } else {
+            (false, false, None)
+        };
+        let emote_pose = emote.map(|active| active.pose());
         let target = if let Some(pose) = emote_pose {
             limb_rotation(&pose, limb)
         } else {
