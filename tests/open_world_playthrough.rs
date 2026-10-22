@@ -16,7 +16,10 @@ fn one_walk_from_the_village_to_the_end_of_the_road_streams_chunks_and_fades_the
 
     let start = overworld.to_world("MUNCHKIN_LANDS", world.level.player_start).unwrap();
     let road = overworld.chunk("YELLOW_BRICK_ROAD_EAST").unwrap();
-    let end = road.to_world(TilePos::new(road.width - 3, 9), );
+    let village = world.level_of("MUNCHKIN_LANDS").unwrap();
+    // The road crosses the border on the one path tile of the village's east edge.
+    let seam_y = (0..village.map.height() as i32).find(|y| village.map.tile_at(TilePos::new(village.map.width() as i32 - 1, *y)) == Ok(ozbound::world::Tile::Path)).expect("the village road reaches its east edge");
+    let end = road.to_world(TilePos::new(road.width - 3, seam_y));
 
     // The player starts with the village loaded and the road not yet.
     let mut loaded = overworld.wanted(start, &[]);

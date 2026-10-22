@@ -2,123 +2,129 @@
 ;
 ; Same format as assets/maps/meadow.map, plus optional sections for the village slice.
 ; Lines starting with ';' are comments. Blank lines are ignored. Sections may appear in any
-; order, each at most once. Required: [map], [player]. [guide] makes this a story level; a
-; level without one is a region (scenery only, see yellow_road_east.map).
-; Optional: [guide], [moonpetals], [nodes], [signs], [npcs], [places], [creatures], [houses],
-; [plots], [exits].
-;
-; Coordinates are "x y" in tiles. x counts right from the left edge; y counts UP from the
-; BOTTOM row of [map] (the last row listed is y = 0).
-;
-; [npcs]      id x y appearance Display name    (the guide is NOT listed here; id `guide` is reserved)
-;             appearances: traveller, guide, apothecary, woodcutter, ferrywoman, surveyor
-; [places]    id x y Display name               (targets for `visit <id>` quest objectives)
-; [creatures] id x y                            (ids come from assets/bestiary/*.bestiary)
-; [houses]    id x y width height door_side Name (door_side: north, south, east, west; x y is the
-;             south-west corner; walls, doorway and floor are stamped over open grass or path)
-; [plots]     id x y width height Name           (a plot holds whole houses and a garden or vineyard)
-; [exits]     x y LOCATION_ID arrive_x arrive_y Label   (stepping on x y travels to that region; only for
-;             places off the overworld, such as caves. Regions placed in assets/world/overworld.world
-;             join by walking: their paths simply meet at the shared border)
-;
-; Geography: a meadow in the south-west, a river at x = 20-21 crossed by the wooden bridge
-; on the main road (y = 9), the village of Bluebrook east of the river (three plots, each with
-; a house and a garden or vineyard), and a forest along the north edge. The road runs on through
-; the map's east edge (x = 39, y = 9) and continues as the Yellow Brick Road: the next region
-; is placed against that edge in the overworld, so the walk never stops for a loading screen.
+; order, each at most once. Required:
+; Geography (64 x 40 tiles): a meadow with a heron pond in the west, a river at x = 26-27 crossed
+; by the wooden bridge on the main road (y = 20), and the village of Bluebrook east of the river:
+; three widely spaced plots (the apothecary's physic garden to the north, the surveyor's kitchen
+; garden to the north-east, the woodcutter's vineyard to the south-east), each with a roomy
+; house, joined to the road by short paths. A forest closes the edges. The road runs on through
+; the map's east edge (x = 63, y = 20) and continues as the Yellow Brick Road: the next region is
+; placed against that edge in the overworld, so the walk never stops for a loading screen.
 
 [map]
 ; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost,
 ; 'g' garden bed, 'v' vineyard row (both block movement; walk the grass lanes between).
 ; Houses are not drawn here: the [houses] section stamps walls, a doorway, and floor.
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTT....TT....T....TT~~T....T.T.TT..TTT.T
-T.TTT..T.T...TT..T..~~TTTT.....T...TT.TT
-T......TT.T..T.TTT..~~T.T.TT.T.T..TTT.TT
-T..TTT...TTTT.......~~T.TTTT..T....T.T.T
-T...TTTT...T.T....TT~~TT.TT.T.TT...T...T
-T...................~~........=........T
-T...................~~..ggggg.=..gSggg.T
-T..#......~~~.......~~........=........T
-T.........~~~.......~~........=........T
-T...................~~........=........T
-T...................~~........=........T
-T....S..............~~.......S=........T
-T=======================================
-T..................S~~........=...vvvv.T
-T...................~~........=...vvvv.T
-T...................~~........=........T
-T...................~~........=........T
-T...................~~........=........T
-T...............#...~~........=......#.T
-T...................~~........=........T
-T...................~~.................T
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT.TTTT.TTTTT.TT.T...T..T~~.T.TT.T.......TT.TT.T...TT.TTTTT.TTT
+TT.T.TT.TTTTT.......T....T~~.T.T.TT.TT.TTTTTTTTT.TT.TT......T.TT
+TT..TTTT......TT.....T.T.T~~..T.T...........T..TTT.TT.T...ST..TT
+TTT.T.TTT...T.TT....TT.TTT~~....TTTTT.T.TTTTTTTT.............TTT
+TT....TT.......T.T.TT.T..T~~.T................T.T..g.g.g.g.g.TTT
+TTT.T...T......TTT.T.T.T..~~.....g.g.g.g.g.g.......g.g.g.g.g..TT
+TTT....TTT.T.T......T..T..~~.....g.g.g.g.g.g..................TT
+TT.......T...TTT....T...TT~~..T...............................TT
+TT........T...............~~..................................TT
+TT........T...............~~..................=====...........TT
+TT...T...........T........~~..................=...............TT
+TT...T....................~~..................=...............TT
+TTT...T...................~~..................=...............TT
+TT....T.T.................~~.........=........=...............TT
+TT.T.#....................~~.........=........=...............TT
+TT........................~~.........=........=...............TT
+TT.......S................~~......S..=........=...............TT
+TT==============================================================
+TT......................S.~~....................=.............TT
+TT........................~~....................=.............TT
+TT........................~~....................=.............TT
+TT........................~~....................=.............TT
+TT........................~~....................=.............TT
+TT........................~~....................=....vvvvvv...TT
+TT..........~~~~~.........~~..................................TT
+TT..........~~~~~.........~~...T........T............vvvvvv...TT
+TT..........~~~~~.........~~..................................TT
+TT........................~~.........................vvvvvv...TT
+TT........................~~..................................TT
+TTT..T..T.TT......TT.TT.T.~~.........................vvvvvv...TT
+TT....T.....T.....T.#T..T.~~..................................TT
+TT...T.T...........T....T.~~...TTT..T....TT...................TT
+TTTT...T..........T..T....~~T...T.TTT.....T....T.TT.TT......TTTT
+TT...T......TT.T.....T..T.~~T..TTT..T....T...T....TT.TT.T#TT.TTT
+TTTT..T.T.....TTT....T....~~T.TTTTTTT......T.T.....T.TT.T..TT.TT
+TT..TT.....T..T.TT..T...T.~~..T.T..T.TT......T.......T.T.TT.T.TT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 
 [player]
-4 3
+10 14
 
 [guide]
-17 10
+24 16
 
 [moonpetals]
-14 2
-8 12
-16 6
-5 15
+14 6
+8 26
+20 12
+5 30
+22 30
+36 16
+18 35
 
 [nodes]
 ; kind x y actions yield_per_action
-tree 6 17 3 1
-tree 11 17 3 1
-tree 13 17 3 1
-tree 25 17 3 1
-tree 28 17 3 1
-tree 35 17 3 1
-tree 9 18 3 1
-copper 3 14 2 1
-copper 16 3 2 1
-copper 37 3 2 1
-herb 4 6 3 1
-herb 15 13 3 1
-herb 27 5 3 1
-herb 31 12 3 1
-berry 7 3 3 1
-berry 17 12 3 1
-berry 31 6 3 1
-berry 33 17 3 1
+tree 6 24 3 1
+tree 11 31 3 1
+tree 17 27 3 1
+tree 23 31 3 1
+tree 7 5 3 1
+tree 21 4 3 1
+tree 30 30 3 1
+tree 36 5 3 1
+tree 31 12 3 1
+tree 40 12 3 1
+copper 5 23 2 1
+copper 20 7 2 1
+copper 57 4 2 1
+herb 6 10 3 1
+herb 20 25 3 1
+herb 38 16 3 1
+herb 48 22 3 1
+berry 9 6 3 1
+berry 22 16 3 1
+berry 42 17 3 1
+berry 46 22 3 1
 
 [signs]
-5 10 Bluebrook lies east across the bridge. The road is the pale line through the grass; follow it and you cannot lose your way.
-19 8 Bridge ahead. The river is deeper than it looks, so keep to the planks.
-29 10 Bluebrook village: the apothecary's house and physic garden to the north, the woodcutter's cottage and vineyard to the south-east, the surveyor's office to the east. The road east leads on to the Yellow Brick Road.
-34 15 The forest edge. Quiet folk and quieter creatures live here; walk gently.
+9 21 Bluebrook lies east across the bridge. The road is the pale line through the grass; follow it and you cannot lose your way.
+24 19 Bridge ahead. The river is deeper than it looks, so keep to the planks.
+34 21 Bluebrook village: the apothecary's house and physic garden to the north, the woodcutter's cottage and vineyard to the south, the surveyor's office to the north-east. The road east leads on to the Yellow Brick Road.
+58 35 The forest edge. Quiet folk and quieter creatures live here; walk gently.
 
 [npcs]
-apothecary 26 12 apothecary Mistress Pell
-woodcutter 33 6 woodcutter Brae the Woodcutter
-ferrywoman 19 10 ferrywoman Tamsin the Bridgewarden
-surveyor 32 13 surveyor Ivo the Surveyor
+apothecary 39 28 apothecary Mistress Pell
+woodcutter 43 12 woodcutter Brae the Woodcutter
+ferrywoman 25 21 ferrywoman Tamsin the Bridgewarden
+surveyor 47 26 surveyor Ivo the Surveyor
 
 [places]
-standing_stone 8 17 The Standing Stone
-heron_landing 13 12 Heron Landing
-lookout 32 18 Bluebrook Lookout
+standing_stone 10 33 The Standing Stone
+heron_landing 11 15 Heron Landing
+lookout 56 35 Bluebrook Lookout
 
 [creatures]
-meadow_hare 6 6
-pond_heron 9 13
-lantern_moth 27 16
+meadow_hare 6 16
+pond_heron 17 12
+lantern_moth 30 26
 
 [houses]
 ; id x y width height door_side name   (x y is the south-west corner; the doorway is in the middle of the side)
-pell_house 24 11 5 4 south Mistress Pell's Apothecary
-brae_house 33 2 4 4 north Brae's Cottage
-ivo_house 33 11 5 4 west Ivo's Surveying Office
+pell_house 34 25 8 6 south Mistress Pell's Apothecary
+brae_house 46 8 6 6 north Brae's Cottage
+ivo_house 51 26 7 6 west Ivo's Surveying Office
 
 [plots]
 ; id x y width height name   (each plot holds a whole house and something growing)
-pell_plot 23 10 7 7 Pell's Physic Garden
-brae_plot 32 1 7 8 Brae's Vineyard
-ivo_plot 31 10 8 7 Ivo's Kitchen Garden
+pell_plot 32 23 13 11 Pell's Physic Garden
+brae_plot 44 6 16 10 Brae's Vineyard
+ivo_plot 49 24 12 11 Ivo's Kitchen Garden

@@ -2,57 +2,82 @@
 ;
 ; A region is a level with no [guide]: scenery, resources, signs, houses and exits only (see
 ; bluebrook.map for the full format). Registered in assets/world/locations.world as
-; YELLOW_BRICK_ROAD_EAST. The road runs west to east at y = 9, crosses a river on a wooden
-; bridge (x = 21-23), and passes a waystation with a house, a garden, and two vineyard rows.
-; Its west edge (x = 0, y = 9) is where the path joins Bluebrook's east edge in the overworld, so
-; the road is walked straight on from the village; the east end is not open yet.
+; YELLOW_BRICK_ROAD_EAST. The map is 72 x 40 tiles. The road runs west to east at y = 20, crosses a
+; river on a wooden bridge (x = 28-30), and passes a waystation with a roomy house, a garden, and
+; two vineyard columns. Its west edge (x = 0, y = 20) is where the path joins Bluebrook's east edge
+; in the overworld, so the road is walked straight on from the village; the east end is not open yet.
 
 [map]
-; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'S' signpost, 'g' garden bed, 'v' vineyard row.
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTT.TTT..T.T.T..TTTTT~~~.T..TTTTTTTTT..TTTT..TTT
-TT.T.T..TTTTT..T...TT~~~TTTTTT.TTTT.T.TTT.TT.T.T
-T.TTTTTTTTT..TT.TTT.T~~~.TTTT..TTTTTTTTTT.TTTTTT
-TT.TTTTTTTTTTTTTTTTTT~~~TTTTTTT..TTTT.T.T..TTTTT
-T....................~~~.....ggggggg...........T
-T....................~~~....v.......v..........T
-T....................~~~....v.......v..........T
-T....................~~~....v.......v..........T
-T..S...............S.~~~.....................S.T
-===============================================T
-T....................~~~.......................T
-T....................~~~.......................T
-T....................~~~.......................T
-T....................~~~................#......T
-T....................~~~.......................T
-T.TTT..TTT..T...T.T..~~~...TT.TT.T......T...TTTT
-T.T............T.TTTT~~~..T.T.TT......TT...TT..T
-TT.TTT.TT....T...T.TT~~~T.T.....TT...T......T.TT
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost,
+; 'g' garden bed, 'v' vineyard row (both block movement; walk the grass lanes between).
+; Houses are not drawn here: the [houses] section stamps walls, a doorway, and floor.
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT.TTT...T..T.TTT....T..T.T~~~..T.TTTT.TTTT...TT.T.T.....T...TTT.T...TT
+TTTT...T....T.TT.T...TTT....~~~......TTT..T..T.T.T...T..T....T..T.TTTTTT
+TT...T....TTT.TTT.T.T..TTT..~~~TTTTT.TT.TT...T..TTTTT...T.TT..T..T..T.TT
+TT..T...T.T.T.TT..T.T..TTT.T~~~...TT..T.T.TT......TTT..TT.....TTTTT.T.TT
+TTTTT.TT..T.TTTTT..T..TTT.T.~~~.TTTT.T...TTTT..TT...TTTT.TT.T.T.T..T.TTT
+TT..TT....TTT.....T..TTT.TT.~~~T.TT.TTTT.T.T..TTTT.TT.T.TTT...TT.....TTT
+TT.....T....T..T.......TT..T~~~.......................................TT
+TT....TT.TT...TT...T.TT...TT~~~....gggggggggg.........................TT
+TTTTT.TTT.TT...T..TT...T..T.~~~.......................................TT
+TTT..T.T..TT.T.TT.T..TT..TTT~~~....v.........v........................TT
+TT............T.............~~~....v.........v......T...........T.....TT
+TT.........................T~~~....v.........v...........T............TT
+TT......T.............T...T.~~~....v.........v..T...#.................TT
+TTT.......T.................~~~....v.........v..T..TT..TT.............TT
+TT.T.T..T...T..............T~~~.........=.........T.................TTTT
+TT..........................~~~.........=.............................TT
+TT.S.....................S..~~~.........=.........................S...TT
+=======================================================================T
+TT..........................~~~.......................................TT
+TT..........................~~~.......................................TT
+TT......T...................~~~........T.......T...T............T.....TT
+TT..............TT.........T~~~.........T............TT...#...T.......TT
+TT....T.T...T....TT.........~~~...T...............................T...TT
+TT......................TT..~~~.............T.......T............T....TT
+TT...................T.T.TT.~~~.........T....................T........TT
+TT.........T................~~~.................T.T......T............TT
+TT................T.........~~~...........T...........................TT
+TT.T...TTTT.T.....T.T...TT.T~~~T..TTTT.TT..T..TTTT..TT.TTTTTTT..T.T.T.TT
+TTTTTT..TT.TTTTT.....T...TT.~~~TT.....TTT.TTTTT.T...TT....TTTTTTT....TTT
+TTTT.T.T.T...T..TT..T..T.TT.~~~.TT.T..T.TT.T.T..TT..T.TTT....T.T..TT.TTT
+TTT..TTTTTTT..TT....T.T.TTTT~~~..T.T.T..TT.TTTT.T..T....T..T.T.TTTT...TT
+TTT...T..TT..T.T.T...T.TT.T.~~~TT....T....TT......TT.T.TTTTTTTTT..T.T.TT
+TT.T..TT.TT..T..T...T.T.T..T~~~T.......TT...TT...T.TTT.TTT..........T.TT
+TT........TT...T.TTT..TT.T..~~~.T..TT..TT...TT.TT.TTT..TT..T.TT..T....TT
+TT.T.T..TT..TTTTT.....T....T~~~..TTT.TT.T..TTTT...T.TTT.T.......T.....TT
+TT..T..T.T.TTTTT..T.TTTT....~~~T.T.TTT..T.T.TTT.TT...TTT.TT...T.T.....TT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 
 [player]
-2 9
+3 20
 
 [nodes]
 ; kind x y actions yield_per_action
-tree 4 15 3 1
-tree 8 15 3 1
+tree 6 15 3 1
 tree 12 15 3 1
-tree 16 15 3 1
-tree 20 15 3 1
-copper 40 5 2 1
-herb 6 6 3 1
-herb 10 12 3 1
-berry 14 7 3 1
-berry 40 12 3 1
+tree 18 15 3 1
+tree 24 14 3 1
+tree 8 25 3 1
+copper 58 16 2 1
+copper 52 25 2 1
+herb 8 12 3 1
+herb 20 26 3 1
+berry 14 23 3 1
+berry 60 24 3 1
 
 [signs]
-3 10 West: Bluebrook, the Munchkin village. The road is yellow here, and it is the only road worth trusting.
-19 10 Bridge ahead. It is newly mended; the planks are honest, and so is the river beneath them.
-45 10 The road runs on to the east, but the way is not open yet. The forest beyond keeps its own counsel.
+3 21 West: Bluebrook, the Munchkin village. The road is yellow here, and it is the only road worth trusting.
+25 21 Bridge ahead. It is newly mended; the planks are honest, and so is the river beneath them.
+66 21 The road runs on to the east, but the way is not open yet. The forest beyond keeps its own counsel.
 
 [houses]
-waystation 30 11 5 3 south The Wayfarer's Rest
+; id x y width height door_side name   (x y is the south-west corner; the doorway is in the middle of the side)
+waystation 37 24 7 5 south The Wayfarer's Rest
 
 [plots]
-waystation_plot 28 10 9 5 The Wayfarer's Plot
+; id x y width height name   (each plot holds a whole house and something growing)
+waystation_plot 34 22 13 10 The Wayfarer's Plot

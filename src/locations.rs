@@ -245,7 +245,7 @@ impl Locations {
                 }
                 "music" => {
                     if !crate::music::is_valid_track_name(value) {
-                        return Err(err(line, format!("music `{value}` must be a plain file name ending in .ogg, .wav, or .mp4")));
+                        return Err(err(line, format!("music `{value}` must be a plain file name ending in .ogg, .wav, or .mp3")));
                     }
                     music = Some(value.clone());
                 }

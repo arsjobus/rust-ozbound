@@ -1009,7 +1009,7 @@ theme = road
         let level_of = |id: &str| world.level_of(id);
         let composite = overworld.compose(&level_of, &["MUNCHKIN_LANDS", "YELLOW_BRICK_ROAD_EAST"]);
         let start = composite.level.player_start;
-        let far_east = road.to_world(TilePos::new(road.width - 3, 9));
+        let far_east = road.to_world(TilePos::new(road.width - 3, 20));
         assert!(composite.map.is_reachable(start, far_east), "one continuous walk from the village to the end of the road");
     }
 }

@@ -5,7 +5,7 @@
 //! to play, in this order:
 //!
 //! 1. the named file in the `bgm` folder (`assets/bgm`), if it exists and looks like audio
-//!    in one of the supported formats: **ogg**, **wav**, or **mp3** (AAC audio);
+//!    in one of the supported formats: **ogg**, **wav**, or **mp3**;
 //! 2. the area's built-in theme, a short loop generated in code (so the game ships no audio
 //!    files and a missing track is never silence);
 //! 3. silence, if the area names neither.
@@ -54,14 +54,30 @@ pub fn format_of(name: &str) -> Option<&'static str> {
 }
 
 /// True when `bytes` start the way a file of `format` does: `RIFF....WAVE` for wav, `OggS`
-/// for ogg, and an `ftyp` box in the first 12 bytes for mp3.
+/// for ogg, and for mp3 either an `ID3` tag (what most encoders write first) or an MPEG audio
+/// frame header (see [`is_mpeg_frame_header`]).
 pub fn looks_like(format: &str, bytes: &[u8]) -> bool {
     match format {
         "wav" => bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE",
         "ogg" => bytes.len() >= 4 && &bytes[0..4] == b"OggS",
-        "mp3" => bytes.len() >= 12 && &bytes[4..8] == b"ftyp",
+        "mp3" => (bytes.len() >= 10 && &bytes[0..3] == b"ID3") || is_mpeg_frame_header(bytes),
         _ => false,
     }
+}
+
+/// True when the first four bytes are a plausible MPEG-1/2/2.5 Layer III frame header: eleven
+/// set sync bits, a defined version, layer III, and bitrate and sample-rate fields that are
+/// not the reserved values. A bare AAC (ADTS) stream also starts with sync bits but names
+/// layer 0, so it is not taken for an mp3.
+pub fn is_mpeg_frame_header(bytes: &[u8]) -> bool {
+    if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] & 0xE0 != 0xE0 {
+        return false;
+    }
+    let version = (bytes[1] >> 3) & 0b11;
+    let layer = (bytes[1] >> 1) & 0b11;
+    let bitrate = bytes[2] >> 4;
+    let sample_rate = (bytes[2] >> 2) & 0b11;
+    version != 0b01 && layer == 0b01 && bitrate != 0b1111 && sample_rate != 0b11
 }
 
 /// What to play for an area.
@@ -256,7 +272,9 @@ mod tests {
 
     fn fake_wav() -> Vec<u8> { wav_bytes(&[0, 100, -100, 0]) }
     fn fake_ogg() -> Vec<u8> { b"OggS\0\x02rest-of-the-file".to_vec() }
-    fn fake_mp3() -> Vec<u8> { b"\0\0\0\x18ftypisom\0\0\0\0isomiso2".to_vec() }
+    fn fake_mp3() -> Vec<u8> { b"ID3\x04\0\0\0\0\0\x22rest-of-the-file".to_vec() }
+    /// A bare MPEG-1 Layer III frame header (128 kbit/s, 44.1 kHz), what an mp3 without a tag starts with.
+    fn bare_mp3() -> Vec<u8> { vec![0xFF, 0xFB, 0x90, 0x64, 0, 0, 0, 0] }
 
     #[test]
     fn track_names_must_be_plain_files_in_a_supported_format() {
@@ -283,7 +301,26 @@ mod tests {
         assert!(!looks_like("ogg", b"Og"), "too short");
         assert!(!looks_like("wav", b"RIFF"), "too short");
         assert!(!looks_like("mp3", b""), "empty");
-        assert!(!looks_like("mp3", b"ID3"), "unsupported format");
+        assert!(!looks_like("mp3", b"ID3"), "an ID3 marker alone is too short to trust");
+    }
+
+    #[test]
+    fn mp3_means_mp3_not_an_mp4_container() {
+        // What encoders write: an ID3 tag first, or a bare MPEG Layer III frame.
+        assert!(looks_like("mp3", &fake_mp3()));
+        assert!(looks_like("mp3", &bare_mp3()));
+        // An MPEG-2 and an MPEG-2.5 Layer III frame header are mp3 too.
+        assert!(looks_like("mp3", &[0xFF, 0xF3, 0x90, 0x64]));
+        assert!(looks_like("mp3", &[0xFF, 0xE3, 0x90, 0x64]));
+        // Not mp3: an MP4/AAC container (`ftyp` box), a bare AAC stream (layer 0), a reserved
+        // version, reserved bitrate and sample-rate fields, text, and wav.
+        assert!(!looks_like("mp3", b"\0\0\0\x18ftypisom\0\0\0\0isomiso2"));
+        assert!(!looks_like("mp3", &[0xFF, 0xF1, 0x50, 0x80]), "ADTS AAC");
+        assert!(!looks_like("mp3", &[0xFF, 0xEB, 0x90, 0x64]), "reserved MPEG version");
+        assert!(!looks_like("mp3", &[0xFF, 0xFB, 0xF0, 0x64]), "reserved bitrate");
+        assert!(!looks_like("mp3", &[0xFF, 0xFB, 0x9C, 0x64]), "reserved sample rate");
+        assert!(!looks_like("mp3", b"this is not audio at all"));
+        assert!(!looks_like("mp3", &fake_wav()));
     }
 
     #[test]
@@ -407,5 +444,23 @@ mod tests {
         assert_eq!(Track::Silence.label(), "silence");
         assert_eq!(Track::File { name: "a.ogg".into(), bytes: vec![] }.label(), "file a.ogg");
         assert_eq!(Track::Builtin { theme: "road".into(), bytes: vec![] }.label(), "built-in road theme");
+    }
+
+    /// The point of the whole change: bytes that pass `looks_like` really play. Hands the shipped
+    /// mp3 and a built-in theme to Bevy's own decoder (the one the game uses, which panics on
+    /// anything it cannot read) and checks that real, non-silent samples come out.
+    #[test]
+    fn the_games_audio_decoder_plays_the_shipped_mp3_and_the_builtin_themes() {
+        use bevy::audio::{AudioSource, Decodable};
+        fn audible(bytes: Vec<u8>) -> usize {
+            let source = AudioSource { bytes: bytes.into() };
+            source.decoder().take(400_000).filter(|sample| *sample != 0).count()
+        }
+        let mp3 = std::fs::read(Path::new(BGM_DIR).join("bluebrook.mp3")).expect("assets/bgm/bluebrook.mp3 ships with the game");
+        assert!(looks_like("mp3", &mp3));
+        assert!(audible(mp3) > 1_000, "the mp3 decodes to sound");
+        for id in THEMES {
+            assert!(audible(theme_wav(id).unwrap()) > 1_000, "{id} theme decodes to sound");
+        }
     }
 }

@@ -392,8 +392,10 @@ pub fn spawn_creature(commands: &mut Commands, kit: &Kit, id: &str, at: Vec3, ya
     root
 }
 
-/// A thicket: a tangle of dark leafy mounds and bare branches that fills its tile. It marks a
-/// tree tile that cannot be chopped, so it never looks like the tall pine of a harvestable tree.
+/// A thicket: a tangle of dark leafy mounds that fills its tile, with nothing sticking out of it.
+/// It marks a tree tile that cannot be chopped, so it never looks like the tall pine of a
+/// harvestable tree. (An earlier version had bare brown branches poking out of the top; they
+/// read as sticks in a bush and were removed.)
 pub fn spawn_thicket(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, shade: usize) -> Entity {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale)))).id();
     let leaves = [&kit.thicket[shade % 2], &kit.thicket[(shade + 1) % 2]];
@@ -402,13 +404,6 @@ pub fn spawn_thicket(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, sca
     for (x, z, size, tall, which) in mounds {
         let mound = commands.spawn(part(&kit.rock, leaves[which], Transform::from_xyz(x, 0.3 * tall + 0.05, z).with_scale(Vec3::new(size, tall, size)))).id();
         commands.entity(root).add_child(mound);
-    }
-    // Bare, crooked branches poking out of the top.
-    for (x, z, lean_x, lean_z) in [(0.1, 0.05, 0.35, -0.2), (-0.15, -0.05, -0.3, 0.25), (0.02, -0.2, 0.1, 0.4)] {
-        let branch = commands
-            .spawn(part(&kit.trunk, &kit.bark, Transform::from_xyz(x, 0.95, z).with_rotation(Quat::from_euler(EulerRot::XYZ, lean_x, 0.0, lean_z)).with_scale(Vec3::new(0.45, 0.8, 0.45))))
-            .id();
-        commands.entity(root).add_child(branch);
     }
     root
 }
@@ -507,58 +502,37 @@ pub fn spawn_vine_row(commands: &mut Commands, kit: &Kit, at: Vec3, along_x: boo
     root
 }
 
-/// A walk-in house. Returns `(walls, roof)`: the walls (with the doorway frame) and the roof
-/// are separate roots so the game can lower the walls and hide the roof while the player is
-/// inside. The doorway is an open gap; the floor is planking under the interior and doorway.
+/// A walk-in house. Returns `(walls, roof)`: the walls (with the doorway frame and floor) and
+/// the roof are separate roots so the game can lower the walls and hide the roof while the
+/// player is inside. The shape comes from `HouseSpawn::shell_boxes` (thin walls down the middle
+/// of the ring tiles, an open one-tile doorway, one floor), which is tested so that no two
+/// boxes share a face: that is what stops the walls z-fighting once the roof is off.
 pub fn spawn_house(commands: &mut Commands, kit: &Kit, map: &ozbound::world::WorldMap, house: &ozbound::homestead::HouseSpawn, roof_variant: usize) -> (Entity, Entity) {
-    use ozbound::homestead::Side;
-    use ozbound::world::{Tile, TilePos};
+    use ozbound::homestead::{ShellPart, WALL_HEIGHT};
+    use ozbound::world::TilePos;
     let corner_a = map.tile_center_3d(house.origin, 0.0);
     let corner_b = map.tile_center_3d(TilePos::new(house.origin.x + house.width - 1, house.origin.y + house.height - 1), 0.0);
     let center = Vec3::new((corner_a[0] + corner_b[0]) / 2.0, 0.0, (corner_a[2] + corner_b[2]) / 2.0);
-    let at = |tile: TilePos| Vec3::from_array(map.tile_center_3d(tile, 0.0)) - center;
 
     let walls = commands.spawn(pivot(Transform::from_translation(center))).id();
-    let wall_height = 1.5;
-    let door_on_x_wall = matches!(house.door, Side::North | Side::South);
-    for tile in house.footprint() {
-        let local = at(tile);
-        match house.tile_at(tile) {
-            Some(Tile::Wall) => {
-                let block = commands.spawn(part(&kit.cube, &kit.wall, Transform::from_xyz(local.x, wall_height / 2.0, local.z).with_scale(Vec3::new(1.0, wall_height, 1.0)))).id();
-                // A darker timber band along the top of each wall tile.
-                let band = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(local.x, wall_height - 0.06, local.z).with_scale(Vec3::new(1.02, 0.12, 1.02)))).id();
-                commands.entity(walls).add_children(&[block, band]);
-            }
-            Some(Tile::Door) => {
-                let (lintel, post_offset, post_size) = if door_on_x_wall {
-                    (Vec3::new(1.0, 0.4, 0.9), Vec3::new(0.43, 0.0, 0.0), Vec3::new(0.14, 1.1, 0.9))
-                } else {
-                    (Vec3::new(0.9, 0.4, 1.0), Vec3::new(0.0, 0.0, 0.43), Vec3::new(0.9, 1.1, 0.14))
-                };
-                let top = commands.spawn(part(&kit.cube, &kit.wall, Transform::from_xyz(local.x, wall_height - 0.2, local.z).with_scale(lintel))).id();
-                commands.entity(walls).add_child(top);
-                for sign in [-1.0f32, 1.0] {
-                    let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_translation(Vec3::new(local.x, 0.55, local.z) + post_offset * sign).with_scale(post_size))).id();
-                    commands.entity(walls).add_child(post);
-                }
-                let sill = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(local.x, 0.03, local.z).with_scale(Vec3::new(1.0, 0.08, 1.0)))).id();
-                commands.entity(walls).add_child(sill);
-            }
-            Some(Tile::Floor) => {
-                let plank = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(local.x, 0.03, local.z).with_scale(Vec3::new(1.0, 0.08, 1.0)))).id();
-                commands.entity(walls).add_child(plank);
-            }
-            _ => {}
-        }
+    for shell in house.shell_boxes() {
+        let material = match shell.part {
+            ShellPart::Wall | ShellPart::Lintel => &kit.wall,
+            ShellPart::Cap | ShellPart::Post => &kit.bark,
+            ShellPart::Floor | ShellPart::Threshold => &kit.plank,
+        };
+        let piece = commands.spawn(part(&kit.cube, material, Transform::from_translation(Vec3::from_array(shell.center)).with_scale(Vec3::from_array(shell.size)))).id();
+        commands.entity(walls).add_child(piece);
     }
 
-    // A hip roof over the whole footprint with a small overhang, in its own root so it can be hidden.
-    let roof = commands.spawn(pivot(Transform::from_translation(center + Vec3::Y * wall_height).with_scale(Vec3::new(house.width as f32 + 0.5, 1.0, house.height as f32 + 0.5)))).id();
+    // A hip roof over the walls with an overhang, in its own root so it can be hidden. It starts
+    // just above the timber cap on the wall tops.
+    let (roof_x, roof_z) = house.roof_size();
+    let roof = commands.spawn(pivot(Transform::from_translation(center + Vec3::Y * (WALL_HEIGHT + 0.05)).with_scale(Vec3::new(roof_x, 1.0, roof_z)))).id();
     // The cone's base sits at the bottom of its own height, so lift it by half the rise.
     let rise = 1.0 + 0.1 * house.height.min(house.width) as f32;
     let cone = commands
-        .spawn(part(&kit.roof_cone, &kit.roofs[roof_variant % kit.roofs.len()], Transform::from_xyz(0.0, 0.02 + 0.5 * rise, 0.0).with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)).with_scale(Vec3::new(1.0, rise, 1.0))))
+        .spawn(part(&kit.roof_cone, &kit.roofs[roof_variant % kit.roofs.len()], Transform::from_xyz(0.0, 0.5 * rise, 0.0).with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_4)).with_scale(Vec3::new(1.0, rise, 1.0))))
         .id();
     commands.entity(roof).add_child(cone);
     (walls, roof)

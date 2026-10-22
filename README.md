@@ -201,6 +201,6 @@ The game now starts in **Bluebrook** (`assets/maps/bluebrook.map`): the meadow, 
 The starting village is now **Bluebrook**, in the Land of the Munchkins. It has three plots with walk-in houses, gardens, and vineyards, a wooden bridge, and thickets along the forest edge. Walk east to the end of the main road to travel to the Yellow Brick Road, a second region with its own map and music.
 
 - `assets/world/locations.world` is the data form of `LOCATIONS.md`: every place, where it leads, which can be played, and its music.
-- Put your own music in `assets/bgm/` (ogg, wav, or mp4; see `assets/bgm/README.md`). Without it each area plays a short theme generated in code.
+- Put your own music in `assets/bgm/` (ogg, wav, or mp3; see `assets/bgm/README.md`). Without it each area plays a short theme generated in code.
 - `OZBOUND_MAP` still replaces the starting village's map. Other regions are read from `assets/maps/` (or built-in copies).
 - Saves are now format 2 (they record which region you are in). Older saves still load.

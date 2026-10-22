@@ -4,7 +4,7 @@
 # LOCATIONS.md; a unit test (locations.rs) checks every row of its register table against this
 # file, so the two cannot drift apart. A place with a `map` can be played; the rest are planned.
 # Fields: name, source, priority, summary, exits, map (assets/maps/), music (assets/bgm/ .ogg,
-# .wav, or .mp4), theme (built-in fallback: village or road), start (exactly one place).
+# .wav, or .mp3), theme (built-in fallback: village or road), start (exactly one place).
 
 [location KANSAS_FARM]
 name = Dorothy's home and Kansas prairie
@@ -20,7 +20,7 @@ priority = P0
 summary = Arrival region and first friendly settlement (the village of Bluebrook); the way onward is the road east.
 exits = YELLOW_BRICK_ROAD_EAST
 map = bluebrook.map
-music = bluebrook.wav
+music = bluebrook.mp3
 theme = village
 start = yes
 

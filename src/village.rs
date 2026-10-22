@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn the_shipped_world_loads_and_holds_together() {
         let world = world();
-        assert_eq!((world.level.map.width(), world.level.map.height()), (40, 24));
+        assert_eq!((world.level.map.width(), world.level.map.height()), (64, 40));
         assert_eq!(world.content.quests.len(), 5);
         assert_eq!(world.level.npc_list().len(), 5);
         assert_eq!(world.bestiary.len(), 3);
@@ -531,13 +531,13 @@ mod tests {
     fn befriending_needs_a_bestiary_entry_and_a_creature_in_the_level() {
         let error = with(None, Some(("befriend meadow_hare", "befriend dragon")), None, None).unwrap_err();
         assert!(error.contains("`dragon`") && error.contains("bestiary"), "{error}");
-        let error = with(Some(("meadow_hare 6 6\n", "")), None, None, None).unwrap_err();
+        let error = with(Some(("meadow_hare 6 16\n", "")), None, None, None).unwrap_err();
         assert!(error.contains("`meadow_hare`") && error.contains("[creatures]"), "{error}");
     }
 
     #[test]
     fn a_creature_missing_from_the_bestiary_is_refused() {
-        let error = with(Some(("lantern_moth 27 16", "swamp_toad 27 16")), None, None, None).unwrap_err();
+        let error = with(Some(("lantern_moth 30 26", "swamp_toad 30 26")), None, None, None).unwrap_err();
         assert!(error.contains("`swamp_toad`") && error.contains("not in the bestiary"), "{error}");
     }
 
@@ -557,8 +557,8 @@ mod tests {
             .join("\n");
         let error = rebuild(&no_trees, BLUEBROOK_QUESTS, BLUEBROOK_DIALOGUE, DEFAULT_BESTIARY).unwrap_err();
         assert!(error.contains("bridge_staff") && error.contains("ingredients cannot all be obtained"), "{error}");
-        let error = with(None, Some(("collect moonpetal 3", "collect moonpetal 5")), None, None).unwrap_err();
-        assert!(error.contains("moonpetals but the level has only 4"), "{error}");
+        let error = with(None, Some(("collect moonpetal 3", "collect moonpetal 9")), None, None).unwrap_err();
+        assert!(error.contains("moonpetals but the level has only 7"), "{error}");
     }
 
     #[test]

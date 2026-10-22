@@ -82,8 +82,9 @@ fn a_journey_east_across_the_bridge_and_back_again_without_a_scene_change() {
         assert!(across.contains(b), "the crossing goes over {b:?}");
     }
     assert!(across.iter().all(|t| composite.level.exit_at(*t).is_none()), "no tile on the way sends you anywhere");
-    let seam = TilePos::new(origin.x, 9);
-    assert!(across.contains(&seam) && across.contains(&TilePos::new(origin.x - 1, 9)), "the route runs straight over the border");
+    let seam_y = (0..village.map.height() as i32).find(|y| village.map.tile_at(TilePos::new(village.map.width() as i32 - 1, *y)) == Ok(Tile::Path)).expect("the village road reaches its east edge");
+    let seam = TilePos::new(origin.x, seam_y);
+    assert!(across.contains(&seam) && across.contains(&TilePos::new(origin.x - 1, seam_y)), "the route runs straight over the border");
 
     // And back again.
     let home = walk(&composite.level, far_bank, composite.level.player_start);
@@ -159,11 +160,32 @@ fn a_file_in_the_bgm_folder_replaces_the_builtin_theme() {
     let dir = scratch_dir();
     let location = world.locations.start();
     let name = location.music.clone().expect("the start region names a track");
-    let bytes: &[u8] = if name.ends_with(".mp3") { b"\0\0\0\x18ftypisom\0\0\0\0isomiso2" } else { b"OggS\0\x02pretend this is vorbis" };
+    let bytes: &[u8] = if name.ends_with(".mp3") { b"ID3\x04\0\0\0\0\0\x22pretend this is an mp3" } else { b"OggS\0\x02pretend this is vorbis" };
     std::fs::write(dir.join(&name), bytes).unwrap();
     let choice = music::choose(&dir, Some(&name), location.theme.as_deref());
     assert!(matches!(choice.track, Track::File { .. }), "{}", choice.track.label());
     assert_eq!(choice.note, None);
+}
+
+/// The start village's track is the mp3 that ships in `assets/bgm/`: the location register and
+/// the overworld zone agree on its name, the file passes the signature check, and `choose`
+/// plays that file (not the built-in theme).
+#[test]
+fn the_shipped_start_village_mp3_is_found_and_chosen() {
+    let world = world();
+    let location = world.locations.start();
+    assert_eq!(location.music.as_deref(), Some("bluebrook.mp3"));
+    let zone = world.overworld.as_ref().unwrap().zone_at(world.level.player_start).unwrap();
+    assert_eq!(zone.track.music.as_deref(), Some("bluebrook.mp3"), "the zone and the register name the same file");
+    let choice = music::choose(Path::new(music::BGM_DIR), zone.track.music.as_deref(), zone.track.theme.as_deref());
+    assert_eq!(choice.note, None, "{:?}", choice.note);
+    match choice.track {
+        Track::File { name, bytes } => {
+            assert_eq!(name, "bluebrook.mp3");
+            assert!(music::looks_like("mp3", &bytes));
+        }
+        other => panic!("expected the mp3 file, got {}", other.label()),
+    }
 }
 
 fn scratch_dir() -> PathBuf {
