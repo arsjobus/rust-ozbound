@@ -265,23 +265,34 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Acceptance: tests pass (`cargo test`: 773 unit tests in the library plus the integration tests, nine of them new in `tests/npc_playthrough.rs`).
   - Limits, stated plainly: nothing was run in a window, so how the strolling, turning, and waving look, how a villager walks past the player, and whether stride speed (1.7 tiles per second) feels right are unchecked by eye; run section 10 of `docs/SMOKE_TEST.md`. NPC tiles still do not block the player (as before), so the player can walk through a villager; villagers only avoid stepping onto the player. Villagers' positions are not saved: a chunk that streams back in puts them on their home tile again, and a village in a chunk the player has left is frozen (only loaded chunks think). Wanderers roam within their own chunk (a range that crosses a chunk edge is cut off by that chunk's map). A stationary NPC keeps facing the player after a conversation instead of turning back.
 
-## M12 - Fixing Saving & Use ECS & Networking / Online Capability
-- [ ] Saving is no longer working and needs to persist the player's progress once again
-- [ ] Sweep through and identify game objects that should use ECS and make them use ECS that Bevy claims to have available.
-- [ ] Should design this system in such a way that the game world and assets could be networked for multiplayer
+## M11 - Fixing Saving & Use ECS & Networking / Online Capability
+- [x] Saving is no longer working and needs to persist the player's progress once again
+  - Cause (found by reading the code and reproduced in tests, not seen in a window): the loader refused any save it could not place exactly, and a refused save switched saving off for the whole session. Two ways to get one: (1) a save from before M9 resized the world (`world 40 24` against a 64 x 40 map, a different road row, moved trees and petals), and (2) a save written while the player stood on the tile where a villager, the guide, or a creature *starts* its day. Since M10 villagers wander and nobody blocks the player, so an autosave landing on such a tile was a save the next start refused ("Pell stands there").
+  - Done: `save_store::restore` (moved out of `main.rs`, so it is tested) starts the game. A save that loads is used as before. A save that is refused keeps the player's progress: `SaveGame::progress_only` reads bag, gear, skills, quests, and creatures met, drops `region`, `world`, `player`, `picked`, and `node`, and restarts the player at the start of Bluebrook with an untouched world (`Outcome::Recovered`). A save whose progress is itself damaged starts a new game (`Outcome::SetAside`). Either way the original file is first copied to `saves/game.txt.unusable-N` (never overwriting an earlier copy) and the usable game is written at once, so saving continues and the next start loads normally. A save from a newer format, an unreadable path, or a copy that cannot be made is still left exactly as it is, with saving off (`Outcome::LeftAlone`). `check_player` no longer looks at other people's tiles. A failed write no longer ends saving for the session: it says so once, retries every 30 s, and says when saving works again.
+  - Tests: 16 new (stale map size, blocked or off-map tile, stale `picked`/`node`, unknown region, damaged progress, cut-off file, newer format, unreadable path, copies never overwrite, the rewritten file loads strictly, a player on a villager's home tile loads, and the format version can be peeked).
+- [x] Sweep through and identify game objects that should use ECS and make them use ECS that Bevy claims to have available.
+  - Sweep result (also in `docs/ARCHITECTURE.md`): world objects (nodes, petals, creatures, NPCs and their brains and bodies, houses) were already entities with components. What was not: everything the *player* has (bag, gear, skills, quest log, creatures met) lived in two global resources (`GameProgress`, `Wildlife::notes`), so progress belonged to the program rather than to a character. Resources that rightly stay resources: the loaded map, `ChunkMemory`, `Streaming`, content, settings, UI and input state, `TalkState`.
+  - Done: the five pieces are now components on the player entity (`Bag`, `Gear`, `SkillSet`, `QuestJournal`, `FieldBook`, spawned as the `PlayerProgress` bundle). Systems read them through the `ProgressRef` and `ProgressMut` queries (`interact`, `movement`, `pack_ui`, `dialogue_ui`, `hud`, `persist`, `travel`). `GameProgress` now only carries the chat notice. A journey despawns and respawns the player, so `apply_travel` writes the progress into `StartingSave` first. The crafting panel redraws on `Changed<Bag/Gear/SkillSet>` instead of on any touch of the old resource.
+  - Tests: bin-crate tests spawn two players in a bare `World`, run a system over `ProgressMut`, check the changes stay on their own entity, round-trip into a `SaveGame`, and check change detection.
+- [x] Should design this system in such a way that the game world and assets could be networked for multiplayer
+  - Done (design and groundwork only; nothing is networked): `docs/NETWORKING.md` sets out the design, an authoritative simulation fed by `Command`s, with clients drawing what it replicates. `net.rs` (pure) adds `NetId` (a stable 64-bit name computed from scope, kind, and tile, identical on every machine and run), `PlayerId`, and `Command` (walk, interact, choose, craft row, say) with a one-line text form that refuses malformed input with a reason. Every interactable object now carries `Replicated(NetId)` from spawn (`streaming::assign_net_ids`). Progress living on the player entity (above) is what lets a second player exist.
+  - Tests: ids are unique across every shipped region and across the whole composed overworld, stable between calls, and the hash is checked against FNV-1a; every command round-trips and every malformed one is refused.
+  - Not done, on purpose: input systems still act directly instead of emitting `Command`s, there is no server, transport, snapshot format, or prediction, and *assets* are not yet described by a manifest (list, version, and hash per file) that a client could check. `docs/NETWORKING.md` lists these as the steps for a later phase.
+  - Acceptance: `cargo test` passes (874 tests: 796 unit tests in the library, 2 in the binary, plus the integration tests).
+  - Limits, stated plainly: nothing was run in a window, so the new start-up messages, the crafting panel redraw, and a journey through a cave exit (progress now travels through `StartingSave`) are unchecked by eye; run section 11 of `docs/SMOKE_TEST.md`. The diagnosis of the broken save comes from the code and from tests that reproduce both causes; if your save still fails after this, the console now prints the full reason and where the copy was kept. Changes to trees and petals in chunks other than the one you stand in are still not saved (only the current chunk's are; this is the old limitation, not new). Milestone numbering: there is no M11 in this file; this is the phase after M10. `cargo clippy ... -D warnings` reports four errors in `behavior.rs`, `locations.rs`, `overworld.rs`, and `npc.rs` with clippy 1.89 (already there before this change; the files of this change add none), and the repository is not rustfmt-clean (1,456 diffs before this change), so no reformatting was done.
 
-## M13 - Editor Mode and Basic Adjustments
+## M12 - Editor Mode and Basic Adjustments
 - [ ] Should be able to enter world edit mode with the /edit command
 - [ ] Should convert in game objects and NPCs to some standalone reusable asset files
 - [ ] Should convert the low-poly terrain into a stitchable terrain mesh that belongs to a scene
 - [ ] Should be able to select an NPC or game object asset and reposition it within a scene
-- [ ] Should be able to select and choose to remove an asset from a scene
-- [ ] Should be able to undo / redo each edit
+- [ ] Should be able to select and choose to remove an asset from a scene (extended right-click context menu)
+- [ ] Should be able to undo / redo each edit (editor ribbon bar at the top of window) - select tool, select and move tool, undo, redo buttons, etc..
 
-## M14 - WebGL Build
+## M13 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
 
-## M15 — Optional future directions (not committed)
+## M14 — Optional future directions (not committed)
 - [ ] Consider controller support.
 - [ ] Consider a larger world split into local map regions.
 - [ ] Evaluate multiplayer only if there is a compelling reason; do not make it a prerequisite.

@@ -38,6 +38,7 @@ pub fn apply_travel(
     mut starting: ResMut<StartingSave>,
     mut progress: ResMut<GameProgress>,
     mut pointing: streaming::Pointing,
+    mine: Query<ProgressRef, With<Player>>,
     old: Query<Entity, Or<(With<RegionEntity>, With<ChunkEntity>, With<Player>, With<WorldFloor>)>>,
     petals: Query<&Interactable, With<Moonpetal>>,
     nodes: Query<(&ResourceNode, &Interactable)>,
@@ -79,6 +80,11 @@ pub fn apply_travel(
     // Changes made in a place just left are kept only for overworld chunks (see
     // `ozbound::save`); the new place starts from its map as written.
     let mut game = starting.0.clone();
+    // The player entity is about to be despawned and spawned again by `build_world`, which
+    // reads its progress from `StartingSave`, so what the player has goes in here first.
+    if let Ok(progress) = mine.get_single() {
+        progress.write_to(&mut game);
+    }
     game.region = (exit.region != atlas.locations.start().id).then(|| exit.region.clone());
     game.map_size = (target.map.width(), target.map.height());
     game.player = arrive;

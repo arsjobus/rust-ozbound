@@ -35,6 +35,7 @@ pub fn dialogue_input(
     content: Res<GameContent>,
     chat: Res<ChatState>,
     mut progress: ResMut<GameProgress>,
+    mut players: Query<ProgressMut, With<Player>>,
     mut talk: ResMut<TalkState>,
 ) {
     let Some(active) = talk.0.as_mut() else { return };
@@ -45,8 +46,8 @@ pub fn dialogue_input(
     if index >= active.view().choices.len() {
         return;
     }
-    let progress = &mut *progress;
-    let (messages, open) = active.choose(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, index);
+    let Ok(mut mine) = players.get_single_mut() else { return };
+    let (messages, open) = active.choose(&content.0, &mut mine.log.0, &mut mine.inventory.0, &mine.skills.0, index);
     if !messages.is_empty() {
         progress.notice = messages.join(" ");
     }

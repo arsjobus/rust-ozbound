@@ -3,8 +3,9 @@
 //! module only gathers the current state from the world and decides when to write.
 //!
 //! The game is written at most once a second, and only when something changed, plus once more
-//! when the game exits. A write that fails turns saving off for the session instead of retrying
-//! every second, and says so in the chat area and on the console.
+//! when the game exits. A write that fails does not turn saving off: it says so once, in the
+//! chat area and on the console, and tries again every [`RETRY_INTERVAL`] seconds, so a full disk
+//! or a locked folder that clears up does not leave the rest of the session unsaved.
 
 use bevy::prelude::*;
 use ozbound::{
@@ -19,6 +20,9 @@ use crate::components::*;
 /// Seconds between checks for changes.
 const SAVE_INTERVAL: f32 = 1.0;
 
+/// Seconds between attempts while writes are failing.
+const RETRY_INTERVAL: f32 = 30.0;
+
 /// The game as it is right now: the player, bag, gear, skills, quests, creatures met, and what
 /// has been picked or used up in the world.
 fn current_game(
@@ -26,13 +30,11 @@ fn current_game(
     atlas: &Atlas,
     streaming: &Streaming,
     region: &CurrentRegion,
-    progress: &GameProgress,
-    wildlife: &Wildlife,
-    players: &Query<&Player>,
+    players: &Query<(&Player, ProgressRef)>,
     petals: &Query<&Interactable, With<Moonpetal>>,
     nodes: &Query<(&ResourceNode, &Interactable)>,
 ) -> Option<SaveGame> {
-    let player = players.get_single().ok()?;
+    let (player, mine) = players.get_single().ok()?;
     let petals_left: Vec<TilePos> = petals.iter().map(|petal| petal.tile).collect();
     let node_state: Vec<(TilePos, u32)> = nodes.iter().map(|(node, at)| (at.tile, node.0.remaining_actions())).collect();
     // On the overworld the world holds several chunks in world tiles; the save describes the one
@@ -49,26 +51,33 @@ fn current_game(
     let mut game = SaveGame::new_game(local_level);
     game.region = (region_id != atlas.locations.start().id).then_some(region_id);
     game.player = tile;
-    game.bag = progress.inventory.clone();
-    game.equipment = progress.equipment.clone();
-    game.skills = progress.skills.clone();
-    game.quests = progress.log.clone();
-    game.notes = wildlife.notes.clone();
+    mine.write_to(&mut game);
     game.changes = changes;
     Some(game)
 }
 
-/// Writes `game` if it differs from what is on disk.
+/// Writes `game` if it differs from what is on disk. A failed write is reported once and
+/// retried after [`RETRY_INTERVAL`] seconds; the first write that works says saving is back.
 fn write(save: &mut SaveState, progress: &mut GameProgress, game: SaveGame) {
     if game == save.saved {
         return;
     }
     match save_store::save(&save.path, &game) {
-        Ok(()) => save.saved = game,
+        Ok(()) => {
+            save.saved = game;
+            if save.failing {
+                save.failing = false;
+                progress.notice = "Saving works again.".into();
+            }
+        }
         Err(error) => {
-            eprintln!("warning: {error}; progress will not be saved this session");
-            save.enabled = false;
-            progress.notice = "Your progress could not be saved. See the console for details.".into();
+            if !save.failing {
+                eprintln!("warning: {error}; will try again every {RETRY_INTERVAL} seconds");
+                progress.notice = "Your progress could not be saved. The game will keep trying. See the console for details.".into();
+            }
+            save.failing = true;
+            // `persist_game` waits until `idle` reaches `SAVE_INTERVAL` again.
+            save.idle = SAVE_INTERVAL - RETRY_INTERVAL;
         }
     }
 }
@@ -80,9 +89,8 @@ pub fn persist_game(
     atlas: Res<Atlas>,
     streaming: Res<Streaming>,
     mut progress: ResMut<GameProgress>,
-    wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
-    players: Query<&Player>,
+    players: Query<(&Player, ProgressRef)>,
     petals: Query<&Interactable, With<Moonpetal>>,
     nodes: Query<(&ResourceNode, &Interactable)>,
 ) {
@@ -94,7 +102,7 @@ pub fn persist_game(
         return;
     }
     save.idle = 0.0;
-    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }
@@ -108,16 +116,15 @@ pub fn save_on_exit(
     atlas: Res<Atlas>,
     streaming: Res<Streaming>,
     mut progress: ResMut<GameProgress>,
-    wildlife: Res<Wildlife>,
     mut save: ResMut<SaveState>,
-    players: Query<&Player>,
+    players: Query<(&Player, ProgressRef)>,
     petals: Query<&Interactable, With<Moonpetal>>,
     nodes: Query<(&ResourceNode, &Interactable)>,
 ) {
     if exits.read().next().is_none() || !save.enabled {
         return;
     }
-    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &progress, &wildlife, &players, &petals, &nodes) {
+    if let Some(game) = current_game(&level.0, &atlas, &streaming, &region, &players, &petals, &nodes) {
         write(&mut save, &mut progress, game);
     }
 }

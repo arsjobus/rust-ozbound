@@ -19,6 +19,7 @@ pub mod locations;
 pub mod orbit;
 pub mod overworld;
 pub mod music;
+pub mod net;
 pub mod npc;
 pub mod pack;
 pub mod pathfinding;

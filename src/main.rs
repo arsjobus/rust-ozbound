@@ -30,8 +30,8 @@ use std::path::PathBuf;
 
 use bevy::prelude::*;
 use ozbound::{
-    save::{SaveContext, SaveGame},
-    save_store::{self, Loaded, Start},
+    save::SaveGame,
+    save_store,
     settings::Settings,
     settings_store, skills,
     text_fit::MIN_WINDOW,
@@ -98,48 +98,21 @@ fn load_world() -> Result<Bluebrook, String> {
     Ok(loaded.world)
 }
 
-/// Restores the saved game (see `ozbound::save` for what it holds). An unreadable or invalid
-/// save is reported and left alone: the game starts fresh and does not save over the old file
-/// this session, so the player can still recover it.
+/// Restores the saved game (see `ozbound::save` for what it holds, and `save_store::restore`
+/// for what happens to a save that does not fit this world: its progress is kept and the
+/// original file is copied aside, so a stale save no longer switches saving off).
 fn restore_game(world: &Bluebrook) -> (SaveGame, SaveState, String) {
     let env_path = |name: &str, default: &str| std::env::var_os(name).map_or_else(|| PathBuf::from(default), PathBuf::from);
     let path = env_path(SAVE_ENV, SAVE_PATH);
     let legacy = env_path(LEGACY_QUEST_SAVE_ENV, LEGACY_QUEST_SAVE_PATH);
-    // A save made in another region is checked against that region's map, so read its
-    // `region` line first. An unknown region is reported like any other unreadable save.
-    let saved_region = std::fs::read_to_string(&path).ok().and_then(|text| SaveGame::peek_region(&text));
-    let level = match saved_region.as_deref() {
-        None => Some(&world.level),
-        Some(id) => world.level_of(id),
-    };
-    let result = match level {
-        Some(level) => save_store::load(&path, Some(&legacy), &SaveContext { level, quests: &world.content.quests, bestiary: &world.bestiary }),
-        None => Err(ozbound::save_store::StoreError::unknown_region(&path, saved_region.as_deref().unwrap_or(""))),
-    };
-    match result {
-        Ok(Loaded { game, start }) => {
-            if start == Start::Loaded {
-                // Keep the save that just loaded, in case a later session writes something worse.
-                if let Err(error) = save_store::back_up(&path) {
-                    eprintln!("warning: could not keep a backup of {}: {error}", path.display());
-                }
-            }
-            let message = match start {
-                Start::NewGame => "",
-                Start::Loaded => "Welcome back. Your progress was restored. Press J to open your quest book.",
-                Start::MigratedQuests => "Welcome back. Your quest progress was carried over to the new save file.",
-            };
-            // A migrated game is not on disk in the new format yet, so it counts as unsaved.
-            let saved = if start == Start::MigratedQuests { SaveGame::new_game(&world.level) } else { game.clone() };
-            (game, SaveState { path, enabled: true, saved, idle: 0.0 }, message.to_string())
-        }
-        Err(error) => {
-            eprintln!("warning: {error}; starting a new game and not saving this session");
-            let message = "Your save could not be read, so progress will not be saved this session. See the console for how to recover it.";
-            let game = SaveGame::new_game(&world.level);
-            (game.clone(), SaveState { path, enabled: false, saved: game.clone(), idle: 0.0 }, message.to_string())
-        }
+    let level_of = |id: &str| world.level_of(id);
+    let restoring = save_store::Restore { start: &world.level, level_of: &level_of, quests: &world.content.quests, bestiary: &world.bestiary };
+    let restored = save_store::restore(&path, &legacy, &restoring);
+    if !restored.detail.is_empty() {
+        eprintln!("warning: {}", restored.detail);
     }
+    let state = SaveState { path, enabled: restored.saving, saved: restored.saved, idle: 0.0, failing: false };
+    (restored.game, state, restored.notice)
 }
 
 fn main() {
@@ -184,16 +157,10 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
         )
         .insert_resource(ClearColor(Color::srgb(0.56, 0.76, 0.92)))
-        .insert_resource(GameProgress {
-            log: game.quests.clone(),
-            notice: welcome,
-            inventory: game.bag.clone(),
-            equipment: game.equipment.clone(),
-            skills: game.skills.clone(),
-        })
+        .insert_resource(GameProgress { notice: welcome })
         .insert_resource(GameContent(content))
         .insert_resource(Recipes(recipes))
-        .insert_resource(Wildlife { bestiary, notes: game.notes.clone() })
+        .insert_resource(Wildlife { bestiary })
         .insert_resource(Portraits::default())
         .insert_resource(TalkPortrait::default())
         .insert_resource(PackState::default())
@@ -231,6 +198,7 @@ fn main() {
                     travel::finish_rebuild,
                     streaming::stream_chunks,
                     streaming::tag_world_entities,
+                    streaming::assign_net_ids,
                     travel::house_cutaways,
                     music_ui::sync_music,
                 )

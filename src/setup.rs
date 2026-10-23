@@ -620,7 +620,7 @@ pub fn build_world(
     // The player stands where the save left them (the level's start in a new game).
     let player_at = vec3(map.tile_center_3d(player_tile, 0.0));
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, player_at, 0.0);
-    commands.entity(player).insert(Player { tile: player_tile, task: Task::idle(), work: None, emote: None });
+    commands.entity(player).insert((Player { tile: player_tile, task: Task::idle(), work: None, emote: None }, PlayerProgress::from_save(&saved.0)));
 
     // A wide dark floor under the world so the map edge doesn't float in the sky colour.
     let floor = (map.width().max(map.height()) as f32 + 160.0).max(240.0);

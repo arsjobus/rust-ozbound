@@ -98,3 +98,13 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Walk so that a wandering villager is in your way: they stop short of your tile (you can still walk through them as before). Right-click a villager while they are moving: the menu opens for them, and Talk to still walks you to where they stop.
 - [ ] Hover over a moving villager: the "Talk to ..." label follows their body, not the tile they left.
 - [ ] Walk east across the chunk border and come back: the villagers are back on their home tiles (they are not saved) and carry on.
+
+## 11. Saving, progress as components, and object ids (M12)
+
+- [ ] Take a save made before M9 (or edit `saves/game.txt` so its `world` line says `world 40 24`), start the game: the chat says your saved game did not fit this version of the world and names `saves/game.txt.unusable-1`; your bag, gear, skills, and quest progress are as they were, you stand at the start of the village, and the console prints the reason. Quit and start again: a plain "Welcome back" and no new `.unusable` file.
+- [ ] Walk onto the tile where Brae, Ivo, or Pell started (they have wandered off), wait two seconds, quit, and start: you are restored on that tile and the chat says "Welcome back".
+- [ ] Replace `saves/game.txt` with some text that is not a save: a new game starts, the chat names the copy, `saves/game.txt.unusable-N` holds your text, and progress is saved from then on.
+- [ ] Make `saves/` read-only while playing (or fill the disk): the chat says progress could not be saved and that the game will keep trying, once. Restore access: within about 30 seconds the chat says "Saving works again" and `saves/game.txt` is current.
+- [ ] Gather, craft, equip, and talk to the guide as before; the bag, skills, and quest panels (B, K, J), the quest tracker, and the crafting panel (C) all update. Walk through a cave exit and back: your bag, gear, skills, quests, and field notes are unchanged.
+- [ ] Quit and start: everything above is restored.
+

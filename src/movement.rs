@@ -26,8 +26,10 @@ pub fn follow_route(
     mut progress: ResMut<GameProgress>,
     mut travel: ResMut<TravelOrder>,
     mut players: Query<(&mut Player, &mut Transform)>,
+    mut progress_of: Query<ProgressMut, With<Player>>,
 ) {
     let Ok((mut player, mut transform)) = players.get_single_mut() else { return };
+    let Ok(mut mine) = progress_of.get_single_mut() else { return };
     let Some(step) = player.task.next_step() else { return };
     let dest = meadow.0.tile_center_3d(step, 0.0);
     let here = (transform.translation.x, transform.translation.z);
@@ -44,7 +46,7 @@ pub fn follow_route(
         player.task.complete_step();
         player.tile = step;
         // Every tile walked counts toward Wayfinding (it stops teaching at level 3).
-        if let Some(line) = progress.skills.walked(1).and_then(|gain| gain.message()) {
+        if let Some(line) = mine.skills.0.walked(1).and_then(|gain| gain.message()) {
             progress.notice = line;
         }
         // Stepping onto an exit leaves for another region (`travel::apply_travel` does the move
@@ -58,8 +60,7 @@ pub fn follow_route(
         }
         // Reaching a named place tells the quest log (only a `visit` objective that is current counts).
         if let Some(place) = level.0.places.iter().find(|place| place.tile == step) {
-            let progress = &mut *progress;
-            let updates = progress.log.record(&content.0.quests, &QuestEvent::Visited { place: place.id.clone() });
+            let updates = mine.log.0.record(&content.0.quests, &QuestEvent::Visited { place: place.id.clone() });
             if !updates.is_empty() {
                 let mut text = format!("You reach {}.", place.name);
                 for update in &updates {

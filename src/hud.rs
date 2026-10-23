@@ -25,7 +25,7 @@ fn logical_window(windows: &Query<&Window, With<PrimaryWindow>>, ui_scale: &UiSc
 }
 
 pub fn update_hud(
-    progress: Res<GameProgress>,
+    players: Query<ProgressRef, With<Player>>,
     content: Res<GameContent>,
     hover: Res<HoverText>,
     dock: Res<DockState>,
@@ -47,8 +47,9 @@ pub fn update_hud(
         backing.0 = if hover.0.is_empty() { Color::NONE } else { Color::srgba(0.0, 0.0, 0.0, 0.55) };
     }
     let Ok(mut text) = hud.get_single_mut() else { return };
+    let Ok(mine) = players.get_single() else { return };
     // The tracker has 8px of padding each side.
-    text.0 = wrap_text(&tracker(&content.0.quests, &progress.log), chars_per_line(room - 16.0, HUD_PX));
+    text.0 = wrap_text(&tracker(&content.0.quests, &mine.log.0), chars_per_line(room - 16.0, HUD_PX));
 }
 
 /// B, K and J open or close the bag, skills, and quest book; PageUp and PageDown turn the
@@ -100,7 +101,7 @@ pub fn sync_toolbar(dock: Res<DockState>, mut buttons: Query<(&Interaction, &Too
 /// Shows the current page of the open side panel; the text follows the game state.
 pub fn update_dock_panel(
     mut dock: ResMut<DockState>,
-    progress: Res<GameProgress>,
+    players: Query<ProgressRef, With<Player>>,
     content: Res<GameContent>,
     wildlife: Res<Wildlife>,
     ui_scale: Res<UiScale>,
@@ -108,6 +109,7 @@ pub fn update_dock_panel(
     mut panel: Query<(&mut Text, &mut Visibility), With<DockPanel>>,
 ) {
     let Ok((mut text, mut visibility)) = panel.get_single_mut() else { return };
+    let Ok(mine) = players.get_single() else { return };
     let Some(tab) = dock.dock.current() else {
         if *visibility != Visibility::Hidden {
             *visibility = Visibility::Hidden;
@@ -118,12 +120,12 @@ pub fn update_dock_panel(
         *visibility = Visibility::Inherited;
     }
     let body = match tab {
-        Tab::Bag => bag_text(&progress.inventory, &progress.equipment),
-        Tab::Skills => skills_text(&progress.skills),
+        Tab::Bag => bag_text(&mine.inventory.0, &mine.equipment.0),
+        Tab::Skills => skills_text(&mine.skills.0),
         Tab::Quests => {
-            let notes = wildlife.notes.render(&wildlife.bestiary);
+            let notes = mine.notes.0.render(&wildlife.bestiary);
             let notes = if notes.is_empty() { notes } else { format!("\n\n{notes}") };
-            format!("{}{notes}", Journal::build(&content.0.quests, &progress.log).render())
+            format!("{}{notes}", Journal::build(&content.0.quests, &mine.log.0).render())
         }
     };
 

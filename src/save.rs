@@ -44,7 +44,7 @@
 //! its line. In particular: the header must be `ozbound-save <n>` with `1 <= n <= FORMAT_VERSION`
 //! (a newer format is refused with an explanation, never guessed at); `world` must match the
 //! current map; the player must stand on a walkable tile that can be reached from the start and
-//! that nobody else stands on; items, slots, skills, creatures, and quests must exist; the bag
+//! (villagers and creatures do not count: they move and do not block); items, slots, skills, creatures, and quests must exist; the bag
 //! must fit its capacity; gear must fit its slot; XP and walk counts must be possible;
 //! `picked` and `node` entries must point at real moonpetals and nodes; nothing may be listed
 //! twice. Missing optional entries take their defaults (an empty bag, level-1 skills, nothing
@@ -173,6 +173,15 @@ pub struct SaveGame {
     pub changes: WorldChanges,
 }
 
+/// The result of [`SaveGame::recover`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recovered {
+    pub game: SaveGame,
+    /// Why the save could not be loaded as it was, when its placement had to be dropped;
+    /// `None` when it loaded normally.
+    pub dropped: Option<ContentError>,
+}
+
 impl SaveGame {
     /// A new game on `level`: the player at the start, nothing carried, nothing done.
     pub fn new_game(level: &Level) -> Self {
@@ -239,6 +248,65 @@ impl SaveGame {
                 _ => None,
             }
         })
+    }
+
+    /// The format number in a save's header, without reading or validating anything else.
+    pub fn peek_version(text: &str) -> Option<u32> {
+        let header = text.trim_start_matches('\u{feff}').lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))?;
+        match header.split_whitespace().collect::<Vec<_>>().as_slice() {
+            [magic, version] if *magic == MAGIC => version.parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// Loads a save, and when only its *placement* is unusable keeps the rest.
+    ///
+    /// A save is two things: what the player has (bag, gear, skills, quests, creatures met) and
+    /// where things stand (`region`, `world`, `player`, `picked`, `node`). The second part goes
+    /// stale whenever the map is changed, so a save from before a map was resized or redrawn
+    /// is refused by [`SaveGame::from_text`] even though the player's progress is fine. This
+    /// tries the strict read first; if that fails it drops the placement lines, puts the player
+    /// at `ctx.level`'s start with an untouched world, and reads again. If that works the first
+    /// error is returned as `dropped`. If it does not, the progress itself is damaged and the
+    /// *first* error is returned (its line numbers are the file's own).
+    pub fn recover(text: &str, ctx: &SaveContext) -> Result<Recovered, ContentError> {
+        let first = match Self::from_text(text, ctx) {
+            Ok(game) => return Ok(Recovered { game, dropped: None }),
+            Err(error) => error,
+        };
+        match Self::progress_only(text, ctx) {
+            Ok(game) => Ok(Recovered { game, dropped: Some(first) }),
+            Err(_) => Err(first),
+        }
+    }
+
+    /// Reads only what the player has (bag, gear, skills, quests, creatures met) from a save and
+    /// ignores where things stand: the result is in `ctx.level`'s starting region, with the
+    /// player at its start and an untouched world, whatever the file's `region`, `world`,
+    /// `player`, `picked`, and `node` lines say. Errors carry line numbers of an edited copy, so
+    /// [`SaveGame::recover`] reports the first strict error instead.
+    pub fn progress_only(text: &str, ctx: &SaveContext) -> Result<Self, ContentError> {
+        let (width, height) = (ctx.level.map.width(), ctx.level.map.height());
+        let start = ctx.level.player_start;
+        let mut kept = Vec::new();
+        let mut header_done = false;
+        for raw in text.trim_start_matches('\u{feff}').lines() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if !header_done {
+                header_done = true;
+                kept.push(line.to_string());
+                kept.push(format!("world {width} {height}"));
+                kept.push(format!("player {} {}", start.x, start.y));
+                continue;
+            }
+            if !matches!(line.split_whitespace().next(), Some("region" | "world" | "player" | "picked" | "node")) {
+                kept.push(line.to_string());
+            }
+        }
+        Self::from_text(&(kept.join("\n") + "\n"), ctx)
     }
 
     /// Reads a save written by [`SaveGame::to_text`], validating it against `ctx`.
@@ -522,7 +590,7 @@ impl Reading {
     }
 }
 
-/// The player must stand somewhere play could have put them.
+/// The player must stand on a walkable tile that can be reached from the start.
 fn check_player(line: usize, at: TilePos, ctx: &SaveContext) -> Result<(), ContentError> {
     let level = ctx.level;
     if !level.map.can_walk_to(at) {
@@ -531,17 +599,11 @@ fn check_player(line: usize, at: TilePos, ctx: &SaveContext) -> Result<(), Conte
     if !level.map.is_reachable(level.player_start, at) {
         return Err(ContentError::at(line, format!("the player cannot be at ({}, {}): it cannot be reached from the starting tile", at.x, at.y)));
     }
-    let occupant = if level.guide == Some(at) {
-        Some("the village guide".to_string())
-    } else if let Some(npc) = level.npcs.iter().find(|npc| npc.tile == at) {
-        Some(npc.name.clone())
-    } else {
-        level.creatures.iter().find(|creature| creature.tile == at).map(|creature| format!("a creature ({})", creature.id))
-    };
-    match occupant {
-        Some(who) => Err(ContentError::at(line, format!("the player cannot be at ({}, {}): {who} stands there", at.x, at.y))),
-        None => Ok(()),
-    }
+    // Nobody else's tile is checked: villagers wander (M10) and neither they nor creatures block
+    // the player, so the player can be standing on a tile where someone started the day. An
+    // earlier version refused such a save ("Pell stands there"), which switched saving off for
+    // the whole session after an autosave landed on an NPC's home tile.
+    Ok(())
 }
 
 #[cfg(test)]
@@ -853,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn the_player_must_stand_on_a_free_walkable_reachable_tile() {
+    fn the_player_must_stand_on_a_walkable_reachable_tile() {
         let world = world();
         let text = busy_game(&world).to_text();
         let level = &world.level;
@@ -865,9 +927,6 @@ mod tests {
             ("water", water, "blocked"),
             ("off the map", TilePos::new(-1, 0), "blocked"),
             ("far off the map", TilePos::new(9999, 9999), "blocked"),
-            ("the guide", level.guide.expect("the shipped story level has a guide"), "guide"),
-            ("a villager", level.npcs[0].tile, &level.npcs[0].name),
-            ("a creature", level.creatures[0].tile, "creature"),
         ] {
             let e = load(&with_line(&text, "player", &format!("player {} {}", tile.x, tile.y)), &world).unwrap_err();
             assert!(e.message.contains(word), "{label}: {e}");
@@ -884,8 +943,7 @@ mod tests {
         for y in 0..level.map.height() as i32 {
             for x in 0..level.map.width() as i32 {
                 let tile = TilePos::new(x, y);
-                let free = level.guide != Some(tile) && level.npcs.iter().all(|n| n.tile != tile) && level.creatures.iter().all(|c| c.tile != tile);
-                if free && level.map.can_walk_to(tile) && level.map.is_reachable(level.player_start, tile) {
+                if level.map.can_walk_to(tile) && level.map.is_reachable(level.player_start, tile) {
                     let game = load(&with_line(&text, "player", &format!("player {x} {y}")), &world).unwrap();
                     assert_eq!(game.player, tile);
                     checked += 1;
@@ -893,6 +951,99 @@ mod tests {
             }
         }
         assert!(checked > 100, "only {checked} tiles checked");
+    }
+
+
+    #[test]
+    fn a_player_may_stand_where_a_villager_or_creature_started() {
+        // Regression: villagers wander and nobody blocks the player, so an autosave can land on
+        // a home tile. That save used to be refused, which turned saving off for the session.
+        let world = world();
+        let level = &world.level;
+        let text = busy_game(&world).to_text();
+        let mut tiles = vec![level.guide.expect("the shipped story level has a guide")];
+        tiles.extend(level.npcs.iter().map(|n| n.tile));
+        tiles.extend(level.creatures.iter().map(|c| c.tile));
+        for tile in tiles {
+            let game = load(&with_line(&text, "player", &format!("player {} {}", tile.x, tile.y)), &world).unwrap();
+            assert_eq!(game.player, tile);
+        }
+    }
+
+    // ---- recovery ----
+
+    fn recover(text: &str, world: &World) -> Result<Recovered, ContentError> {
+        SaveGame::recover(text, &ctx(world))
+    }
+
+    #[test]
+    fn a_healthy_save_recovers_as_itself() {
+        let world = world();
+        let game = busy_game(&world);
+        let r = recover(&game.to_text(), &world).unwrap();
+        assert_eq!(r.game, game);
+        assert!(r.dropped.is_none());
+    }
+
+    #[test]
+    fn a_save_from_a_resized_map_keeps_progress_and_restarts_the_player() {
+        let world = world();
+        let game = busy_game(&world);
+        let text = with_line(&game.to_text(), "world", "world 40 24");
+        let r = recover(&text, &world).unwrap();
+        assert!(r.dropped.unwrap().message.contains("different world"));
+        assert_eq!((&r.game.bag, &r.game.equipment, &r.game.skills), (&game.bag, &game.equipment, &game.skills));
+        assert_eq!(r.game.quests, game.quests);
+        assert_eq!(r.game.notes, game.notes);
+        assert_eq!(r.game.player, world.level.player_start);
+        assert_eq!(r.game.region, None);
+        assert!(r.game.changes.is_empty());
+        // What recovery returns is itself a save the strict reader accepts.
+        assert_eq!(load(&r.game.to_text(), &world).unwrap(), r.game);
+    }
+
+    #[test]
+    fn a_blocked_player_tile_or_stale_world_changes_are_dropped_not_fatal() {
+        let world = world();
+        let game = busy_game(&world);
+        let blocked = with_line(&game.to_text(), "player", "player -1 0");
+        assert!(recover(&blocked, &world).unwrap().dropped.is_some());
+        let stale = with_extra(&game.to_text(), "node 0 0 1\npicked 0 0");
+        let r = recover(&stale, &world).unwrap();
+        assert!(r.dropped.is_some());
+        assert_eq!(r.game.bag, game.bag);
+        assert!(r.game.changes.is_empty());
+    }
+
+    #[test]
+    fn a_region_this_world_does_not_have_is_dropped_too() {
+        let world = world();
+        let game = busy_game(&world);
+        let text = with_line(&with_extra(&game.to_text(), "region NOWHERE"), "world", "world 40 24");
+        let r = recover(&text, &world).unwrap();
+        assert_eq!(r.game.region, None);
+        assert_eq!(r.game.bag, game.bag);
+    }
+
+    #[test]
+    fn damaged_progress_is_not_recovered_and_reports_the_files_own_line() {
+        let world = world();
+        let text = with_line(&busy_game(&world).to_text(), "bag ", "bag no_such_item 1");
+        let first = load(&text, &world).unwrap_err();
+        let e = recover(&text, &world).unwrap_err();
+        assert_eq!(e, first);
+        assert_eq!(e.line, Some(line_of(&text, "bag ")));
+        // A file cut off before `end` is never trusted as a smaller game.
+        let cut = busy_game(&world).to_text().replace("end\n", "");
+        assert!(recover(&cut, &world).is_err());
+    }
+
+    #[test]
+    fn the_format_version_can_be_read_on_its_own() {
+        assert_eq!(SaveGame::peek_version("# note\nozbound-save 2\nend\n"), Some(2));
+        assert_eq!(SaveGame::peek_version("ozbound-save 9\n"), Some(9));
+        assert_eq!(SaveGame::peek_version("hello"), None);
+        assert_eq!(SaveGame::peek_version(""), None);
     }
 
     // ---- bag, gear, skills, creatures ----

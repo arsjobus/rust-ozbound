@@ -71,14 +71,16 @@ pub fn interact(
     mut partner: ResMut<TalkPartner>,
     portraits: Res<Portraits>,
     mut portrait: ResMut<TalkPortrait>,
-    mut wildlife: ResMut<Wildlife>,
+    wildlife: Res<Wildlife>,
     creatures: Query<&Creature>,
     mut players: Query<(&mut Player, &mut Transform)>,
+    mut progress_of: Query<ProgressMut, With<Player>>,
     interactables: Query<(&Interactable, Option<&SignText>, Option<&Npc>)>,
     mut nodes: Query<(&mut ResourceNode, &SpentVisual)>,
     mut visibilities: Query<&mut Visibility>,
 ) {
     let Ok((mut player, mut transform)) = players.get_single_mut() else { return };
+    let Ok(mut mine) = progress_of.get_single_mut() else { return };
 
     if let Some(target) = player.task.take_ready_target() {
         if let Ok((it, sign, npc)) = interactables.get(target) {
@@ -88,9 +90,8 @@ pub fn interact(
                 face_tile(&mut transform, &meadow.0, player.tile, it.tile);
                 match it.kind {
                     InteractionKind::TalkTo => {
-                        let progress = &mut *progress;
                         let started = match npc {
-                            Some(npc) => Talk::start(&content.0, &mut progress.log, &mut progress.inventory, &progress.skills, &npc.0),
+                            Some(npc) => Talk::start(&content.0, &mut mine.log.0, &mut mine.inventory.0, &mine.skills.0, &npc.0),
                             None => Err("They have nothing to say right now.".to_string()),
                         };
                         match started {
@@ -117,17 +118,15 @@ pub fn interact(
                         None => progress.notice = "The signpost is too weathered to read.".into(),
                     },
                     InteractionKind::Approach => {
-                        let progress = &mut *progress;
-                        let wildlife = &mut *wildlife;
                         progress.notice = match creatures.get(target) {
-                            Ok(Creature(id)) => match approach_creature(&wildlife.bestiary, &mut wildlife.notes, &mut progress.inventory, id) {
+                            Ok(Creature(id)) => match approach_creature(&wildlife.bestiary, &mut mine.notes.0, &mut mine.inventory.0, id) {
                                 Ok(Encounter::Befriended { creature, taken, gift, text }) => {
                                     let mut line = format!("{text} (You gave {} {}", taken.quantity, taken.item.label());
                                     if let Some(gift) = gift {
                                         line.push_str(&format!("; you received {} {}", gift.quantity, gift.item.label()));
                                     }
                                     line.push_str(".)");
-                                    let updates = progress.log.record(&content.0.quests, &QuestEvent::Befriended { creature });
+                                    let updates = mine.log.0.record(&content.0.quests, &QuestEvent::Befriended { creature });
                                     with_updates(line, &content.0.quests, &updates)
                                 }
                                 Ok(other) => other.text().to_string(),
@@ -138,11 +137,10 @@ pub fn interact(
                     }
                     InteractionKind::Pick => {
                         // Inventory first: a full bag must never silently consume a world resource.
-                        if progress.inventory.add(ItemId::Moonpetal, 1).is_ok() {
+                        if mine.inventory.0.add(ItemId::Moonpetal, 1).is_ok() {
                             commands.entity(target).despawn_recursive();
-                            let progress = &mut *progress;
-                            let updates = record_gathered(&content.0.quests, &mut progress.log, ItemId::Moonpetal, 1);
-                            let xp = progress.skills.gathered(ResourceKind::Moonpetal);
+                            let updates = record_gathered(&content.0.quests, &mut mine.log.0, ItemId::Moonpetal, 1);
+                            let xp = mine.skills.0.gathered(ResourceKind::Moonpetal);
                             let message = with_updates("You gathered a moonpetal.".into(), &content.0.quests, &updates);
                             progress.notice = with_level_up(message, xp);
                         } else {
@@ -191,13 +189,12 @@ pub fn interact(
             progress.notice = TOO_FAR.into();
         } else if let Ok((mut node, spent)) = nodes.get_mut(target) {
             let kind = node.0.kind();
-            let outcome = node.0.gather(&mut progress.inventory);
-            let progress = &mut *progress;
+            let outcome = node.0.gather(&mut mine.inventory.0);
             let mut message = gather_message(kind, &outcome, node.0.remaining_actions());
             if let Ok(amount) = outcome {
-                let updates = record_gathered(&content.0.quests, &mut progress.log, kind.item(), amount);
+                let updates = record_gathered(&content.0.quests, &mut mine.log.0, kind.item(), amount);
                 message = with_updates(message, &content.0.quests, &updates);
-                message = with_level_up(message, progress.skills.gathered(kind));
+                message = with_level_up(message, mine.skills.0.gathered(kind));
             }
             progress.notice = message;
             if outcome.is_ok() && node.0.is_depleted() {

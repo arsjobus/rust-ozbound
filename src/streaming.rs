@@ -134,3 +134,44 @@ pub fn tag_world_entities(
         };
     }
 }
+
+/// What tells an interactable object's kind apart (see `assign_net_ids`).
+#[derive(bevy::ecs::query::QueryData)]
+pub struct FreshObject {
+    entity: Entity,
+    at: &'static Interactable,
+    sign: Option<&'static SignText>,
+    npc: Option<&'static Npc>,
+    creature: Option<&'static Creature>,
+    node: Option<&'static ResourceNode>,
+    petal: Option<&'static Moonpetal>,
+}
+
+/// Gives every interactable object that was just spawned its stable network name (see
+/// `ozbound::net`). The name comes from what the object is and where it stands, so the same
+/// tree has the same id on every run and on every machine, and re-spawning a chunk gives the
+/// same objects the same ids.
+pub fn assign_net_ids(
+    mut commands: Commands,
+    current: Res<CurrentRegion>,
+    streaming: Res<Streaming>,
+    fresh: Query<FreshObject, (Added<Interactable>, Without<Replicated>)>,
+) {
+    let scope = if streaming.interior { current.0.as_str() } else { ozbound::net::OVERWORLD_SCOPE };
+    for FreshObjectItem { entity, at, sign, npc, creature, node, petal } in &fresh {
+        let kind = if let Some(Npc(id)) = npc {
+            ozbound::net::kind_npc(id)
+        } else if let Some(Creature(id)) = creature {
+            ozbound::net::kind_creature(id)
+        } else if let Some(node) = node {
+            ozbound::net::kind_node(node.0.kind().label())
+        } else if petal.is_some() {
+            ozbound::net::kind_moonpetal().to_string()
+        } else if sign.is_some() {
+            ozbound::net::kind_sign().to_string()
+        } else {
+            continue;
+        };
+        commands.entity(entity).insert(Replicated(ozbound::net::NetId::of(scope, &kind, at.tile)));
+    }
+}

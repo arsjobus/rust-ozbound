@@ -40,6 +40,7 @@ pub fn pack_input(
     talk: Res<TalkState>,
     chat: Res<ChatState>,
     mut progress: ResMut<GameProgress>,
+    mut players: Query<ProgressMut, With<Player>>,
     mut state: ResMut<PackState>,
 ) {
     // A conversation takes over the keyboard and mouse; the panel steps aside.
@@ -62,19 +63,19 @@ pub fn pack_input(
     let from_click = buttons.iter().find(|(interaction, _)| **interaction == Interaction::Pressed).map(|(_, row)| row.0);
     let Some(index) = from_key.or(from_click) else { return };
 
-    let rows = pack::rows(&recipes.0, &progress.inventory, &progress.equipment, &progress.skills);
+    let Ok(mut mine) = players.get_single_mut() else { return };
+    let rows = pack::rows(&recipes.0, &mine.inventory.0, &mine.equipment.0, &mine.skills.0);
     let Some(row) = rows.get(index) else { return };
-    let progress = &mut *progress;
     // A craft is reported to the quest log by what actually arrived in the bag.
     let crafted = match &row.action {
-        PackAction::Craft(id) => recipes.0.get(id).map(|recipe| (recipe.output.item, progress.inventory.count(recipe.output.item))),
+        PackAction::Craft(id) => recipes.0.get(id).map(|recipe| (recipe.output.item, mine.inventory.0.count(recipe.output.item))),
         _ => None,
     };
-    let mut message = pack::apply(&row.action, &recipes.0, &mut progress.inventory, &mut progress.equipment, &mut progress.skills);
+    let mut message = pack::apply(&row.action, &recipes.0, &mut mine.inventory.0, &mut mine.equipment.0, &mut mine.skills.0);
     if let Some((item, before)) = crafted {
-        let made = progress.inventory.count(item).saturating_sub(before);
+        let made = mine.inventory.0.count(item).saturating_sub(before);
         if made > 0 {
-            let updates = progress.log.record(&content.0.quests, &QuestEvent::Crafted { item, quantity: made });
+            let updates = mine.log.0.record(&content.0.quests, &QuestEvent::Crafted { item, quantity: made });
             for update in &updates {
                 message.push(' ');
                 message.push_str(&describe_update(&content.0.quests, update));
@@ -89,18 +90,20 @@ pub fn pack_input(
 pub fn sync_pack_ui(
     mut commands: Commands,
     state: Res<PackState>,
-    progress: Res<GameProgress>,
+    players: Query<ProgressRef, With<Player>>,
+    changed: Query<(), (With<Player>, ProgressChanged)>,
     recipes: Res<Recipes>,
     mut panels: Query<(Entity, &mut Visibility), With<PackPanel>>,
     mut rows: Query<(&Interaction, &mut BackgroundColor), With<PackRowButton>>,
 ) {
     let Ok((panel, mut visibility)) = panels.get_single_mut() else { return };
+    let Ok(mine) = players.get_single() else { return };
 
-    if state.is_changed() || (state.0 && progress.is_changed()) {
+    if state.is_changed() || (state.0 && !changed.is_empty()) {
         commands.entity(panel).despawn_descendants();
         if state.0 {
             *visibility = Visibility::Inherited;
-            let listed: Vec<PackRow> = pack::rows(&recipes.0, &progress.inventory, &progress.equipment, &progress.skills);
+            let listed: Vec<PackRow> = pack::rows(&recipes.0, &mine.inventory.0, &mine.equipment.0, &mine.skills.0);
             commands.entity(panel).with_children(|panel| {
                 panel.spawn((
                     Text::new("CRAFTING & GEAR (C or Esc to close)"),
@@ -111,9 +114,9 @@ pub fn sync_pack_ui(
                     Text::new(wrap_text(
                         &format!(
                             "{}\n{}\n{}",
-                            pack::bag_line(&progress.inventory),
-                            pack::equipment_line(&progress.equipment),
-                            progress.skills.summary_line()
+                            pack::bag_line(&mine.inventory.0),
+                            pack::equipment_line(&mine.equipment.0),
+                            mine.skills.0.summary_line()
                         ),
                         chars_per_line(PACK_PANEL.inner_width(), PACK_INFO_PX),
                     )),

@@ -43,16 +43,99 @@ pub struct LevelData(pub Level);
 #[derive(Resource)]
 pub struct GameContent(pub Content);
 
+/// Messages for the player. A system that has something to say sets `notice`;
+/// `chat_ui::collect_notices` moves it into the chat log every frame, so systems never touch
+/// the chat directly. (What the player has - bag, gear, skills, quests, creatures met - lives
+/// on the player entity as the components below, not here.)
 #[derive(Resource, Default)]
 pub struct GameProgress {
-    pub log: QuestLog,
-    /// A message waiting to be shown in the chat area. `chat_ui::collect_notices` moves it
-    /// into the log every frame, so systems just set this and never touch the chat directly.
     pub notice: String,
-    pub inventory: Inventory,
-    pub equipment: Equipment,
-    /// Skill XP and levels.
-    pub skills: Skills,
+}
+
+/// The stable network name of a world object (`ozbound::net`). Every interactable object gets
+/// one when it is spawned (`streaming::assign_net_ids`); nothing reads it yet, but it is what
+/// a server would use to say which object changed.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Replicated(pub ozbound::net::NetId);
+
+/// What the player carries. These five components sit on the player entity (see
+/// [`PlayerProgress`]) so that progress belongs to a character, not to the program: a second
+/// player would simply be a second entity with its own set.
+#[derive(Component)]
+pub struct Bag(pub Inventory);
+
+/// The player's worn gear.
+#[derive(Component)]
+pub struct Gear(pub Equipment);
+
+/// The player's skill XP and levels.
+#[derive(Component)]
+pub struct SkillSet(pub Skills);
+
+/// The player's quest progress.
+#[derive(Component)]
+pub struct QuestJournal(pub QuestLog);
+
+/// The creatures the player has met and befriended.
+#[derive(Component)]
+pub struct FieldBook(pub FieldNotes);
+
+/// Everything the player has, as one bundle to spawn with the player.
+#[derive(Bundle)]
+pub struct PlayerProgress {
+    pub bag: Bag,
+    pub gear: Gear,
+    pub skills: SkillSet,
+    pub quests: QuestJournal,
+    pub notes: FieldBook,
+}
+
+impl PlayerProgress {
+    /// The progress a save holds.
+    pub fn from_save(game: &SaveGame) -> Self {
+        Self {
+            bag: Bag(game.bag.clone()),
+            gear: Gear(game.equipment.clone()),
+            skills: SkillSet(game.skills.clone()),
+            quests: QuestJournal(game.quests.clone()),
+            notes: FieldBook(game.notes.clone()),
+        }
+    }
+}
+
+/// Matches a player whose bag, gear, or skills changed this frame (for panels that redraw).
+pub type ProgressChanged = Or<(Changed<Bag>, Changed<Gear>, Changed<SkillSet>)>;
+
+/// Mutable access to the player's progress, for systems that change it.
+#[derive(bevy::ecs::query::QueryData)]
+#[query_data(mutable)]
+pub struct ProgressMut {
+    pub log: &'static mut QuestJournal,
+    pub inventory: &'static mut Bag,
+    pub equipment: &'static mut Gear,
+    pub skills: &'static mut SkillSet,
+    pub notes: &'static mut FieldBook,
+}
+
+/// Read-only access to the player's progress.
+#[derive(bevy::ecs::query::QueryData)]
+pub struct ProgressRef {
+    pub log: &'static QuestJournal,
+    pub inventory: &'static Bag,
+    pub equipment: &'static Gear,
+    pub skills: &'static SkillSet,
+    pub notes: &'static FieldBook,
+}
+
+impl ProgressRefItem<'_> {
+    /// Writes this progress into `game` (the placement parts of `game` are left as they are).
+    pub fn write_to(&self, game: &mut SaveGame) {
+        game.bag = self.inventory.0.clone();
+        game.equipment = self.equipment.0.clone();
+        game.skills = self.skills.0.clone();
+        game.quests = self.log.0.clone();
+        game.notes = self.notes.0.clone();
+    }
 }
 
 /// The validated recipes for this session.
@@ -76,15 +159,17 @@ pub struct PackRowButton(pub usize);
 #[derive(Resource, Default)]
 pub struct TalkState(pub Option<Talk>);
 
-/// Where the game is saved. `enabled` is false when an unreadable save was found at startup (or a
-/// write failed), so that file is never overwritten. `saved` is the game as last written, and
-/// `idle` the seconds since the last check for changes.
+/// Where the game is saved. `enabled` is false only when the save found at startup could not be
+/// used *and* could not be kept (see `save_store::restore`), so that file is never overwritten.
+/// `saved` is the game as last written, and `idle` the seconds since the last check for
+/// changes. `failing` is set while writes are failing; the game keeps trying (see `persist`).
 #[derive(Resource)]
 pub struct SaveState {
     pub path: PathBuf,
     pub enabled: bool,
     pub saved: SaveGame,
     pub idle: f32,
+    pub failing: bool,
 }
 
 /// The game as it was when the program started (a loaded save or a new game). `setup` reads it
@@ -120,11 +205,10 @@ pub struct TalkPartner(pub Option<Entity>);
 #[derive(Component)]
 pub struct Creature(pub String);
 
-/// The bestiary and what the player has met so far.
+/// The bestiary: which creatures exist. What the player has met is the player's `FieldBook`.
 #[derive(Resource)]
 pub struct Wildlife {
     pub bestiary: Bestiary,
-    pub notes: FieldNotes,
 }
 
 /// Dialogue portraits by NPC id, drawn once at startup from each NPC's appearance.
@@ -429,4 +513,60 @@ pub struct Soundscape {
     /// The id of the zone (or, off the overworld, the region) the player is in.
     pub zone: Option<String>,
     pub tracks: HashMap<ozbound::overworld::TrackSpec, Option<Handle<AudioSource>>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ozbound::{inventory::ItemId, village::builtin};
+
+    fn game() -> SaveGame {
+        let world = builtin().expect("the shipped world loads");
+        let mut game = SaveGame::new_game(&world.level);
+        game.bag = Inventory::from_stacks(20, [(ItemId::Timber, 3)]).unwrap();
+        game
+    }
+
+    #[test]
+    fn progress_belongs_to_the_player_entity_and_round_trips_into_a_save() {
+        let mut world = World::new();
+        let game = game();
+        let player = world.spawn(PlayerProgress::from_save(&game)).id();
+        let bystander = world.spawn(PlayerProgress::from_save(&SaveGame::new_game(&builtin().unwrap().level))).id();
+
+        // A system that changes one entity's bag, the way `interact` does.
+        fn add_timber(mut players: Query<ProgressMut>) {
+            for mut mine in &mut players {
+                if mine.inventory.0.count(ItemId::Timber) == 3 {
+                    mine.inventory.0.add(ItemId::Timber, 4).unwrap();
+                }
+            }
+        }
+        let mut schedule = Schedule::default();
+        schedule.add_systems(add_timber);
+        schedule.run(&mut world);
+
+        // Each entity has its own bag: only the one that held 3 timber changed.
+        let mut query = world.query::<ProgressRef>();
+        let mine = query.get(&world, player).unwrap();
+        let mut saved = game.clone();
+        mine.write_to(&mut saved);
+        assert_eq!(saved.bag.count(ItemId::Timber), 7);
+        assert_eq!(query.get(&world, bystander).unwrap().inventory.0.count(ItemId::Timber), 0);
+        // Everything else the save held is unchanged by the round trip.
+        assert_eq!((saved.equipment, saved.skills, saved.quests, saved.notes), (game.equipment, game.skills, game.quests, game.notes));
+    }
+
+    #[test]
+    fn a_bag_change_is_seen_by_change_detection_only_when_it_happens() {
+        let mut world = World::new();
+        world.spawn(PlayerProgress::from_save(&game()));
+        let mut changed = world.query_filtered::<(), Changed<Bag>>();
+        world.clear_trackers();
+        world.increment_change_tick();
+        assert_eq!(changed.iter(&world).count(), 0);
+        let mut bags = world.query::<&mut Bag>();
+        bags.single_mut(&mut world).0.add(ItemId::Timber, 1).unwrap();
+        assert_eq!(changed.iter(&world).count(), 1);
+    }
 }

@@ -19,7 +19,10 @@ use std::fmt;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
+use crate::bestiary::Bestiary;
+use crate::level::Level;
 use crate::quest_store;
+use crate::quests::QuestBook;
 use crate::save::{SaveContext, SaveGame};
 use crate::textdata::ContentError;
 
@@ -166,6 +169,163 @@ pub fn back_up(path: &Path) -> std::io::Result<()> {
     std::fs::rename(&temp, &backup).inspect_err(|_| {
         let _ = std::fs::remove_file(&temp);
     })
+}
+
+/// What [`restore`] needs to know about the world the player is about to enter.
+pub struct Restore<'a> {
+    /// The starting region's level: where a new game begins and where a recovered one restarts.
+    pub start: &'a Level,
+    /// Any playable region's level by id (a save may have been made in another region).
+    pub level_of: &'a dyn Fn(&str) -> Option<&'a Level>,
+    pub quests: &'a QuestBook,
+    pub bestiary: &'a Bestiary,
+}
+
+/// How a game was started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    NewGame,
+    Loaded,
+    MigratedQuests,
+    /// The save did not fit this world (a resized or redrawn map, say). Bag, gear, skills,
+    /// quests, and creatures met were kept; the player restarts at the start. The original file
+    /// is kept next to the save (see [`keep_copy`]).
+    Recovered,
+    /// The save was damaged beyond use. A new game was started and the original file is kept
+    /// next to the save.
+    SetAside,
+    /// The save was left exactly as it was and nothing will be written this session (a newer
+    /// game wrote it, the file cannot be read, or a copy could not be kept).
+    LeftAlone,
+}
+
+/// The game at startup and what to tell the player and the console.
+#[derive(Debug, Clone)]
+pub struct Restored {
+    pub game: SaveGame,
+    /// The game as it is on disk right now, so the first autosave only writes real changes.
+    pub saved: SaveGame,
+    /// Whether the game may be saved this session.
+    pub saving: bool,
+    pub outcome: Outcome,
+    /// For the chat area; empty when there is nothing to say.
+    pub notice: String,
+    /// For the console (the full reason and what to do); empty when there is nothing to say.
+    pub detail: String,
+}
+
+/// The highest `<n>.unusable-N` copy `keep_copy` will try.
+const MAX_COPIES: u32 = 999;
+
+/// Copies the file at `path` to `<n>.unusable-1`, or the first higher number that is free, and
+/// returns where. Never overwrites an earlier copy.
+pub fn keep_copy(path: &Path) -> std::io::Result<PathBuf> {
+    let bytes = std::fs::read(path)?;
+    for number in 1..=MAX_COPIES {
+        let target = sibling(path, &format!(".unusable-{number}"));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+            Ok(mut file) => {
+                file.write_all(&bytes).and_then(|()| file.sync_all()).inspect_err(|_| {
+                    let _ = std::fs::remove_file(&target);
+                })?;
+                return Ok(target);
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::other(format!("there are already {MAX_COPIES} unusable copies of {}", path.display())))
+}
+
+/// Starts a game from the save at `path` (see [`load`] for the old quest-only save at `legacy`).
+///
+/// A save that loads is used as it is. A save that is refused is no longer allowed to switch
+/// saving off for the whole session, which is how a save from before a map was resized (or one
+/// written while standing on a villager's home tile) used to make "saving stop working":
+/// - if only where things stand is wrong, the player's progress is kept and the player restarts
+///   at the start ([`Outcome::Recovered`]);
+/// - if the progress itself is damaged, a new game starts ([`Outcome::SetAside`]);
+/// - either way the original file is first copied to `<n>.unusable-N` and then the save is
+///   rewritten, so the next start loads cleanly and nothing recoverable is lost;
+/// - a save written by a newer format, or any file that cannot be read or copied, is left
+///   exactly as it is and nothing is saved this session ([`Outcome::LeftAlone`]).
+pub fn restore(path: &Path, legacy: &Path, world: &Restore) -> Restored {
+    let text = std::fs::read_to_string(path).ok();
+    let region = text.as_deref().and_then(SaveGame::peek_region);
+    let level = match region.as_deref() {
+        None => Some(world.start),
+        Some(id) => (world.level_of)(id),
+    };
+    let ctx_for = |level| SaveContext { level, quests: world.quests, bestiary: world.bestiary };
+    let strict = match level {
+        Some(level) => load(path, Some(legacy), &ctx_for(level)),
+        None => Err(StoreError::unknown_region(path, region.as_deref().unwrap_or(""))),
+    };
+    let fresh = |outcome, notice: &str, detail: String, saving| {
+        let game = SaveGame::new_game(world.start);
+        Restored { saved: game.clone(), game, saving, outcome, notice: notice.to_string(), detail }
+    };
+    match strict {
+        Ok(Loaded { game, start }) => {
+            let mut detail = String::new();
+            if start == Start::Loaded {
+                // Keep the save that just loaded, in case a later session writes something worse.
+                if let Err(error) = back_up(path) {
+                    detail = format!("could not keep a backup of {}: {error}", path.display());
+                }
+            }
+            let (outcome, notice) = match start {
+                Start::NewGame => (Outcome::NewGame, ""),
+                Start::Loaded => (Outcome::Loaded, "Welcome back. Your progress was restored. Press J to open your quest book."),
+                Start::MigratedQuests => (Outcome::MigratedQuests, "Welcome back. Your quest progress was carried over to the new save file."),
+            };
+            // A migrated game is not on disk in the new format yet, so it counts as unsaved.
+            let saved = if start == Start::MigratedQuests { SaveGame::new_game(world.start) } else { game.clone() };
+            Restored { game, saved, saving: true, outcome, notice: notice.to_string(), detail }
+        }
+        Err(StoreError::Invalid { error, .. }) => {
+            let text = text.unwrap_or_default();
+            if SaveGame::peek_version(&text).is_some_and(|version| version > crate::save::FORMAT_VERSION) {
+                let detail = format!("{}; starting a new game and not saving this session", StoreError::Invalid { path: path.to_path_buf(), error, backup: None });
+                return fresh(Outcome::LeftAlone, "Your save was made by a newer version of Ozbound, so progress will not be saved this session. See the console.", detail, false);
+            }
+            let kept = match keep_copy(path) {
+                Ok(kept) => kept,
+                Err(copy_error) => {
+                    let detail = format!("invalid save {}: {error}; it could not be copied aside ({copy_error}), so it is left as it is and progress will not be saved this session", path.display());
+                    return fresh(Outcome::LeftAlone, "Your save could not be read, so progress will not be saved this session. See the console for how to recover it.", detail, false);
+                }
+            };
+            // The strict read just failed, so what is left to try is the player's progress alone,
+            // restarted in the starting region (a save for another region, or a map that has
+            // changed, cannot be placed any better than that).
+            let (game, outcome, notice) = match SaveGame::progress_only(&text, &ctx_for(world.start)) {
+                Ok(game) => (
+                    game,
+                    Outcome::Recovered,
+                    format!("Your saved game did not fit this version of the world, so you start again at the beginning of the village with your bag, gear, skills, and quests kept. The old file is kept as {}.", kept.display()),
+                ),
+                Err(_) => (
+                    SaveGame::new_game(world.start),
+                    Outcome::SetAside,
+                    format!("Your saved game could not be read, so a new game was started. The old file is kept as {}.", kept.display()),
+                ),
+            };
+            let detail = format!("invalid save {}: {error}. A copy is kept at {}", path.display(), kept.display());
+            // Write the usable game over the unusable file now, so the next start loads cleanly.
+            match save(path, &game) {
+                Ok(()) => Restored { saved: game.clone(), game, saving: true, outcome, notice, detail },
+                Err(write_error) => {
+                    let detail = format!("{detail}; {write_error}; progress will not be saved this session");
+                    Restored { saved: game.clone(), game, saving: false, outcome, notice, detail }
+                }
+            }
+        }
+        Err(error) => {
+            let detail = format!("{error}; starting a new game and not saving this session");
+            fresh(Outcome::LeftAlone, "Your save could not be read, so progress will not be saved this session. See the console for how to recover it.", detail, false)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -419,5 +579,120 @@ mod tests {
         save(&path, &newer).unwrap();
         back_up(&path).unwrap();
         assert_eq!(load(&backup_path(&path), None, &ctx(&world)).unwrap().game, newer);
+    }
+
+    // ---- restore: a refused save no longer switches saving off ----
+
+    fn restore_in(dir: &Path, world: &World) -> Restored {
+        let level_of = |id: &str| world.level_of(id);
+        let restore_world = Restore { start: &world.level, level_of: &level_of, quests: &world.content.quests, bestiary: &world.bestiary };
+        restore(&dir.join("game.txt"), &dir.join("quests.txt"), &restore_world)
+    }
+
+    fn reload(dir: &Path, world: &World) -> SaveGame {
+        load(&dir.join("game.txt"), None, &ctx(world)).unwrap().game
+    }
+
+    #[test]
+    fn restore_without_a_save_is_a_new_game_that_saves() {
+        let (dir, world) = (scratch(), world());
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving, r.game), (Outcome::NewGame, true, SaveGame::new_game(&world.level)));
+        assert!(r.notice.is_empty() && r.detail.is_empty());
+    }
+
+    #[test]
+    fn restore_of_a_good_save_loads_it_and_keeps_a_backup() {
+        let (dir, world) = (scratch(), world());
+        let game = played(&world);
+        save(&dir.join("game.txt"), &game).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving, &r.game, &r.saved), (Outcome::Loaded, true, &game, &game));
+        assert!(backup_path(&dir.join("game.txt")).is_file());
+    }
+
+    #[test]
+    fn a_save_from_a_resized_map_keeps_progress_keeps_a_copy_and_keeps_saving() {
+        let (dir, world) = (scratch(), world());
+        let path = dir.join("game.txt");
+        let game = played(&world);
+        let stale = game.to_text().replace(&format!("world {} {}", game.map_size.0, game.map_size.1), "world 40 24");
+        std::fs::write(&path, &stale).unwrap();
+
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving), (Outcome::Recovered, true));
+        assert_eq!((&r.game.bag, &r.game.equipment, &r.game.quests), (&game.bag, &game.equipment, &game.quests));
+        assert_eq!(r.game.player, world.level.player_start);
+        assert!(r.notice.contains("unusable-1") && r.detail.contains("40 x 24"), "{} / {}", r.notice, r.detail);
+        // The original is kept byte for byte, and the save on disk now loads strictly.
+        assert_eq!(std::fs::read_to_string(dir.join("game.txt.unusable-1")).unwrap(), stale);
+        assert_eq!(reload(&dir, &world), r.game);
+        assert_eq!(r.saved, r.game);
+        // The next start is an ordinary load.
+        assert_eq!(restore_in(&dir, &world).outcome, Outcome::Loaded);
+    }
+
+    #[test]
+    fn a_player_standing_on_a_villagers_home_tile_loads_normally() {
+        let (dir, world) = (scratch(), world());
+        let mut game = played(&world);
+        game.player = world.level.npcs[0].tile;
+        save(&dir.join("game.txt"), &game).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.game.player), (Outcome::Loaded, game.player));
+    }
+
+    #[test]
+    fn a_save_for_an_unknown_region_is_recovered_into_the_start_region() {
+        let (dir, world) = (scratch(), world());
+        let text = played(&world).to_text().replacen("world", "region NOWHERE\nworld", 1);
+        std::fs::write(dir.join("game.txt"), text).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving, r.game.region), (Outcome::Recovered, true, None));
+        assert_eq!(r.game.bag, played(&world).bag);
+    }
+
+    #[test]
+    fn a_damaged_save_is_set_aside_and_a_new_game_saves() {
+        let (dir, world) = (scratch(), world());
+        let path = dir.join("game.txt");
+        let bad = played(&world).to_text().replace("bag timber 3", "bag no_such_item 3");
+        std::fs::write(&path, &bad).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving, &r.game), (Outcome::SetAside, true, &SaveGame::new_game(&world.level)));
+        assert_eq!(std::fs::read_to_string(dir.join("game.txt.unusable-1")).unwrap(), bad);
+        assert_eq!(reload(&dir, &world), r.game);
+    }
+
+    #[test]
+    fn a_save_from_a_newer_format_is_left_alone_and_nothing_is_saved() {
+        let (dir, world) = (scratch(), world());
+        let path = dir.join("game.txt");
+        let newer = played(&world).to_text().replacen("ozbound-save 2", "ozbound-save 99", 1);
+        std::fs::write(&path, &newer).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving), (Outcome::LeftAlone, false));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), newer);
+        assert!(!dir.join("game.txt.unusable-1").exists());
+    }
+
+    #[test]
+    fn an_unreadable_save_path_is_left_alone() {
+        let (dir, world) = (scratch(), world());
+        std::fs::create_dir(dir.join("game.txt")).unwrap();
+        let r = restore_in(&dir, &world);
+        assert_eq!((r.outcome, r.saving), (Outcome::LeftAlone, false));
+    }
+
+    #[test]
+    fn copies_never_overwrite_each_other() {
+        let dir = scratch();
+        let path = dir.join("game.txt");
+        std::fs::write(&path, "first").unwrap();
+        let one = keep_copy(&path).unwrap();
+        std::fs::write(&path, "second").unwrap();
+        let two = keep_copy(&path).unwrap();
+        assert_ne!(one, two);
+        assert_eq!((std::fs::read_to_string(one).unwrap(), std::fs::read_to_string(two).unwrap()), ("first".into(), "second".into()));
     }
 }
