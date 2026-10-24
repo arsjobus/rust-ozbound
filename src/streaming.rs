@@ -17,7 +17,7 @@ use ozbound::{overworld::Overworld, save::WorldChanges, world::TilePos};
 
 use crate::components::*;
 use crate::models::Kit;
-use crate::setup::{spawn_area, Area};
+use crate::setup::{overworld_neighbour, spawn_area, Area, Ground};
 
 /// What the player has done in the chunks `ids`, put into `memory` (world tiles). Called just
 /// before those chunks are despawned.
@@ -47,6 +47,14 @@ impl Pointing<'_> {
     }
 }
 
+/// What building a chunk's world needs to create: portraits, images, and meshes.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct Gfx<'w> {
+    pub portraits: ResMut<'w, Portraits>,
+    pub images: ResMut<'w, Assets<Image>>,
+    pub meshes: ResMut<'w, Assets<Mesh>>,
+}
+
 /// Loads and unloads chunks as the player moves, and keeps `CurrentRegion` on the chunk the
 /// player stands in.
 pub fn stream_chunks(
@@ -59,8 +67,7 @@ pub fn stream_chunks(
     mut current: ResMut<CurrentRegion>,
     wildlife: Res<Wildlife>,
     kit: Res<Kit>,
-    mut portraits: ResMut<Portraits>,
-    mut images: ResMut<Assets<Image>>,
+    mut gfx: Gfx,
     mut pointing: Pointing,
     players: Query<&Player>,
     chunk_entities: Query<(Entity, &ChunkEntity)>,
@@ -99,9 +106,12 @@ pub fn stream_chunks(
 
     let composite = overworld.compose(&|id| atlas.level(id), &wanted);
     let none = WorldChanges::none();
+    let neighbour = overworld_neighbour(&atlas);
     for id in &load {
         let chunk = overworld.chunk(id).expect("wanted chunks exist");
-        spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, &mut portraits, &mut images);
+        let ground = Ground { scene: id, chunk: true, neighbour: &neighbour };
+        let Gfx { portraits, images, meshes } = &mut gfx;
+        spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, portraits, images, meshes, &ground);
     }
     meadow.0 = composite.map;
     level.0 = composite.level;

@@ -54,12 +54,16 @@ Everything can be done from the keyboard; the mouse is optional. The same list i
 | X | Examine the selected thing |
 | 1-9 | Pick a numbered row in a conversation or the crafting panel |
 | B / K / J | Open or close the bag / skills / quest book (one panel at a time; the toolbar buttons do the same). PageUp / PageDown turn the open panel's pages |
-| T or / | Type in the chat area (`/` starts a command): Enter sends, Esc cancels. `/wave`, `/dance`, `/cheer` play a short gesture; `/help` lists the commands. PageUp / PageDown scroll the chat when no panel is open |
+| T or / | Type in the chat area (`/` starts a command): Enter sends, Esc cancels. `/wave`, `/dance`, `/cheer` play a short gesture; `/help` lists the commands. `/edit` turns the world editor on and off (see below). PageUp / PageDown scroll the chat when no panel is open |
 | C | Open or close the crafting-and-gear panel (click a row, or press 1-9) |
 | Middle-mouse drag, or arrow keys | Turn and tilt the camera |
 | Scroll wheel, or + / - | Zoom |
 | F3 | Show or hide the frame-time overlay |
 | Esc | Close the most urgent open thing (pause menu, right-click menu, chat box, conversation, crafting panel, side panel); with nothing open, open the pause menu |
+
+## World editor
+
+Type `/edit` on the open world. A ribbon along the top has **Select**, **Select & Move**, **Place**, **Undo**, **Redo**, **Export asset**, and **Exit editor**. Click an object (the guide, a villager, a creature, a tree, copper vein, herb patch, berry bush, moonpetal, or signpost) to select it; with Select & Move, click ground in the same scene to move it there. Right-click for an extended menu (Select, Move here, Place here, Remove). Delete removes the selection; Ctrl+Z undoes and Ctrl+Y (or Ctrl+Shift+Z) redoes. An edit that would leave something unreachable or break the story is refused with a reason. Edits are kept in `saves/edits.txt` and replayed at start-up; the shipped level files are never changed. Objects, people, and creatures are described by small files in `assets/library/` (format in `src/asset_file.rs`). Design notes: `docs/ARCHITECTURE.md`.
 
 ## Pause menu and settings
 

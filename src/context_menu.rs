@@ -15,6 +15,14 @@ pub enum MenuAction {
     WalkHere,
     /// Close the menu and do nothing.
     Cancel,
+    /// Editor: select the object under the cursor.
+    Select,
+    /// Editor: move the selected object to the ground tile under the cursor.
+    MoveHere,
+    /// Editor: remove the object under the cursor from the scene.
+    Remove,
+    /// Editor: place the chosen library asset on the ground tile under the cursor.
+    PlaceHere,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +49,28 @@ pub fn build_menu(object: Option<(InteractionKind, &str)>, ground_walkable: bool
     }
     if ground_walkable {
         entries.push(MenuEntry::new(MenuAction::WalkHere, "Walk here"));
+    }
+    entries.push(MenuEntry::new(MenuAction::Cancel, "Cancel"));
+    entries
+}
+
+/// The rows of the extended right-click menu while the editor is on. `object` is the name of
+/// the editable object under the cursor; `selected` is the name of the selected object (if
+/// any); `ground_free` says whether the tile under the cursor is open ground; `asset` is the
+/// library asset the Place tool would place. Cancel is always present and always last.
+pub fn build_edit_menu(object: Option<&str>, selected: Option<&str>, ground_free: bool, asset: Option<&str>) -> Vec<MenuEntry> {
+    let mut entries = Vec::with_capacity(5);
+    if let Some(name) = object {
+        entries.push(MenuEntry::new(MenuAction::Select, format!("Select {name}")));
+    }
+    if let (Some(name), true) = (selected, ground_free) {
+        entries.push(MenuEntry::new(MenuAction::MoveHere, format!("Move {name} here")));
+    }
+    if let (Some(name), true) = (asset, ground_free) {
+        entries.push(MenuEntry::new(MenuAction::PlaceHere, format!("Place {name} here")));
+    }
+    if let Some(name) = object {
+        entries.push(MenuEntry::new(MenuAction::Remove, format!("Remove {name}")));
     }
     entries.push(MenuEntry::new(MenuAction::Cancel, "Cancel"));
     entries
@@ -96,6 +126,20 @@ mod tests {
 
     fn actions(entries: &[MenuEntry]) -> Vec<MenuAction> {
         entries.iter().map(|e| e.action).collect()
+    }
+
+    #[test]
+    fn the_edit_menu_offers_what_applies_and_always_ends_with_cancel() {
+        let all = build_edit_menu(Some("Mistress Pell"), Some("tree"), true, Some("Signpost"));
+        assert_eq!(actions(&all), [MenuAction::Select, MenuAction::MoveHere, MenuAction::PlaceHere, MenuAction::Remove, MenuAction::Cancel]);
+        assert_eq!(all[0].label, "Select Mistress Pell");
+        assert_eq!(all[1].label, "Move tree here");
+        assert_eq!(all[2].label, "Place Signpost here");
+        assert_eq!(all[3].label, "Remove Mistress Pell");
+        assert_eq!(actions(&build_edit_menu(None, Some("tree"), true, None)), [MenuAction::MoveHere, MenuAction::Cancel]);
+        assert_eq!(actions(&build_edit_menu(None, Some("tree"), false, Some("Tree"))), [MenuAction::Cancel], "no ground, no move or place");
+        assert_eq!(actions(&build_edit_menu(Some("tree"), None, false, None)), [MenuAction::Select, MenuAction::Remove, MenuAction::Cancel]);
+        assert_eq!(actions(&build_edit_menu(None, None, true, None)), [MenuAction::Cancel]);
     }
 
     #[test]

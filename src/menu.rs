@@ -86,6 +86,8 @@ pub fn menu_input(
                         order_walk(&mut commands, map, &assets, &mut player, &mut progress, tile);
                     }
                 }
+                // The editor's rows only appear in the editor's own menu (see `editor_ui.rs`).
+                MenuAction::Select | MenuAction::MoveHere | MenuAction::Remove | MenuAction::PlaceHere => {}
             }
             return;
         }

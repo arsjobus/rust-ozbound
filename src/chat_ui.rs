@@ -142,6 +142,9 @@ pub fn chat_input(
 /// if the player is free to do it.
 fn send(chat: &mut ChatState, players: &mut Query<&mut Player>) {
     let Some(submission) = chat.input.submit() else { return };
+    if submission == chat::Submission::Edit {
+        chat.edit_requested = true;
+    }
     let allowed = match players.get_single() {
         Ok(player) => emote::can_start(player.task.is_moving(), player.work.is_some()),
         Err(_) => Ok(()),

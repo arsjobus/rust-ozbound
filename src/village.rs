@@ -211,6 +211,41 @@ impl World {
     pub fn start_id(&self) -> &str {
         &self.locations.start().id
     }
+
+    /// Every playable region's level by location id, the starting region first (the shape the
+    /// game keeps them in, and the editor edits).
+    pub fn all_levels(&self) -> Vec<(String, Level)> {
+        let mut all = vec![(self.start_id().to_string(), self.level.clone())];
+        all.extend(self.regions.iter().cloned());
+        all
+    }
+
+    /// Replaces the levels of the regions named in `levels` (the start region's story level
+    /// included). Ids that are not regions are ignored.
+    pub fn set_levels(&mut self, levels: &[(String, Level)]) {
+        let start = self.start_id().to_string();
+        for (id, level) in levels {
+            if *id == start {
+                self.level = level.clone();
+            } else if let Some(slot) = self.regions.iter_mut().find(|(region, _)| region == id) {
+                slot.1 = level.clone();
+            }
+        }
+    }
+
+    /// Runs [`check`] as if region `id` had `level` instead of its own: the whole-world check
+    /// of an edited level (a quest nobody can finish, a conversation without its person).
+    pub fn check_with(&self, id: &str, level: &Level) -> Result<(), String> {
+        let mut edited = self.clone();
+        if id == self.start_id() {
+            edited.level = level.clone();
+        } else if let Some(slot) = edited.regions.iter_mut().find(|(region, _)| region == id) {
+            slot.1 = level.clone();
+        } else {
+            return Err(format!("there is no region `{id}`"));
+        }
+        check(&edited)
+    }
 }
 
 /// The built-in world (used by tests, and by the game when no files are found).

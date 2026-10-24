@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = guide
+kind = npc
+name = Village Guide
+look = guide
+behavior = stay emotes wave

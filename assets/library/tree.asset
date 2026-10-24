@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = tree
+kind = tree
+name = Tree
+actions = 3
+yield = 1

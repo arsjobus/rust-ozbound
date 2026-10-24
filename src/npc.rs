@@ -140,6 +140,23 @@ impl Behavior {
             Mode::Wander { radius } => Some(radius),
         }
     }
+
+    /// The text [`Behavior::parse`] reads back to the same behavior: `stay` or `wander <radius>`,
+    /// then `pause <min> <max>` when it is not the default, then `emotes ...` when there are any.
+    pub fn to_text(&self) -> String {
+        let mut text = match self.mode {
+            Mode::Stay => "stay".to_string(),
+            Mode::Wander { radius } => format!("wander {radius}"),
+        };
+        if self.pause != DEFAULT_PAUSE {
+            text.push_str(&format!(" pause {} {}", self.pause.0, self.pause.1));
+        }
+        if !self.emotes.is_empty() {
+            let names: Vec<&str> = self.emotes.iter().map(|e| e.command()).collect();
+            text.push_str(&format!(" emotes {}", names.join(" ")));
+        }
+        text
+    }
 }
 
 /// How much of the player's attention this NPC has.
@@ -528,6 +545,17 @@ fn bool_status(holds: bool) -> Status {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn behavior_text_round_trips() {
+        for text in ["stay", "wander 3", "wander 2 pause 1 4", "stay emotes wave dance", "wander 4 pause 2 9 emotes cheer"] {
+            let behavior = Behavior::parse(text).unwrap();
+            assert_eq!(behavior.to_text(), text);
+            assert_eq!(Behavior::parse(&behavior.to_text()).unwrap(), behavior);
+        }
+        // The default pause is left out, and reads back as the default.
+        assert_eq!(Behavior::parse("wander 2 pause 3 8").unwrap().to_text(), "wander 2");
+    }
+
     use super::*;
 
     fn t(x: i32, y: i32) -> TilePos {

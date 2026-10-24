@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = ferrywoman
+kind = npc
+name = Tamsin the Bridgewarden
+look = ferrywoman
+behavior = stay emotes wave dance

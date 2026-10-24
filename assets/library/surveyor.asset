@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = surveyor
+kind = npc
+name = Ivo the Surveyor
+look = surveyor
+behavior = wander 4 pause 5 12 emotes dance

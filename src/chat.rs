@@ -158,6 +158,8 @@ pub enum Submission {
     Say(String),
     Emote(Emote),
     Help,
+    /// `/edit`: turns the world editor on or off (see `editor.rs`).
+    Edit,
     /// A command that did not work, with the System line that explains why.
     Error(String),
 }
@@ -165,7 +167,7 @@ pub enum Submission {
 /// The text of `/help`.
 pub fn help_text() -> String {
     let commands: Vec<String> = Emote::ALL.iter().map(|emote| format!("/{}", emote.command())).collect();
-    format!("Commands: {}, /help. Anything else you type is said aloud.", commands.join(", "))
+    format!("Commands: {}, /edit (world editor), /help. Anything else you type is said aloud.", commands.join(", "))
 }
 
 /// Reads a line the player typed. Blank text is `None`.
@@ -185,6 +187,9 @@ pub fn parse(text: &str) -> Option<Submission> {
     let word = word.to_lowercase();
     if word == "help" {
         return Some(if extra { Submission::Error("/help takes no extra words.".into()) } else { Submission::Help });
+    }
+    if word == "edit" {
+        return Some(if extra { Submission::Error("/edit takes no extra words.".into()) } else { Submission::Edit });
     }
     match Emote::from_command(&word) {
         Some(_) if extra => Some(Submission::Error(format!("/{word} takes no extra words."))),
@@ -215,6 +220,8 @@ pub fn handle(log: &mut ChatLog, submission: Submission, emote_allowed: Result<(
             log.push(Kind::System, help_text());
             None
         }
+        // The editor logs its own lines (it knows whether it was switched on or off).
+        Submission::Edit => None,
         Submission::Error(message) => {
             log.push(Kind::System, message);
             None
@@ -424,6 +431,17 @@ mod tests {
         assert_eq!(parse(""), None);
         assert_eq!(parse("    "), None);
         assert_eq!(parse("what about 1/2?"), Some(Submission::Say("what about 1/2?".into())), "a slash inside speech is speech");
+    }
+
+    #[test]
+    fn edit_is_a_command_in_any_case_and_takes_no_words() {
+        assert_eq!(parse("/edit"), Some(Submission::Edit));
+        assert_eq!(parse("  /EDIT "), Some(Submission::Edit));
+        assert!(matches!(parse("/edit now"), Some(Submission::Error(m)) if m.contains("no extra words")));
+        let mut log = ChatLog::new();
+        assert_eq!(handle(&mut log, Submission::Edit, Ok(())), None);
+        assert_eq!(log.len(), 0);
+        assert!(help_text().contains("/edit"));
     }
 
     #[test]

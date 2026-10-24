@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = woodcutter
+kind = npc
+name = Brae the Woodcutter
+look = woodcutter
+behavior = wander 3 pause 3 7 emotes cheer

@@ -9,6 +9,7 @@ mod camera_rig;
 mod chat_ui;
 mod components;
 mod dialogue_ui;
+mod editor_ui;
 mod hud;
 mod interact;
 mod keyboard;
@@ -116,10 +117,16 @@ fn restore_game(world: &Bluebrook) -> (SaveGame, SaveState, String) {
 }
 
 fn main() {
-    let world = load_world().unwrap_or_else(|message| {
+    let mut world = load_world().unwrap_or_else(|message| {
         eprintln!("error: {message}");
         std::process::exit(1);
     });
+    // The player's saved world edits (see `ozbound::editor`) are applied to the loaded levels
+    // first, so the save restore, the atlas, and the first scene all see the edited world.
+    let (editor_session, editor_notes) = editor_ui::start_session(&mut world);
+    for note in &editor_notes {
+        eprintln!("{note}");
+    }
     // Refuse recipes or dialogue that ask for a skill level nothing in the game can teach.
     skills::check_gates(&world.recipes, &world.content.dialogue).unwrap_or_else(|message| {
         eprintln!("error: {message}");
@@ -128,6 +135,9 @@ fn main() {
     let (game, save_state, mut welcome) = restore_game(&world);
     let mut chat = ChatState::default();
     chat.log.push(ozbound::chat::Kind::System, "Press T or / to chat. Type /help to see the chat commands.");
+    for note in editor_notes {
+        chat.log.push(ozbound::chat::Kind::System, note);
+    }
     let (settings, settings_file, settings_note) = load_settings();
     if !settings_note.is_empty() {
         welcome = if welcome.is_empty() { settings_note } else { format!("{welcome} {settings_note}") };
@@ -184,8 +194,9 @@ fn main() {
         .insert_resource(TravelOrder::default())
         .insert_resource(Streaming::default())
         .insert_resource(ChunkMemory::default())
+        .insert_resource(editor_session)
         .insert_resource(Soundscape::default())
-        .add_systems(Startup, ((setup::setup_shell, setup::build_world).chain(), chat_ui::spawn_chat_panel))
+        .add_systems(Startup, ((setup::setup_shell, setup::build_world).chain(), chat_ui::spawn_chat_panel, editor_ui::spawn_ribbon))
         .add_systems(Last, (persist::save_on_exit, settings_ui::report_on_exit))
         .add_systems(
             Update,
@@ -196,6 +207,8 @@ fn main() {
                     travel::apply_travel,
                     setup::build_world.run_if(resource_exists::<components::RebuildWorld>),
                     travel::finish_rebuild,
+                    editor_ui::toggle_editor,
+                    editor_ui::rebuild_scenes,
                     streaming::stream_chunks,
                     streaming::tag_world_entities,
                     streaming::assign_net_ids,
@@ -212,16 +225,18 @@ fn main() {
                     hud::dock_input.run_if(running),
                     hud::toolbar_input.run_if(running),
                     pack_ui::pack_input.run_if(running),
-                    pointer::pointer.run_if(running),
-                    menu::menu_input.run_if(running),
+                    pointer::pointer.run_if(running).run_if(editor_ui::not_editing),
+                    menu::menu_input.run_if(running).run_if(editor_ui::not_editing),
+                    editor_ui::editor_input.run_if(running).run_if(editor_ui::editing),
+                    editor_ui::ribbon_input.run_if(running),
                     keyboard::keyboard_walk.run_if(running),
-                    keyboard::keyboard_target.run_if(running),
-                    keyboard::keyboard_hint.run_if(running),
+                    keyboard::keyboard_target.run_if(running).run_if(editor_ui::not_editing),
+                    keyboard::keyboard_hint.run_if(running).run_if(editor_ui::not_editing),
                     dialogue_ui::dialogue_input.run_if(running),
                     // The world's own steps, grouped (a tuple holds at most 20 systems). The NPCs
                     // come after the talk and walk systems, so a conversation that just opened, or
                     // a route that was just clicked, is seen by them in the same frame.
-                    (movement::follow_route, interact::interact, interact::respawn_nodes, npc_ui::drive_npcs).chain(),
+                    (movement::follow_route, interact::interact, interact::respawn_nodes, npc_ui::drive_npcs.run_if(editor_ui::not_editing)).chain(),
                     persist::persist_game,
                     animation::tick_emotes,
                     animation::animate_limbs,
@@ -238,6 +253,8 @@ fn main() {
                     settings_ui::apply_settings,
                     settings_ui::record_frames,
                     menu::sync_menu_ui,
+                    editor_ui::sync_ribbon,
+                    editor_ui::sync_selection,
                     dialogue_ui::sync_dialogue_ui,
                     pack_ui::sync_pack_ui,
                     pause_ui::sync_pause_ui,

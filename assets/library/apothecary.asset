@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = apothecary
+kind = npc
+name = Mistress Pell
+look = apothecary
+behavior = wander 2 pause 4 9

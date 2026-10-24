@@ -54,7 +54,6 @@ pub struct Look {
 /// Shared mesh and material handles, built once at startup.
 #[derive(Resource)]
 pub struct Kit {
-    pub slab: Handle<Mesh>,
     pub grass: [Handle<StandardMaterial>; 3],
     pub dark_grass: Handle<StandardMaterial>,
     pub path: [Handle<StandardMaterial>; 2],
@@ -102,7 +101,6 @@ pub struct Kit {
 impl Kit {
     pub fn new(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
         Self {
-            slab: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
             grass: [
                 material(materials, 0.33, 0.55, 0.28),
                 material(materials, 0.38, 0.60, 0.30),

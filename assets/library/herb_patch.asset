@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = herb_patch
+kind = herb
+name = Meadowmint patch
+actions = 3
+yield = 1

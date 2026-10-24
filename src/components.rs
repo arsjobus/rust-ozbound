@@ -413,6 +413,8 @@ pub struct ChatState {
     /// it is set, so the Enter that sends a line is not also read as "go to the selected
     /// thing". Written only by `chat_ui::chat_input`.
     pub keys_captured: bool,
+    /// Set by `/edit`; `editor_ui::toggle_editor` takes it next.
+    pub edit_requested: bool,
 }
 
 /// The thing chosen with Tab, if any (see `keyboard.rs`).
@@ -479,6 +481,12 @@ pub struct RebuildWorld;
 /// `stream_chunks` despawns it when the chunk is dropped; the id is the chunk's location id.
 #[derive(Component)]
 pub struct ChunkEntity(pub String);
+
+/// The ground of one scene (a chunk or a region): one of the merged meshes built by
+/// `ozbound::terrain_mesh`. The scene it belongs to is the `ChunkEntity` (or `RegionEntity`)
+/// it carries, so the ground is removed and rebuilt with its scene.
+#[derive(Component)]
+pub struct SceneTerrain;
 
 /// The wide floor under the world (rebuilt with the world, not part of any chunk).
 #[derive(Component)]

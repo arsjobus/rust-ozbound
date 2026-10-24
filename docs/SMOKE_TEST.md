@@ -108,3 +108,17 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Gather, craft, equip, and talk to the guide as before; the bag, skills, and quest panels (B, K, J), the quest tracker, and the crafting panel (C) all update. Walk through a cave exit and back: your bag, gear, skills, quests, and field notes are unchanged.
 - [ ] Quit and start: everything above is restored.
 
+## 12. World editor and terrain meshes (M12 in ROADMAP.md)
+
+- [ ] Start the game and look around: the ground looks as before (shaded grass, path, water with low banks). Walk across a chunk border (east along the road): no gap, no doubled wall, no flicker at the seam, including where water meets grass.
+- [ ] Type `/edit`: a ribbon appears along the top (Select, Select & Move, Place, Undo, Redo, Export asset, Exit editor) and the chat says the editor is on. Undo, Redo, and Export asset are greyed. `/help` lists `/edit`. Clicking the ground no longer walks the player; WASD still does.
+- [ ] Click the signpost: an X marks it and the ribbon names it. Click bare grass in the same scene: it moves there, the chat says "Moved signpost.", Undo lights up. Click Undo (or Ctrl+Z): it is back and the chat says "Undid: ...". Click Redo (or Ctrl+Y): it moves again. Quit and start: the sign is where you left it (`saves/edits.txt` exists). Undo it again and the file disappears.
+- [ ] Select a tree and move it onto grass: the old tile is grass, the new tile is a tree you can chop. Try to move it onto water, a path, or the tile you stand on: it stays and the chat says why.
+- [ ] Select Pell the apothecary and move her to another free tile: she stands there and wanders from there when you leave the editor. Try to Delete her: the chat says that would break the world and she stays.
+- [ ] Right-click a tree: the menu offers Select, Remove, Cancel (and Move here if something is selected). Remove it: it is gone, grass remains. Undo: it is back in the same place.
+- [ ] Click Place: the label cycles (Honeyberry bush, Copper vein, ...). Click grass: it is placed. Right-click grass: Place here is offered.
+- [ ] Select a villager and click Export asset: the chat names `assets/library/<id>.asset` and the file reads back the villager's name, look, and behavior.
+- [ ] Move something across a scene border (select, then click a tile past the edge): the chat says an object stays in its own scene.
+- [ ] Leave with Exit editor or `/edit`: the ribbon goes, clicking walks again, villagers wander again.
+- [ ] Put `garbage` in `saves/edits.txt` and start: the console and chat say your edits were not applied; the file is left as it is and edits made now are not saved.
+- [ ] Enter a cave and type `/edit`: the chat says the editor works on the open world.

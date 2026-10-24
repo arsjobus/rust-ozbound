@@ -1,0 +1,6 @@
+ozbound-asset 1
+id = copper_vein
+kind = copper
+name = Copper vein
+actions = 2
+yield = 1

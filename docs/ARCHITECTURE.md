@@ -8,6 +8,7 @@ src/
 ├── setup.rs         # Startup: terrain, props, characters, lights, camera, HUD
 ├── models.rs        # Original low-poly models built from primitives (trees, thickets, houses, bridges, gardens, vines, people)
 ├── streaming.rs     # Loads/unloads overworld chunks around the player, tags what each chunk spawned
+├── editor_ui.rs     # INPUT + UI: /edit, the ribbon, selection marker, right-click edit menu; applies edits and rebuilds the loaded scenes
 ├── travel.rs        # Journeys off the overworld (caves), house roof/wall cutaway
 ├── music_ui.rs      # Plays zone music: one looping voice per audible track, volumes from the mixer
 ├── components.rs    # Bevy components and resources
@@ -67,6 +68,9 @@ src/
 ├── quest_save.rs    # Versioned plain-text save/load of the QuestLog (no file I/O)
 ├── quest_store.rs   # Reads the old quest-only save file (pre-M6) for migration
 ├── save.rs          # The full game save: SaveGame, versioned text format, validated loading, WorldChanges
+├── terrain_mesh.rs  # A scene's ground as a few merged meshes (plain buffers); the higher tile owns the wall, so scenes stitch (pure)
+├── asset_file.rs    # Standalone asset files for objects, people, creatures (`assets/library/*.asset`), library loading, export (pure)
+├── editor.rs        # Editor rules: object refs, move/remove/place, level checks, history (undo/redo), edit layer file, tools, ribbon (pure)
 ├── save_store.rs    # Reads/writes the save file (temp file + rename, backup, bad saves never overwritten, legacy migration)
 ├── content.rs       # Loads quest + dialogue files (custom path, default path, built-in fallback)
 ├── talk.rs          # One open conversation: current view, choices, chat lines per step
@@ -143,3 +147,11 @@ src/
 - A journey despawns the player and `build_world` spawns it again from `StartingSave`, so `travel::apply_travel` copies the player's progress into `StartingSave` before despawning.
 - **Networking.** `net.rs` is the vocabulary (`NetId`, `PlayerId`, `Command`); `docs/NETWORKING.md` is the design. Rule for new code: a system that changes the world on a player's behalf should be reachable from a `Command`, and a thing that must exist on every machine should have a `NetId`.
 
+## The editor (M12)
+
+- **Edits change data, not entities.** An edit names a region and works in that region's tiles; it is applied to a copy of the region's `Level`, checked, and only then kept. The loaded scenes are then removed and rebuilt by the streamer (`editor_ui::rebuild_scenes` clears `Streaming::loaded`), so what you see is exactly what a restart builds. Before every edit the picked and used state of the loaded scenes is stashed (`streaming::stash`) so a rebuild keeps the player's progress.
+- **Two layers of checking.** `editor::check_level` repeats the level parser's rules (reachability, doorways, room to wander, moonpetals) on the edited level; the caller adds the whole-world check, which the game fills with `village::check` over the world with every region's current level (`World::set_levels`, `check_with`). A refused edit changes nothing.
+- **History and persistence.** `History` stores each edit with its inverse (`Restore` is the inverse of `Remove` and keeps list positions). The edits in effect are the edit layer, `saves/edits.txt` (`ozbound-edits 1`). `main` applies it to the loaded world before the save is restored (`editor_ui::start_session`), all or nothing, then checks the edited world as a whole; a layer that fails is left untouched and saving of edits is off for the session.
+- **Terrain.** `terrain_mesh::build_terrain` takes the map, a rectangle, which path tiles are bridges, and a `neighbour` function that says what lies beyond the rectangle. Walls belong to the higher tile; for the open world the neighbour comes from the atlas (`setup::overworld_neighbour`), not from the loaded map, so load order does not matter. The mesh entities are tagged with their scene directly because `tag_world_entities` places by position and these sit at the origin.
+- **Assets.** `asset_file.rs` is the format and library; `export_world` regenerates the shipped library from the shipped world and a test compares the files, so they cannot drift.
+- **Rule for new code:** a new kind of thing that stands in a scene should get an asset file and an `ObjectRef`/`Object` case in `editor.rs`, with the same two checks, or be listed as not editable.

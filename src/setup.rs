@@ -1,6 +1,7 @@
 //! Startup: builds the 3D meadow, its props and characters, lights, camera, and HUD.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::TAU;
 
 use bevy::image::ImageSampler;
@@ -8,6 +9,7 @@ use bevy::pbr::{CascadeShadowConfigBuilder, NotShadowCaster};
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 use bevy::render::{
+    mesh::{Indices, PrimitiveTopology},
     render_asset::RenderAssetUsages,
     render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
@@ -22,6 +24,7 @@ use ozbound::{
     save::WorldChanges,
     scene,
     task::Task,
+    terrain_mesh::{build_terrain, Neighbour, Rect as TerrainRect, TerrainMaterial},
     world::{Tile, TilePos, WorldMap},
 };
 
@@ -33,9 +36,6 @@ use ozbound::text_fit::{
 use crate::camera_rig::Rig;
 use crate::components::*;
 use crate::models::{self, Kit};
-
-/// Slabs are 0.5 thick; `top` is where the visible surface sits.
-const SLAB_THICKNESS: f32 = 0.5;
 
 fn vec3(v: [f32; 3]) -> Vec3 {
     Vec3::from_array(v)
@@ -297,6 +297,45 @@ impl Area {
     }
 }
 
+/// Which scene the ground being built belongs to, and what lies beyond its edge: the true
+/// tile (and whether it is a bridge deck) of the neighbouring scene, loaded or not, so a wall
+/// on a seam is drawn once by the higher side (see `ozbound::terrain_mesh`).
+pub struct Ground<'a> {
+    pub scene: &'a str,
+    /// True for a chunk of the open world (its ground is removed with the chunk); false for a
+    /// whole region off the overworld (removed when the player travels).
+    pub chunk: bool,
+    pub neighbour: Neighbour<'a>,
+}
+
+/// The ground material handle for a terrain material.
+fn ground_material(kit: &Kit, material: TerrainMaterial) -> Handle<StandardMaterial> {
+    match material {
+        TerrainMaterial::Grass(i) => kit.grass[i.min(2)].clone(),
+        TerrainMaterial::DarkGrass => kit.dark_grass.clone(),
+        TerrainMaterial::Path(i) => kit.path[i.min(1)].clone(),
+        TerrainMaterial::Water(i) => kit.water[i.min(1)].clone(),
+    }
+}
+
+/// What lies beside a chunk, from the overworld: the tile of whichever region holds the world
+/// tile, whether that region is loaded or not.
+pub fn overworld_neighbour(atlas: &Atlas) -> impl Fn(TilePos) -> Option<(Tile, bool)> + '_ {
+    let bridges: RefCell<HashMap<String, HashSet<TilePos>>> = RefCell::new(HashMap::new());
+    move |world| {
+        let (chunk, local) = atlas.overworld.as_ref()?.to_local(world)?;
+        let level = atlas.level(&chunk.id)?;
+        let tile = level.map.tile_at(local).ok()?;
+        let bridge = tile == Tile::Path
+            && bridges
+                .borrow_mut()
+                .entry(chunk.id.clone())
+                .or_insert_with(|| scene::bridge_tiles(&level.map).into_iter().map(|b| b.tile).collect())
+                .contains(&local);
+        Some((tile, bridge))
+    }
+}
+
 /// Builds what stands on `area` of `map`: terrain, props, houses, people, and creatures, using
 /// the spawns of `level` that lie inside the area. `changes` (in the map's tiles) says what the
 /// player has already picked or used up there. Used for a whole region off the overworld and for
@@ -312,31 +351,40 @@ pub fn spawn_area(
     wildlife: &Wildlife,
     portraits: &mut Portraits,
     images: &mut Assets<Image>,
+    meshes: &mut Assets<Mesh>,
+    ground: &Ground,
 ) {
+    // Ground: the scene's terrain as a few merged meshes, one per ground material (see
+    // `ozbound::terrain_mesh`), tinted from the same small palette as before so the meadow isn't
+    // one flat colour. Water sits lower than the grass, so its banks read as little cliffs.
+    // Seams between scenes are stitched by that module's rule: the higher tile draws the wall.
     let bridges = scene::bridge_tiles(map);
-
-    // Ground: one slab per tile, tinted from a small palette so the meadow isn't one flat colour.
-    // Water sits lower than the grass, so its banks read as little cliffs.
-    for y in area.y0..area.y1 {
-        for x in area.x0..area.x1 {
-            let pos = TilePos::new(x, y);
-            let tile = map.tile_at(pos).expect("loop stays inside the map");
-            let (material, top) = match tile {
-                Tile::Grass | Tile::Rock | Tile::Fence | Tile::Sign | Tile::Wall | Tile::Door | Tile::Floor | Tile::Garden | Tile::Vine => {
-                    (kit.grass[scene::tile_variant(pos, 1, 3)].clone(), 0.0)
-                }
-                Tile::Tree => (kit.dark_grass.clone(), 0.0),
-                // A path across water is a bridge: the river keeps flowing under its deck.
-                Tile::Path if bridges.iter().any(|b| b.tile == pos) => (kit.water[scene::tile_variant(pos, 3, 2)].clone(), -0.2),
-                Tile::Path => (kit.path[scene::tile_variant(pos, 2, 2)].clone(), -0.02),
-                Tile::Water => (kit.water[scene::tile_variant(pos, 3, 2)].clone(), -0.2),
-            };
-            commands.spawn((
-                Mesh3d(kit.slab.clone()),
-                MeshMaterial3d(material),
-                Transform::from_translation(vec3(map.tile_center_3d(pos, top - SLAB_THICKNESS / 2.0))),
-                NotShadowCaster,
-            ));
+    let bridge_set: HashSet<TilePos> = bridges.iter().map(|b| b.tile).collect();
+    let terrain = build_terrain(
+        ground.scene,
+        map,
+        TerrainRect { x0: area.x0, y0: area.y0, x1: area.x1, y1: area.y1 },
+        &|pos| bridge_set.contains(&pos),
+        ground.neighbour,
+    );
+    for (material, part) in &terrain.parts {
+        let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, part.positions.clone())
+            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, part.normals.clone())
+            .with_inserted_indices(Indices::U32(part.indices.clone()));
+        // The mesh is positioned by its vertices, so it is tagged here: `tag_world_entities`
+        // finds a scene by an entity's position, and this one sits at the origin.
+        let mut entity = commands.spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(ground_material(kit, *material)),
+            Transform::IDENTITY,
+            SceneTerrain,
+            NotShadowCaster,
+        ));
+        if ground.chunk {
+            entity.insert(ChunkEntity(terrain.scene.clone()));
+        } else {
+            entity.insert(RegionEntity);
         }
     }
 
@@ -599,10 +647,12 @@ pub fn build_world(
         memory.0.entry(current.0.clone()).or_insert_with(|| overworld.changes_to_world(&current.0, &saved.0.changes));
         let loaded = overworld.wanted(tile, &[]);
         let composite = overworld.compose(&|id| atlas.level(id), &loaded);
+        let neighbour = overworld_neighbour(&atlas);
         for id in &loaded {
             let chunk = overworld.chunk(id).expect("wanted chunks exist");
             let none = WorldChanges::none();
-            spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, &mut portraits, &mut images);
+            let ground = Ground { scene: id, chunk: true, neighbour: &neighbour };
+            spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, &mut portraits, &mut images, &mut meshes, &ground);
         }
         meadow.0 = composite.map;
         level.0 = composite.level;
@@ -612,7 +662,8 @@ pub fn build_world(
     } else {
         streaming.loaded.clear();
         streaming.interior = true;
-        spawn_area(&mut commands, &kit, &meadow.0, &level.0, Area::of_map(&meadow.0), &saved.0.changes, &wildlife, &mut portraits, &mut images);
+        let ground = Ground { scene: &current.0, chunk: false, neighbour: &|_| None };
+        spawn_area(&mut commands, &kit, &meadow.0, &level.0, Area::of_map(&meadow.0), &saved.0.changes, &wildlife, &mut portraits, &mut images, &mut meshes, &ground);
         saved.0.player
     };
     let map = &meadow.0;
