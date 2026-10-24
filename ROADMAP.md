@@ -305,10 +305,17 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Checked in a window: the game was started under Xvfb with software Vulkan (llvmpipe) and driven with xdotool: the new ground renders like the old, `/edit` opens the ribbon, clicking the signpost shows the X, clicking ground moves it ("Moved signpost." and the edit line is written to `saves/edits.txt`), the Undo button and Ctrl+Z put it back ("Undid: Moved signpost."), the Place button cycles its asset, and the layer file disappears when everything is undone.
   - Limits, stated plainly: **not seen on screen:** Redo (button and Ctrl+Y), Delete, the right-click menu and its rows, Place on the ground, Export asset, the refusal messages, and walking between scenes in the editor; they are covered by the unit tests but run section 12 of `docs/SMOKE_TEST.md`. Moving is click-then-click, not drag. The ribbon covers the top 44 px, so the toolbar and the top of the HUD are hidden behind it while editing. Only the open world can be edited (not caves), houses, plots, fences, the bridge, thickets, scenery trees and rocks, and waymarks cannot be selected, and an object moved or placed arrives fresh (a moved tree that was used up is full again). Changes made while editing to trees and petals in other chunks are, as before, only saved for the chunk you stand in. `cargo clippy --all-targets` adds no warnings from the new files (the older ones in `behavior.rs`, `locations.rs`, `overworld.rs`, `npc.rs`, `streaming.rs` remain), and the repository is still not rustfmt-clean, so no reformatting was done.
 
-## M13 - WebGL Build
+## M13 - Editor Mode (Next 1)
+- [ ] Every world chunk should be square and equally the same size like 64 x 64 tiles or whatever is going to be most performant to stream them in
+- [ ] Should be able to select and move the thickets or the bushes
+- [ ] The right-click context menu has issue to display all the options cleanly
+- [ ] Should have triangulated terrain tiles and there should be varying height so it's not so flat
+- [ ] The exported objects need their geometry data export in a .obj or .fbx file. Whatever format is most open and future proofed.
+
+## M14 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
 
-## M14 — Optional future directions (not committed)
+## M15 — Optional future directions (not committed)
 - [ ] Consider controller support.
 - [ ] Consider a larger world split into local map regions.
 - [ ] Evaluate multiplayer only if there is a compelling reason; do not make it a prerequisite.
