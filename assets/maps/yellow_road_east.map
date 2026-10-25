@@ -2,55 +2,79 @@
 ;
 ; A region is a level with no [guide]: scenery, resources, signs, houses and exits only (see
 ; bluebrook.map for the full format). Registered in assets/world/locations.world as
-; YELLOW_BRICK_ROAD_EAST. The map is 72 x 40 tiles. The road runs west to east at y = 20, crosses a
+; YELLOW_BRICK_ROAD_EAST. The map is 64 x 64 tiles. The road runs west to east at y = 20, crosses a
 ; river on a wooden bridge (x = 28-30), and passes a waystation with a roomy house, a garden, and
 ; two vineyard columns. Its west edge (x = 0, y = 20) is where the path joins Bluebrook's east edge
-; in the overworld, so the road is walked straight on from the village; the east end is not open yet.
+; in the overworld, so the road is walked straight on from the village; the east end is not open yet. A narrow opening in the northern forest leads to an empty meadow (y = 40-61) kept ready for building out.
 
 [map]
 ; '.' grass, '=' path, '~' water, 'T' tree, '#' rock, 'F' fence, 'S' signpost,
 ; 'g' garden bed, 'v' vineyard row (both block movement; walk the grass lanes between).
 ; Houses are not drawn here: the [houses] section stamps walls, a doorway, and floor.
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTT.TTT...T..T.TTT....T..T.T~~~..T.TTTT.TTTT...TT.T.T.....T...TTT.T...TT
-TTTT...T....T.TT.T...TTT....~~~......TTT..T..T.T.T...T..T....T..T.TTTTTT
-TT...T....TTT.TTT.T.T..TTT..~~~TTTTT.TT.TT...T..TTTTT...T.TT..T..T..T.TT
-TT..T...T.T.T.TT..T.T..TTT.T~~~...TT..T.T.TT......TTT..TT.....TTTTT.T.TT
-TTTTT.TT..T.TTTTT..T..TTT.T.~~~.TTTT.T...TTTT..TT...TTTT.TT.T.T.T..T.TTT
-TT..TT....TTT.....T..TTT.TT.~~~T.TT.TTTT.T.T..TTTT.TT.T.TTT...TT.....TTT
-TT.....T....T..T.......TT..T~~~.......................................TT
-TT....TT.TT...TT...T.TT...TT~~~....gggggggggg.........................TT
-TTTTT.TTT.TT...T..TT...T..T.~~~.......................................TT
-TTT..T.T..TT.T.TT.T..TT..TTT~~~....v.........v........................TT
-TT............T.............~~~....v.........v......T...........T.....TT
-TT.........................T~~~....v.........v...........T............TT
-TT......T.............T...T.~~~....v.........v..T...#.................TT
-TTT.......T.................~~~....v.........v..T..TT..TT.............TT
-TT.T.T..T...T..............T~~~.........=.........T.................TTTT
-TT..........................~~~.........=.............................TT
-TT.S.....................S..~~~.........=.........................S...TT
-=======================================================================T
-TT..........................~~~.......................................TT
-TT..........................~~~.......................................TT
-TT......T...................~~~........T.......T...T............T.....TT
-TT..............TT.........T~~~.........T............TT...#...T.......TT
-TT....T.T...T....TT.........~~~...T...............................T...TT
-TT......................TT..~~~.............T.......T............T....TT
-TT...................T.T.TT.~~~.........T....................T........TT
-TT.........T................~~~.................T.T......T............TT
-TT................T.........~~~...........T...........................TT
-TT.T...TTTT.T.....T.T...TT.T~~~T..TTTT.TT..T..TTTT..TT.TTTTTTT..T.T.T.TT
-TTTTTT..TT.TTTTT.....T...TT.~~~TT.....TTT.TTTTT.T...TT....TTTTTTT....TTT
-TTTT.T.T.T...T..TT..T..T.TT.~~~.TT.T..T.TT.T.T..TT..T.TTT....T.T..TT.TTT
-TTT..TTTTTTT..TT....T.T.TTTT~~~..T.T.T..TT.TTTT.T..T....T..T.T.TTTT...TT
-TTT...T..TT..T.T.T...T.TT.T.~~~TT....T....TT......TT.T.TTTTTTTTT..T.T.TT
-TT.T..TT.TT..T..T...T.T.T..T~~~T.......TT...TT...T.TTT.TTT..........T.TT
-TT........TT...T.TTT..TT.T..~~~.T..TT..TT...TT.TT.TTT..TT..T.TT..T....TT
-TT.T.T..TT..TTTTT.....T....T~~~..TTT.TT.T..TTTT...T.TTT.T.......T.....TT
-TT..T..T.T.TTTTT..T.TTTT....~~~T.T.TTT..T.T.TTT.TT...TTT.TT...T.T.....TT
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TT...........................T..............T..............T.TTT
+TT...........................T.........T.....T.T........T.....TT
+TT..T...........T.............................................TT
+TT...T........................................T.........T.....TT
+TT.T.....................................T...................TTT
+TT.....T......................T.......................T...T...TT
+TT...................T.............T..........T...............TT
+TT......T..T..T.........TT........T.....T..T.......T..........TT
+TT........T........................T...........T..............TT
+TT................T...T.......................................TT
+TT..........................................T........T........TT
+TT.........T..T..............T......................T.........TT
+TT.T.................T.........................T..............TT
+TT.....T.T............T.......................................TT
+TT......T.............T........TT...........T.................TT
+TT.............T........................T.....................TT
+TT............T...............................................TT
+TT.........................T.....T............................TT
+TT...........T.....................T.....T....................TT
+TT.........T.....................T............................TT
+TT....T.................................T.................T...TT
+TT...........................T...........T...........T........TT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT.TTT...T..T.TTT....T..T.T~~~..T.TTTT.TTTT...TT.T.T.....T...TT
+TTTT...T....T.TT.T...TTT....~~~......TTT..T..T.T.T...T..T....T.T
+TT...T....TTT.TTT.T.T..TTT..~~~..TTT.TT.TT...T..TTTTT...T.TT..TT
+TT..T...T.T.T.TT..T.T..TTT.T~~~...TT..T.T.TT......TTT..TT.....TT
+TTTTT.TT..T.TTTTT..T..TTT.T.~~~..TTT.T...TTTT..TT...TTTT.TT.T.TT
+TT..TT....TTT.....T..TTT.TT.~~~..TT.TTTT.T.T..TTTT.TT.T.TTT...TT
+TT.....T....T..T.......TT..T~~~................................T
+TT....TT.TT...TT...T.TT...TT~~~....gggggggggg..................T
+TTTTT.TTT.TT...T..TT...T..T.~~~................................T
+TTT..T.T..TT.T.TT.T..TT..TTT~~~....v.........v.................T
+TT............T.............~~~....v.........v......T..........T
+TT.........................T~~~....v.........v...........T.....T
+TT......T.............T...T.~~~....v.........v..T...#..........T
+TTT.......T.................~~~....v.........v..T..TT..TT......T
+TT.T.T..T...T..............T~~~.........=.........T............T
+TT..........................~~~.........=......................T
+TT.S.....................S..~~~.........=...................S..T
+===============================================================T
+TT..........................~~~................................T
+TT..........................~~~................................T
+TT......T...................~~~........T.......T...T...........T
+TT..............TT.........T~~~.........T............TT...#...TT
+TT....T.T...T....TT.........~~~...T............................T
+TT......................TT..~~~.............T.......T..........T
+TT...................T.T.TT.~~~.........T....................T.T
+TT.........T................~~~.................T.T......T.....T
+TT................T.........~~~...........T....................T
+TT.T...TTTT.T.....T.T...TT.T~~~T..TTTT.TT..T..TTTT..TT.TTTTTTT.T
+TTTTTT..TT.TTTTT.....T...TT.~~~TT.....TTT.TTTTT.T...TT....TTTTTT
+TTTT.T.T.T...T..TT..T..T.TT.~~~.TT.T..T.TT.T.T..TT..T.TTT....T.T
+TTT..TTTTTTT..TT....T.T.TTTT~~~..T.T.T..TT.TTTT.T..T....T..T.T.T
+TTT...T..TT..T.T.T...T.TT.T.~~~TT....T....TT......TT.T.TTTTTTTTT
+TT.T..TT.TT..T..T...T.T.T..T~~~T.......TT...TT...T.TTT.TTT.....T
+TT........TT...T.TTT..TT.T..~~~.T..TT..TT...TT.TT.TTT..TT..T.TTT
+TT.T.T..TT..TTTTT.....T....T~~~..TTT.TT.T..TTTT...T.TTT.T......T
+TT..T..T.T.TTTTT..T.TTTT....~~~T.T.TTT..T.T.TTT.TT...TTT.TT...TT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 
 [player]
 3 20
@@ -72,7 +96,7 @@ berry 60 24 3 1
 [signs]
 3 21 West: Bluebrook, the Munchkin village. The road is yellow here, and it is the only road worth trusting.
 25 21 Bridge ahead. It is newly mended; the planks are honest, and so is the river beneath them.
-66 21 The road runs on to the east, but the way is not open yet. The forest beyond keeps its own counsel.
+60 21 The road runs on to the east, but the way is not open yet. The forest beyond keeps its own counsel.
 
 [houses]
 ; id x y width height door_side name   (x y is the south-west corner; the doorway is in the middle of the side)

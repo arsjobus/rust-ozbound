@@ -17,7 +17,7 @@ use ozbound::{overworld::Overworld, save::WorldChanges, world::TilePos};
 
 use crate::components::*;
 use crate::models::Kit;
-use crate::setup::{overworld_neighbour, spawn_area, Area, Ground};
+use crate::setup::{ensure_chunk_heights, overworld_neighbour, spawn_area, Area, Ground};
 
 /// What the player has done in the chunks `ids`, put into `memory` (world tiles). Called just
 /// before those chunks are despawned.
@@ -62,6 +62,7 @@ pub fn stream_chunks(
     atlas: Res<Atlas>,
     mut streaming: ResMut<Streaming>,
     mut memory: ResMut<ChunkMemory>,
+    mut heights: ResMut<GroundHeights>,
     mut meadow: ResMut<Meadow>,
     mut level: ResMut<LevelData>,
     mut current: ResMut<CurrentRegion>,
@@ -107,9 +108,10 @@ pub fn stream_chunks(
     let composite = overworld.compose(&|id| atlas.level(id), &wanted);
     let none = WorldChanges::none();
     let neighbour = overworld_neighbour(&atlas);
+    ensure_chunk_heights(&mut heights.0, overworld, &atlas, &load);
     for id in &load {
         let chunk = overworld.chunk(id).expect("wanted chunks exist");
-        let ground = Ground { scene: id, chunk: true, neighbour: &neighbour };
+        let ground = Ground { scene: id, chunk: true, neighbour: &neighbour, heights: &heights.0 };
         let Gfx { portraits, images, meshes } = &mut gfx;
         spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, portraits, images, meshes, &ground);
     }

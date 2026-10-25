@@ -111,48 +111,62 @@ fn chunk_terrains(world: &World) -> Vec<TerrainMesh> {
 }
 
 #[test]
-fn each_chunk_has_one_top_face_per_tile_and_belongs_to_its_scene() {
+fn each_chunk_has_two_top_triangles_per_tile_and_belongs_to_its_scene() {
     let world = world();
     let overworld = world.overworld.as_ref().unwrap();
     let meshes = chunk_terrains(&world);
     assert_eq!(meshes.len(), overworld.chunks().len());
     for (mesh, chunk) in meshes.iter().zip(overworld.chunks()) {
         assert_eq!(mesh.scene, chunk.id);
-        let tops: usize = mesh.parts.iter().map(|(_, p)| (0..p.quad_count()).filter(|q| p.normals[q * 4] == [0.0, 1.0, 0.0]).count()).sum();
-        assert_eq!(tops as i32, chunk.width * chunk.height, "{}", chunk.id);
+        let tops: usize = mesh.parts.iter().map(|(_, p)| p.indices.chunks(3).filter(|t| p.normals[t[0] as usize][1] > 0.0).count()).sum();
+        assert_eq!(tops as i32, 2 * chunk.width * chunk.height, "{}", chunk.id);
         // A chunk's whole ground is a handful of meshes, not a thousand entities.
         assert!(mesh.parts.len() <= 9);
     }
 }
 
 #[test]
-fn walls_on_the_seams_between_scenes_are_drawn_exactly_once() {
+fn the_ground_of_neighbouring_chunks_meets_without_cracks_or_overlaps() {
     let world = world();
     let meshes = chunk_terrains(&world);
-    // A wall stands on a tile edge; whichever scene draws it, no edge may have two walls (one
-    // from each side) and no quad may be drawn twice.
-    let mut edges: HashMap<String, String> = HashMap::new();
-    let mut seen_quads: HashSet<String> = HashSet::new();
+    // Every corner of the surface has one height, whichever chunk draws it, and no triangle is
+    // drawn twice (not even on a seam, where both chunks touch).
+    let mut heights: HashMap<String, (String, String)> = HashMap::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for mesh in &meshes {
         for (_, part) in &mesh.parts {
-            for q in 0..part.quad_count() {
-                let corners = &part.positions[q * 4..q * 4 + 4];
-                let normal = part.normals[q * 4];
-                let key: String = corners.iter().map(|p| format!("{:.3},{:.3},{:.3}", p[0], p[1], p[2])).collect::<Vec<_>>().join("|");
-                assert!(seen_quads.insert(format!("{key}{normal:?}")), "a quad is drawn twice in {}", mesh.scene);
-                if normal[1] != 0.0 {
+            for tri in part.indices.chunks(3) {
+                let corners: Vec<String> = tri.iter().map(|i| format!("{:.3},{:.3},{:.3}", part.positions[*i as usize][0], part.positions[*i as usize][1], part.positions[*i as usize][2])).collect();
+                assert!(seen.insert(corners.join("|")), "a triangle is drawn twice in {}", mesh.scene);
+                if part.normals[tri[0] as usize][1] <= 0.0 {
                     continue;
                 }
-                let mid = |axis: usize| corners.iter().map(|p| p[axis]).sum::<f32>() / 4.0;
-                let edge = format!("{:.3},{:.3}", mid(0), mid(2));
-                let top = corners.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
-                if let Some(previous) = edges.insert(edge.clone(), mesh.scene.clone()) {
-                    panic!("the wall at {edge} is drawn by {previous} and by {} (top {top})", mesh.scene);
+                for i in tri {
+                    let p = part.positions[*i as usize];
+                    let at = format!("{:.3},{:.3}", p[0], p[2]);
+                    let y = format!("{:.4}", p[1]);
+                    if let Some((other_scene, other_y)) = heights.insert(at.clone(), (mesh.scene.clone(), y.clone())) {
+                        assert_eq!(other_y, y, "a crack at {at}: {other_scene} and {} disagree", mesh.scene);
+                    }
                 }
             }
         }
     }
-    assert!(!edges.is_empty());
+    assert!(!heights.is_empty());
+}
+
+#[test]
+fn the_world_has_hills_and_every_flat_place_is_flat() {
+    let world = world();
+    let meshes = chunk_terrains(&world);
+    let ys: Vec<f32> = meshes
+        .iter()
+        .flat_map(|m| m.parts.iter())
+        .flat_map(|(_, p)| p.indices.chunks(3).filter(|t| p.normals[t[0] as usize][1] > 0.0).flat_map(|t| t.iter().map(|i| p.positions[*i as usize][1])).collect::<Vec<_>>())
+        .collect();
+    let (low, high) = ys.iter().fold((f32::MAX, f32::MIN), |(lo, hi), v| (lo.min(*v), hi.max(*v)));
+    assert!(high - low > 0.3, "the world is not flat: {low}..{high}");
+    assert!(high <= ozbound::heightfield::AMPLITUDE + 1e-4 && low >= ozbound::heightfield::WATER_LEVEL - 1e-4, "{low}..{high}");
 }
 
 #[test]
@@ -163,7 +177,7 @@ fn the_ground_of_a_region_off_the_overworld_is_a_scene_too() {
         let bridges: HashSet<TilePos> = scene::bridge_tiles(&level.map).into_iter().map(|b| b.tile).collect();
         let mesh = build_terrain(&id, &level.map, rect, &|p| bridges.contains(&p), &|_| None);
         assert_eq!(mesh.scene, id);
-        assert!(mesh.quad_count() >= level.map.width() * level.map.height());
+        assert!(mesh.triangle_count() >= 2 * level.map.width() * level.map.height());
     }
 }
 
@@ -345,4 +359,35 @@ fn an_edit_layer_that_no_longer_fits_the_world_is_refused_whole() {
     let error = replay(&mut levels, &layer, &library, &check).unwrap_err();
     assert!(error.starts_with("edit 1 (remove sign 0 0 in YELLOW_BRICK_ROAD_EAST)"), "{error}");
     assert_eq!(levels, before);
+}
+
+#[test]
+fn a_thicket_of_the_shipped_road_can_be_moved_removed_and_restored() {
+    let world = world();
+    let library = Library::builtin().unwrap();
+    let road = "YELLOW_BRICK_ROAD_EAST";
+    let mut levels = world.all_levels();
+    let before = levels.clone();
+    let thickets = scene::thicket_tiles(level_of(&levels, road));
+    assert!(thickets.len() > 100, "the road is lined with thickets");
+    // Every thicket the scene draws is one the editor can find, and nothing else is.
+    let level = level_of(&levels, road);
+    assert!(thickets.iter().all(|t| editor::is_thicket(level, *t)));
+    assert_eq!(editor::object_at(level, thickets[0]).map(|o| o.reference()), Some(ObjectRef::Thicket(thickets[0])));
+    // A thicket next to the road goes to the nearest free grass tile that keeps the world valid.
+    let bush = thickets.iter().copied().find(|t| t.x > 3 && t.y > 3 && t.y < 36).unwrap();
+    let check = |id: &str, l: &Level| world.check_with(id, l);
+    let mut history = History::default();
+    let to = first_accepted(&levels, &library, |to| Edit::Move { region: road.into(), object: ObjectRef::Thicket(bush), to }, road);
+    history.apply(&mut levels, Edit::Move { region: road.into(), object: ObjectRef::Thicket(bush), to }, &library, &check).unwrap();
+    let after = level_of(&levels, road);
+    assert_eq!(after.map.tile_at(bush), Ok(Tile::Grass));
+    assert_eq!(after.map.tile_at(to), Ok(Tile::Tree));
+    assert!(scene::thicket_tiles(after).contains(&to), "the scene now draws it at the new tile");
+    assert!(!scene::thicket_tiles(after).contains(&bush));
+    history.apply(&mut levels, Edit::Remove { region: road.into(), object: ObjectRef::Thicket(to) }, &library, &check).unwrap();
+    assert_eq!(level_of(&levels, road).map.tile_at(to), Ok(Tile::Grass));
+    history.undo(&mut levels, &library, &check).unwrap();
+    history.undo(&mut levels, &library, &check).unwrap();
+    assert_eq!(levels, before, "two undos restore the world exactly");
 }

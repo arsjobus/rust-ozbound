@@ -21,6 +21,7 @@ const TURN_RATE: f32 = 14.0;
 pub fn follow_route(
     time: Res<Time>,
     meadow: Res<Meadow>,
+    heights: Res<GroundHeights>,
     level: Res<LevelData>,
     content: Res<GameContent>,
     mut progress: ResMut<GameProgress>,
@@ -42,6 +43,8 @@ pub fn follow_route(
     let ((x, z), arrived) = step_toward(here, (dest[0], dest[2]), WALK_SPEED * dt);
     transform.translation.x = x;
     transform.translation.z = z;
+    // Walk over the hills: the feet follow the drawn ground.
+    transform.translation.y = heights.0.height_at_world(x, z);
     if arrived {
         player.task.complete_step();
         player.tile = step;

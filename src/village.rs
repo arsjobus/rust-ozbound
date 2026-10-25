@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn the_shipped_world_loads_and_holds_together() {
         let world = world();
-        assert_eq!((world.level.map.width(), world.level.map.height()), (64, 40));
+        assert_eq!((world.level.map.width(), world.level.map.height()), (64, 64));
         assert_eq!(world.content.quests.len(), 5);
         assert_eq!(world.level.npc_list().len(), 5);
         assert_eq!(world.bestiary.len(), 3);

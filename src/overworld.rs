@@ -39,6 +39,8 @@
 //!
 //! * every chunk is a playable location, placed once, at non-negative coordinates, and no
 //!   two chunks overlap;
+//! * when the world file sets `chunk_size` (the shipped one sets [`CHUNK_SIZE`]), every chunk
+//!   is exactly that many tiles square and sits on that grid;
 //! * the register's exits agree with the map: two chunks that touch with a walkable crossing
 //!   must list each other, and chunks that list each other must touch with a walkable
 //!   crossing. Overworld chunks connect by **walking**; a level `[exits]` tile that leads to
@@ -58,6 +60,18 @@ use crate::{
     textdata::{is_valid_id, is_valid_location_id, read_lines, ContentError, Item},
     world::{Tile, TilePos, WorldMap},
 };
+
+/// The side of a chunk the shipped world uses, in tiles (`chunk_size` in `overworld.world`).
+///
+/// 64 x 64 is 4,096 tiles: the ground of a chunk is a handful of merged meshes whatever its
+/// size, a power of two keeps chunk origins on an easy grid, and with the default margins (20
+/// to load, 28 to drop) the player never has more than four chunks loaded at once. A larger
+/// chunk would spawn more props in the one frame it streams in; a smaller one would make
+/// the margins load a ring of many chunks.
+pub const CHUNK_SIZE: i32 = 64;
+/// The smallest and largest `chunk_size` a world file may ask for.
+pub const MIN_CHUNK_SIZE: i32 = 8;
+pub const MAX_CHUNK_SIZE: i32 = 256;
 
 /// Default distance, in tiles, at which a chunk starts loading.
 pub const DEFAULT_LOAD_MARGIN: i32 = 20;
@@ -139,6 +153,7 @@ pub struct Overworld {
     zones: Vec<Zone>,
     load_margin: i32,
     unload_margin: i32,
+    chunk_size: Option<i32>,
     width: usize,
     height: usize,
 }
@@ -225,13 +240,20 @@ impl Overworld {
         }
 
         let (mut load_margin, mut unload_margin) = (DEFAULT_LOAD_MARGIN, DEFAULT_UNLOAD_MARGIN);
+        let mut chunk_size: Option<i32> = None;
         if let Some((_, fields)) = &world_fields {
             for (line, key, value) in fields {
                 let parsed: i32 = value.parse().map_err(|_| err(*line, format!("`{key}` must be a whole number of tiles, found `{value}`")))?;
                 match key.as_str() {
                     "load_margin" => load_margin = parsed,
                     "unload_margin" => unload_margin = parsed,
-                    _ => return Err(err(*line, format!("unknown [world] field `{key}` (use load_margin or unload_margin)"))),
+                    "chunk_size" => {
+                        if !(MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE).contains(&parsed) {
+                            return Err(err(*line, format!("chunk_size must be between {MIN_CHUNK_SIZE} and {MAX_CHUNK_SIZE} tiles, found {parsed}")));
+                        }
+                        chunk_size = Some(parsed);
+                    }
+                    _ => return Err(err(*line, format!("unknown [world] field `{key}` (use load_margin, unload_margin, or chunk_size)"))),
                 }
             }
         }
@@ -270,7 +292,16 @@ impl Overworld {
             let Some(origin) = at else {
                 return Err(err(draft.line, format!("chunk `{}` needs an `at = x y` field", draft.id)));
             };
-            placed.push(Chunk { id: draft.id.clone(), origin, width: level.map.width() as i32, height: level.map.height() as i32 });
+            let (width, height) = (level.map.width() as i32, level.map.height() as i32);
+            if let Some(size) = chunk_size {
+                if (width, height) != (size, size) {
+                    return Err(err(draft.line, format!("chunk `{}` is {width} x {height} tiles, but every chunk of this world is {size} x {size} (`chunk_size` in [world]); resize its map", draft.id)));
+                }
+                if origin.x % size != 0 || origin.y % size != 0 {
+                    return Err(err(draft.line, format!("chunk `{}` is placed at {} {}, which is not on the {size}-tile chunk grid (each coordinate must be a multiple of {size})", draft.id, origin.x, origin.y)));
+                }
+            }
+            placed.push(Chunk { id: draft.id.clone(), origin, width, height });
         }
 
         for (i, a) in placed.iter().enumerate() {
@@ -289,7 +320,7 @@ impl Overworld {
         for draft in &zones {
             built_zones.push(Self::build_zone(draft, width as i32, height as i32)?);
         }
-        let world = Self { chunks: placed, zones: built_zones, load_margin, unload_margin, width, height };
+        let world = Self { chunks: placed, zones: built_zones, load_margin, unload_margin, chunk_size, width, height };
         world.check_start(book, &chunks)?;
         world.check_exits(book, &level_of, &chunks)?;
         world.check_house_ids(&level_of, &chunks)?;
@@ -498,6 +529,12 @@ impl Overworld {
 
     pub fn chunk(&self, id: &str) -> Option<&Chunk> {
         self.chunks.iter().find(|c| c.id == id)
+    }
+
+    /// The side, in tiles, that every chunk must have (and the grid they sit on), when the
+    /// world file sets `chunk_size`.
+    pub fn chunk_size(&self) -> Option<i32> {
+        self.chunk_size
     }
 
     pub fn load_margin(&self) -> i32 {
@@ -714,6 +751,38 @@ theme = road
         assert_eq!(world.chunks().len(), 2);
         assert_eq!(world.zones().len(), 2);
         assert_eq!(world.chunk("ROAD").unwrap().origin, TilePos::new(6, 0));
+    }
+
+    #[test]
+    fn a_chunk_size_refuses_any_chunk_that_is_not_that_square() {
+        let text = WORLD.replace("unload_margin = 5\n", "unload_margin = 5\nchunk_size = 8\n");
+        let why = bad(&text);
+        assert!(why.contains("6 x 4") && why.contains("8 x 8") && why.contains("chunk_size"), "{why}");
+        let text = WORLD.replace("unload_margin = 5\n", "unload_margin = 5\nchunk_size = 16\n");
+        assert!(bad(&text).contains("16 x 16"), "a chunk that is too small is refused too");
+    }
+
+    #[test]
+    fn chunk_size_must_be_a_sensible_whole_number() {
+        for value in ["0", "7", "-8", "300"] {
+            let text = WORLD.replace("unload_margin = 5\n", &format!("unload_margin = 5\nchunk_size = {value}\n"));
+            assert!(bad(&text).contains("chunk_size must be between"), "{value}");
+        }
+        let text = WORLD.replace("unload_margin = 5\n", "unload_margin = 5\nchunk_size = big\n");
+        assert!(bad(&text).contains("whole number"));
+        assert_eq!(ok().chunk_size(), None, "without the key chunks may be any size");
+    }
+
+    #[test]
+    fn the_shipped_world_is_made_of_equal_square_chunks_on_a_grid() {
+        let world = crate::village::builtin().expect("shipped world loads");
+        let overworld = world.overworld.as_ref().expect("the open world");
+        assert_eq!(overworld.chunk_size(), Some(CHUNK_SIZE));
+        assert!(overworld.chunks().len() >= 2);
+        for chunk in overworld.chunks() {
+            assert_eq!((chunk.width, chunk.height), (CHUNK_SIZE, CHUNK_SIZE), "{}", chunk.id);
+            assert_eq!((chunk.origin.x % CHUNK_SIZE, chunk.origin.y % CHUNK_SIZE), (0, 0), "{} is on the grid", chunk.id);
+        }
     }
 
     #[test]

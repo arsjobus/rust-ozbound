@@ -3,11 +3,11 @@
 ; Same format as assets/maps/meadow.map, plus optional sections for the village slice.
 ; Lines starting with ';' are comments. Blank lines are ignored. Sections may appear in any
 ; order, each at most once. Required:
-; Geography (64 x 40 tiles): a meadow with a heron pond in the west, a river at x = 26-27 crossed
+; Geography (64 x 64 tiles): a meadow with a heron pond in the west, a river at x = 26-27 crossed
 ; by the wooden bridge on the main road (y = 20), and the village of Bluebrook east of the river:
 ; three widely spaced plots (the apothecary's physic garden to the north, the surveyor's kitchen
 ; garden to the north-east, the woodcutter's vineyard to the south-east), each with a roomy
-; house, joined to the road by short paths. A forest closes the edges. The road runs on through
+; house, joined to the road by short paths. A forest closes the edges, with one opening in the north into an empty meadow (y = 40-61) kept ready for building out. The road runs on through
 ; the map's east edge (x = 63, y = 20) and continues as the Yellow Brick Road: the next region is
 ; placed against that edge in the overworld, so the walk never stops for a loading screen.
 
@@ -17,9 +17,33 @@
 ; Houses are not drawn here: the [houses] section stamps walls, a doorway, and floor.
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
-TTT.TTTT.TTTTT.TT.T...T..T~~.T.TT.T.......TT.TT.T...TT.TTTTT.TTT
-TT.T.TT.TTTTT.......T....T~~.T.T.TT.TT.TTTTTTTTT.TT.TT......T.TT
-TT..TTTT......TT.....T.T.T~~..T.T...........T..TTT.TT.T...ST..TT
+TT...........................T..............T..............T.TTT
+TT...........................T.........T.....T.T........T.....TT
+TT..T...........T.............................................TT
+TT...T........................................T.........T.....TT
+TT.T.....................................T...................TTT
+TT.....T......................T.......................T...T...TT
+TT...................T.............T..........T...............TT
+TT......T..T..T.........TT........T.....T..T.......T..........TT
+TT........T........................T...........T..............TT
+TT................T...T.......................................TT
+TT..........................................T........T........TT
+TT.........T..T..............T......................T.........TT
+TT.T.................T.........................T..............TT
+TT.....T.T............T.......................................TT
+TT......T.............T........TT...........T.................TT
+TT.............T........................T.....................TT
+TT............T...............................................TT
+TT.........................T.....T............................TT
+TT...........T.....................T.....T....................TT
+TT.........T.....................T............................TT
+TT....T.................................T.................T...TT
+TT...........................T...........T...........T........TT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT..TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
+TTT.TTTT.TTTTT.TT.T...T..T~~.T....T.......TT.TT.T...TT.TTTTT.TTT
+TT.T.TT.TTTTT.......T....T~~.T...TT.TT.TTTTTTTTT.TT.TT......T.TT
+TT..TTTT......TT.....T.T.T~~..T.............T..TTT.TT.T...ST..TT
 TTT.T.TTT...T.TT....TT.TTT~~....TTTTT.T.TTTTTTTT.............TTT
 TT....TT.......T.T.TT.T..T~~.T................T.T..g.g.g.g.g.TTT
 TTT.T...T......TTT.T.T.T..~~.....g.g.g.g.g.g.......g.g.g.g.g..TT

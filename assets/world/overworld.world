@@ -4,6 +4,8 @@
 # [world]       load_margin / unload_margin: a chunk is loaded while the player is within
 #               load_margin tiles of it, and dropped beyond unload_margin (the gap keeps a
 #               chunk from flickering on and off at its border). Both optional.
+#               chunk_size: every chunk is exactly this many tiles square and sits on a grid of
+#               this size (`at` is a multiple of it). Optional; the shipped world uses 64.
 # [chunk ID]    a playable location from locations.world. `at = x y` is the world tile of the
 #               region's own tile (0, 0); world tiles never go below 0. Chunks must not overlap.
 #               Chunks that touch are joined by walking: put a path tile on both sides of the
@@ -19,24 +21,25 @@
 [world]
 load_margin = 20
 unload_margin = 28
+chunk_size = 64
 
-# Bluebrook, in the Land of the Munchkins: 64 x 40 tiles at the world's origin.
+# Bluebrook, in the Land of the Munchkins: 64 x 64 tiles at the world's origin.
 [chunk MUNCHKIN_LANDS]
 at = 0 0
 
-# The Yellow Brick Road, eastern stretch: 72 x 40 tiles, starting where Bluebrook ends.
+# The Yellow Brick Road, eastern stretch: 64 x 64 tiles, starting where Bluebrook ends.
 # Its road (y = 20) meets Bluebrook's road at the shared border.
 [chunk YELLOW_BRICK_ROAD_EAST]
 at = 64 0
 
 [zone bluebrook]
 name = Bluebrook
-rect = 0 0 63 39
+rect = 0 0 63 63
 music = bluebrook.mp3
 theme = village
 
 [zone yellow_brick_road]
 name = The Yellow Brick Road
-rect = 64 0 135 39
+rect = 64 0 127 63
 music = yellow_road_east.ogg
 theme = road

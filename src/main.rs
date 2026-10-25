@@ -40,7 +40,7 @@ use ozbound::{
 };
 
 use components::{
-    Atlas, ChunkMemory, CurrentRegion, Soundscape, Streaming, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
+    Atlas, ChunkMemory, CurrentRegion, GroundHeights, Soundscape, Streaming, TravelOrder, ChatState, ContextMenuState, DockState, GameContent, GameProgress, HoverText, KeyTarget, LevelData, Meadow, PackState, Pause, PerfStats, Portraits, Recipes, SaveState,
     SettingsStore, StartingSave, TalkPartner, TalkPortrait, TalkState, UserSettings, Wildlife,
 };
 use pause_ui::running;
@@ -171,6 +171,7 @@ fn main() {
         .insert_resource(GameContent(content))
         .insert_resource(Recipes(recipes))
         .insert_resource(Wildlife { bestiary })
+        .insert_resource(GroundHeights::default())
         .insert_resource(Portraits::default())
         .insert_resource(TalkPortrait::default())
         .insert_resource(PackState::default())

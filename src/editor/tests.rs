@@ -356,6 +356,7 @@ fn every_object_reference_round_trips_through_text() {
         ObjectRef::Node(ResourceKind::CopperVein, tile(1, 2)),
         ObjectRef::Node(ResourceKind::HerbPatch, tile(1, 2)),
         ObjectRef::Sign(tile(5, 6)),
+        ObjectRef::Thicket(tile(7, 8)),
     ] {
         let text = object.to_text();
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -491,4 +492,99 @@ fn creatures_may_stand_beside_waymarks_but_not_on_people() {
     let pell = level.npcs[0].tile;
     let result = apply_edit(&mut levels, &Edit::Move { region: start, object: hare, to: pell }, &lib, &ok);
     assert!(matches!(result, Err(EditError::Refused(_))), "{result:?}");
+}
+
+// A thicket is a tree tile with no chopping tree on it. In `THICKETS` the bush at (1, 1) sits in
+// the open, the tile at (4, 0) is a chopping tree, and (3, 2) is a bush that walls off nothing.
+const THICKETS: &str = "[map]\n.....\n.T.T.\n..T..\n.....\n\n[player]\n0 0\n[moonpetals]\n4 3\n[nodes]\ntree 3 2 3 1\n";
+
+#[test]
+fn a_tree_tile_without_a_chopping_tree_is_a_thicket() {
+    let levels = mini(THICKETS);
+    let level = region(&levels, "MINI");
+    assert!(is_thicket(&level, tile(1, 1)) || is_thicket(&level, tile(1, 2)), "a bush stands in the open");
+    // The chopping tree is a node, not a thicket, and grass is neither.
+    let tree = level.nodes[0].tile;
+    assert!(!is_thicket(&level, tree));
+    assert!(!is_thicket(&level, tile(0, 0)));
+    assert!(!is_thicket(&level, tile(-1, 0)), "off the map");
+    assert!(matches!(object_at(&level, tree), Some(Object::Node(_))));
+    let bush = [tile(1, 1), tile(1, 2), tile(2, 1)].into_iter().find(|t| is_thicket(&level, *t)).unwrap();
+    assert_eq!(object_at(&level, bush), Some(Object::Thicket(bush)));
+    assert_eq!(find(&level, &ObjectRef::Thicket(bush)).map(|o| o.name()), Some("thicket".to_string()));
+    assert_eq!(find(&level, &ObjectRef::Thicket(tile(0, 0))), None);
+}
+
+#[test]
+fn moving_a_thicket_swaps_tiles_and_undo_restores_the_level_exactly() {
+    let lib = library();
+    let mut levels = mini(THICKETS);
+    let before = levels.clone();
+    let level = region(&levels, "MINI");
+    let bush = [tile(1, 1), tile(1, 2), tile(2, 1)].into_iter().find(|t| is_thicket(&level, *t)).unwrap();
+    let to = tile(0, 3);
+    let mut history = History::default();
+    let message = history.apply(&mut levels, Edit::Move { region: "MINI".into(), object: ObjectRef::Thicket(bush), to }, &lib, &ok).unwrap();
+    assert_eq!(message, "Moved thicket.");
+    let after = region(&levels, "MINI");
+    assert_eq!(after.map.tile_at(bush), Ok(Tile::Grass));
+    assert_eq!(after.map.tile_at(to), Ok(Tile::Tree));
+    assert!(is_thicket(&after, to) && !is_thicket(&after, bush));
+    history.undo(&mut levels, &lib, &ok).unwrap();
+    assert_eq!(levels, before);
+    history.redo(&mut levels, &lib, &ok).unwrap();
+    assert_eq!(region(&levels, "MINI"), after);
+}
+
+#[test]
+fn a_thicket_only_moves_onto_free_grass_and_never_onto_the_player_or_a_petal() {
+    let lib = library();
+    let levels = mini(THICKETS);
+    let level = region(&levels, "MINI");
+    let bush = [tile(1, 1), tile(1, 2), tile(2, 1)].into_iter().find(|t| is_thicket(&level, *t)).unwrap();
+    let try_to = |to: TilePos| {
+        let mut trial = levels.clone();
+        let result = apply_edit(&mut trial, &Edit::Move { region: "MINI".into(), object: ObjectRef::Thicket(bush), to }, &lib, &ok);
+        if result.is_err() {
+            assert_eq!(trial, levels, "a refused move changes nothing");
+        }
+        result.map(|_| ())
+    };
+    assert!(matches!(try_to(tile(0, 0)), Err(EditError::Refused(why)) if why.contains("Something already stands there")), "the player's start");
+    assert!(matches!(try_to(tile(4, 3)), Err(EditError::Refused(_))), "the moonpetal");
+    assert!(matches!(try_to(level.nodes[0].tile), Err(EditError::Refused(why)) if why.contains("bare grass")), "a chopping tree");
+    assert!(matches!(try_to(tile(9, 9)), Err(EditError::Refused(why)) if why.contains("off the map")));
+    assert!(matches!(try_to(bush), Err(EditError::Refused(why)) if why.contains("already there")));
+    assert!(try_to(tile(2, 3)).is_ok());
+}
+
+#[test]
+fn a_thicket_cannot_be_moved_to_wall_the_world_off_and_can_be_removed_and_restored() {
+    let lib = library();
+    let mut levels = mini(GAP);
+    // In GAP the one-tile opening at (2, 1)... a thicket moved there would seal the petal off.
+    let level = region(&levels, "MINI");
+    assert!(level.nodes.iter().all(|n| !is_thicket(&level, n.tile)));
+    // Make a thicket from an existing wall-free grass tile by placing one via the map.
+    let mut with_bush = level.clone();
+    with_bush.map.set_tile(tile(0, 3), Tile::Tree).unwrap();
+    levels[0].1 = with_bush;
+    let before = levels.clone();
+    let seal = Edit::Move { region: "MINI".into(), object: ObjectRef::Thicket(tile(0, 3)), to: tile(2, 1) };
+    let mut trial = levels.clone();
+    assert!(matches!(apply_edit(&mut trial, &seal, &lib, &ok), Err(EditError::Breaks(_))), "sealing the gap breaks reachability");
+    assert_eq!(trial, levels);
+    let mut history = History::default();
+    history.apply(&mut levels, Edit::Remove { region: "MINI".into(), object: ObjectRef::Thicket(tile(0, 3)) }, &lib, &ok).unwrap();
+    assert_eq!(region(&levels, "MINI").map.tile_at(tile(0, 3)), Ok(Tile::Grass));
+    history.undo(&mut levels, &lib, &ok).unwrap();
+    assert_eq!(levels, before, "undo puts the thicket back");
+}
+
+#[test]
+fn thicket_edits_are_kept_in_the_edit_layer() {
+    let layer = EditLayer { edits: vec![Edit::Move { region: ROAD.into(), object: ObjectRef::Thicket(tile(2, 3)), to: tile(4, 5) }] };
+    let text = layer.to_text();
+    assert!(text.contains("thicket 2 3"), "{text}");
+    assert_eq!(EditLayer::parse(&text).unwrap(), layer);
 }

@@ -3,6 +3,7 @@
 //! Pure Rust (screen positions are plain `(x, y)` pixel pairs, origin top-left).
 
 use crate::interaction::{hover_text, InteractionKind};
+use crate::text_fit::GLYPH_WIDTH_EM;
 
 /// What choosing a menu row does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,18 +77,61 @@ pub fn build_edit_menu(object: Option<&str>, selected: Option<&str>, ground_free
     entries
 }
 
-/// Fixed row geometry, so the Bevy layout and the click test cannot disagree.
+/// Row geometry of one open menu, so the Bevy layout and the click test cannot disagree.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MenuMetrics {
     pub width: f32,
     pub row_height: f32,
 }
 
+/// Font size, row height, side padding, narrowest menu, and the gap kept to the window edge.
+pub const MENU_FONT_PX: f32 = 17.0;
+pub const MENU_ROW_HEIGHT: f32 = 26.0;
+pub const MENU_PAD_X: f32 = 10.0;
+pub const MENU_MIN_WIDTH: f32 = 150.0;
+pub const MENU_WINDOW_MARGIN: f32 = 6.0;
+
 impl MenuMetrics {
     /// Total panel size for `rows` rows.
     pub fn size(&self, rows: usize) -> (f32, f32) {
         (self.width, self.row_height * rows as f32)
     }
+
+    /// How many characters of a label fit on one row.
+    pub fn label_chars(&self) -> usize {
+        let inner = (self.width - 2.0 * MENU_PAD_X) / (MENU_FONT_PX * GLYPH_WIDTH_EM);
+        if inner.is_finite() && inner >= 1.0 {
+            inner.floor() as usize
+        } else {
+            1
+        }
+    }
+}
+
+/// The geometry for a menu with these rows in an interface `window_width` logical pixels wide:
+/// wide enough for the longest label, never narrower than [`MENU_MIN_WIDTH`], and never wider
+/// than the window less a margin (labels that still do not fit are shortened by
+/// [`fit_label`]). Every row is one line high, so a long label can never spill into the next.
+pub fn menu_metrics(entries: &[MenuEntry], window_width: f32) -> MenuMetrics {
+    let longest = entries.iter().map(|e| e.label.chars().count()).max().unwrap_or(0) as f32;
+    let wanted = (longest * MENU_FONT_PX * GLYPH_WIDTH_EM + 2.0 * MENU_PAD_X).max(MENU_MIN_WIDTH);
+    let room = window_width - 2.0 * MENU_WINDOW_MARGIN;
+    let width = if room.is_finite() && room > 0.0 { wanted.min(room) } else { wanted };
+    MenuMetrics { width, row_height: MENU_ROW_HEIGHT }
+}
+
+/// The label as drawn: unchanged when it fits in `max_chars`, otherwise cut and ended with
+/// `...` so it still fits (at least one character is always kept).
+pub fn fit_label(label: &str, max_chars: usize) -> String {
+    let max_chars = max_chars.max(1);
+    if label.chars().count() <= max_chars {
+        return label.to_string();
+    }
+    if max_chars <= 3 {
+        return label.chars().take(max_chars).collect();
+    }
+    let kept: String = label.chars().take(max_chars - 3).collect();
+    format!("{}...", kept.trim_end())
 }
 
 /// Where to put the top-left corner of a menu opened at `cursor` so it stays fully inside
@@ -124,6 +168,10 @@ mod tests {
 
     const M: MenuMetrics = MenuMetrics { width: 100.0, row_height: 20.0 };
 
+    fn rows(labels: &[&str]) -> Vec<MenuEntry> {
+        labels.iter().map(|l| MenuEntry::new(MenuAction::Cancel, *l)).collect()
+    }
+
     fn actions(entries: &[MenuEntry]) -> Vec<MenuAction> {
         entries.iter().map(|e| e.action).collect()
     }
@@ -140,6 +188,61 @@ mod tests {
         assert_eq!(actions(&build_edit_menu(None, Some("tree"), false, Some("Tree"))), [MenuAction::Cancel], "no ground, no move or place");
         assert_eq!(actions(&build_edit_menu(Some("tree"), None, false, None)), [MenuAction::Select, MenuAction::Remove, MenuAction::Cancel]);
         assert_eq!(actions(&build_edit_menu(None, None, true, None)), [MenuAction::Cancel]);
+    }
+
+
+    #[test]
+    fn the_menu_is_as_wide_as_its_longest_label() {
+        let short = menu_metrics(&rows(&["Cancel"]), 1000.0);
+        assert_eq!(short.width, MENU_MIN_WIDTH, "never narrower than the minimum");
+        let long = menu_metrics(&rows(&["Select Mistress Pell", "Place Honeyberry bush here", "Cancel"]), 1000.0);
+        assert!(long.width > MENU_MIN_WIDTH);
+        for entry in rows(&["Select Mistress Pell", "Place Honeyberry bush here", "Cancel"]) {
+            assert_eq!(fit_label(&entry.label, long.label_chars()), entry.label, "nothing is cut when there is room");
+        }
+    }
+
+    #[test]
+    fn a_menu_never_outgrows_a_small_window() {
+        let entries = rows(&["Move the Village Guide to this tile right here, please"]);
+        for window in [200.0, 320.0, 800.0] {
+            let m = menu_metrics(&entries, window);
+            assert!(m.width <= window - 2.0 * MENU_WINDOW_MARGIN + 1e-3, "{window}: {}", m.width);
+            let drawn = fit_label(&entries[0].label, m.label_chars());
+            assert!(drawn.chars().count() <= m.label_chars());
+            assert!(drawn.chars().count() as f32 * MENU_FONT_PX * GLYPH_WIDTH_EM + 2.0 * MENU_PAD_X <= m.width + 1e-3);
+        }
+    }
+
+    #[test]
+    fn long_labels_are_shortened_with_dots_and_short_ones_untouched() {
+        assert_eq!(fit_label("Cancel", 6), "Cancel");
+        assert_eq!(fit_label("Remove Mistress Pell", 12), "Remove Mi...");
+        assert_eq!(fit_label("Remove Mistress Pell", 3), "Rem");
+        assert_eq!(fit_label("Remove", 0), "R");
+        assert_eq!(fit_label("", 5), "");
+        assert_eq!(fit_label("abcdefgh ij", 9), "abcdef...", "no space before the dots");
+    }
+
+    #[test]
+    fn degenerate_windows_still_give_a_usable_menu() {
+        for window in [0.0, -5.0, f32::NAN, f32::INFINITY] {
+            let m = menu_metrics(&rows(&["Cancel"]), window);
+            assert!(m.width.is_finite() && m.width >= 1.0 && m.label_chars() >= 1, "{window}");
+        }
+        assert_eq!(menu_metrics(&[], 800.0).width, MENU_MIN_WIDTH);
+    }
+
+    #[test]
+    fn every_shipped_menu_label_fits_its_row_in_the_smallest_window() {
+        // The widest rows any menu can build: long people names and the longest asset names.
+        let worst = build_edit_menu(Some("Mistress Pell"), Some("Honeyberry bush"), true, Some("Honeyberry bush"));
+        let m = menu_metrics(&worst, 800.0);
+        for entry in &worst {
+            let drawn = fit_label(&entry.label, m.label_chars());
+            assert_eq!(drawn, entry.label, "{} would be cut", entry.label);
+        }
+        assert!(m.size(worst.len()).0 <= 800.0 && m.size(worst.len()).1 <= 600.0);
     }
 
     #[test]

@@ -36,6 +36,7 @@ const PICK_HEIGHT: f32 = 1.95;
 pub fn drive_npcs(
     time: Res<Time>,
     meadow: Res<Meadow>,
+    heights: Res<GroundHeights>,
     level: Res<LevelData>,
     talk: Res<TalkState>,
     mut partner: ResMut<TalkPartner>,
@@ -99,6 +100,7 @@ pub fn drive_npcs(
             let ((x, z), arrived) = step_toward(here, (goal.x, goal.z), NPC_SPEED * dt);
             transform.translation.x = x;
             transform.translation.z = z;
+            transform.translation.y = heights.0.height_at_world(x, z);
             if arrived {
                 body.glide = None;
                 body.face_yaw = None;
@@ -108,7 +110,7 @@ pub fn drive_npcs(
         }
 
         // Play the emote: hops lift the body, walking off or the end of the emote stops it.
-        let rest_height = map.tile_center_3d(interactable.tile, 0.0)[1];
+        let rest_height = heights.0.tile_height(interactable.tile);
         if let Some(mut active) = body.emote {
             active.tick(dt);
             if active.is_finished() || body.glide.is_some() {
@@ -122,7 +124,8 @@ pub fn drive_npcs(
 
         // The click box follows the body, so what you see is what you click.
         let (x, z) = (transform.translation.x, transform.translation.z);
-        let (min, max) = ([x - PICK_HALF, 0.0, z - PICK_HALF], [x + PICK_HALF, PICK_HEIGHT, z + PICK_HALF]);
+        let base = heights.0.height_at_world(x, z);
+        let (min, max) = ([x - PICK_HALF, base, z - PICK_HALF], [x + PICK_HALF, base + PICK_HEIGHT, z + PICK_HALF]);
         if interactable.pick_min != min || interactable.pick_max != max {
             interactable.pick_min = min;
             interactable.pick_max = max;

@@ -77,6 +77,7 @@ pub fn keyboard_walk(
 /// Tab and Shift+Tab choose the next or previous thing to visit; Enter or Space goes to the chosen
 /// thing and uses it (with nothing chosen, to the nearest); X examines the chosen thing.
 pub fn keyboard_target(
+    heights: Res<GroundHeights>,
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     meadow: Res<Meadow>,
@@ -111,7 +112,7 @@ pub fn keyboard_target(
             Some(entity) => {
                 selected.0 = Some(entity);
                 if let Ok((_, it)) = targets.get(entity) {
-                    spawn_marker(&mut commands, &assets, marker_position(map, it.tile), true);
+                    spawn_marker(&mut commands, &assets, marker_position(map, &heights.0, it.tile), true);
                 }
             }
             None => progress.notice = "There is nothing to visit right now.".into(),
@@ -123,7 +124,7 @@ pub fn keyboard_target(
         let chosen = selected.0.filter(|entity| targets.get(*entity).is_ok()).or_else(|| ranked_targets(map, origin, &targets, &nodes).first().map(|r| r.id));
         match chosen.and_then(|entity| targets.get(entity).ok()) {
             Some((entity, it)) => {
-                order_interact(&mut commands, map, &assets, &mut player, &mut progress, entity, it);
+                order_interact(&mut commands, map, &heights.0, &assets, &mut player, &mut progress, entity, it);
                 selected.0 = None;
             }
             None => progress.notice = "There is nothing to visit right now.".into(),

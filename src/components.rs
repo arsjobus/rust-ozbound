@@ -342,6 +342,8 @@ pub struct Respawning(pub RespawnTimer);
 /// (if any) and `ground` the walkable tile under the cursor at that moment.
 pub struct OpenMenu {
     pub origin: Vec2,
+    /// Row size, fitted to the longest label and the window when the menu opened.
+    pub metrics: ozbound::context_menu::MenuMetrics,
     pub entries: Vec<MenuEntry>,
     pub target: Option<Entity>,
     pub ground: Option<TilePos>,
@@ -578,3 +580,9 @@ mod tests {
         assert_eq!(changed.iter(&world).count(), 1);
     }
 }
+
+/// The height of the ground under everything the game has built (see `ozbound::heightfield`):
+/// one block per overworld chunk, filled in as chunks load, or one block for a region off the
+/// overworld. Whatever stands, walks, or is clicked reads its height from here.
+#[derive(Resource, Default)]
+pub struct GroundHeights(pub ozbound::heightfield::HeightSet);

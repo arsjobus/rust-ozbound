@@ -47,10 +47,10 @@ fn limb_rotation(pose: &Pose, limb: &Limb) -> Quat {
 
 /// Plays the player's emote: lifts the body for hops, ends it when time is up, and ends it
 /// at once if the player starts walking or working.
-pub fn tick_emotes(time: Res<Time>, meadow: Res<Meadow>, mut players: Query<(&mut Player, &mut Transform)>) {
+pub fn tick_emotes(time: Res<Time>, heights: Res<GroundHeights>, mut players: Query<(&mut Player, &mut Transform)>) {
     for (mut player, mut transform) in &mut players {
         let Some(mut active) = player.emote else { continue };
-        let rest_height = meadow.0.tile_center_3d(player.tile, 0.0)[1];
+        let rest_height = heights.0.tile_height(player.tile);
         active.tick(time.delta_secs());
         if player.task.is_moving() || player.work.is_some() || active.is_finished() {
             player.emote = None;

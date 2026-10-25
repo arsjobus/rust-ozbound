@@ -122,3 +122,12 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] Leave with Exit editor or `/edit`: the ribbon goes, clicking walks again, villagers wander again.
 - [ ] Put `garbage` in `saves/edits.txt` and start: the console and chat say your edits were not applied; the file is left as it is and edits made now are not saved.
 - [ ] Enter a cave and type `/edit`: the chat says the editor works on the open world.
+
+## 13. Editor, chunks, hills and geometry export (M13 in ROADMAP.md)
+
+- [ ] The ground rolls in gentle faceted hills where nothing is built, and is flat under the path, the bridge, the houses, the gardens and the vineyard. People, trees, signs and the player stand on the ground (no floating, no sinking) and the player rises and falls as they walk. Water is lower than its banks.
+- [ ] Walk east along the road past the chunk border at x = 64 and back: no gap, no step, no flicker in the ground at the seam. Walk to the north opening of Bluebrook (x = 31-32, y = 38-39): an empty meadow lies beyond.
+- [ ] Click on a hillside, a slope near water, and a far hill: the player walks to the tile drawn under the cursor, and the hover label and the click marker sit on the ground there.
+- [ ] `/edit`, then right-click a thicket: the menu offers Select thicket, Remove thicket, Cancel. Select it (left-click), then click bare grass: it moves there and the chat says "Moved thicket.". Try to move it onto the path, water, a tree or yourself: it stays and the chat says why. Undo and Redo work. Remove it and Undo.
+- [ ] Right-click different things (tree, copper vein, a villager with a long name, bare grass with something selected): every row is one line, nothing overlaps, and the menu stays inside the window. Repeat with a larger text size in the pause menu and in a narrow window.
+- [ ] Select a tree or copper vein and click Export asset: the chat names the `.asset` file and then the `.obj` file with its triangle count. Open `assets/library/<id>.obj` (and its `.mtl`) in Blender or MeshLab: the model looks like the one in the game, upright, in its colours.

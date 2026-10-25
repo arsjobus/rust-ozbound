@@ -110,7 +110,15 @@ fn a_save_made_in_the_next_region_survives_a_restart() {
     let (road, ()) = ctx(&world, "YELLOW_BRICK_ROAD_EAST");
     let mut game = SaveGame::new_game(&road);
     game.region = Some("YELLOW_BRICK_ROAD_EAST".to_string());
-    game.player = road.player_start;
+    // Every chunk is the same size now, so the saved map size no longer tells two regions apart:
+    // the `region` line picks the level, and the player stands somewhere only the road has.
+    assert_eq!((road.map.width(), road.map.height()), (world.level.map.width(), world.level.map.height()));
+    let (w, h) = (road.map.width() as i32, road.map.height() as i32);
+    let only_on_the_road = (0..h)
+        .flat_map(|y| (0..w).map(move |x| ozbound::world::TilePos::new(x, y)))
+        .find(|t| road.map.can_walk_to(*t) && road.map.is_reachable(road.player_start, *t) && !world.level.map.can_walk_to(*t))
+        .expect("the road has ground the village lacks");
+    game.player = only_on_the_road;
     let text = game.to_text();
 
     // "Restart": read only the region line, pick that region's level, load the rest.

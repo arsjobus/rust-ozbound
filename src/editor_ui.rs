@@ -16,16 +16,16 @@ use bevy::ui::FocusPolicy;
 use bevy::window::PrimaryWindow;
 use ozbound::asset_file::{self, Library};
 use ozbound::chat::Kind;
-use ozbound::context_menu::{build_edit_menu, place_menu, row_at, MenuAction};
+use ozbound::context_menu::{build_edit_menu, menu_metrics, place_menu, row_at, MenuAction};
+use ozbound::text_fit::logical_size;
 use ozbound::editor::{self, Button as EditorButton, Edit, EditorState, GroundClick, History, Levels, Loaded, ObjectRef, Tool};
 use ozbound::level::Level;
-use ozbound::picking::{ground_to_tile, pick, ray_ground_hit, Pick, PickBox};
+use ozbound::picking::{ground_to_tile, pick_over, ray_tall_tile_hit, ray_terrain_hit, Pick, PickBox};
 use ozbound::village::{self, World as Bluebrook};
 use ozbound::world::TilePos;
 
 use crate::components::*;
-use crate::menu::METRICS;
-use crate::pointer::{marker_position, GROUND_Y};
+use crate::pointer::marker_position;
 use crate::streaming::{stash, Pointing};
 
 /// Set to keep the edit layer somewhere else.
@@ -425,26 +425,48 @@ struct Under {
     ground: Option<TilePos>,
 }
 
+/// How tall a thicket stands above the ground, for clicking it (the tallest mound of its model).
+const THICKET_TOP: f32 = 1.3;
+
 fn look(
     window: &Window,
     camera: &(&Camera, &GlobalTransform),
     atlas: &Atlas,
     meadow: &Meadow,
+    heights: &GroundHeights,
     targets: &Query<(Entity, &Interactable)>,
 ) -> Option<Under> {
     let cursor = window.cursor_position()?;
     let ray = camera.0.viewport_to_world(camera.1, cursor).ok()?;
     let (origin, dir) = (ray.origin.to_array(), ray.direction.as_vec3().to_array());
     let boxes = targets.iter().map(|(entity, it)| PickBox { id: entity, min: it.pick_min, max: it.pick_max });
-    let object = match pick(origin, dir, GROUND_Y, boxes) {
-        Pick::Object { id, .. } => targets.get(id).ok().and_then(|(_, it)| {
-            let (region, local) = scene_tile(atlas, it.tile)?;
-            let found = editor::object_at(atlas.level(&region)?, local)?;
-            Some((region, found.reference(), found.name(), it.tile))
-        }),
-        _ => None,
+    let terrain = ray_terrain_hit(origin, dir, &|x, z| heights.0.height_at_world(x, z));
+    let picked = pick_over(origin, dir, terrain, boxes);
+    let object_distance = if let Pick::Object { distance, .. } = picked { distance } else { f32::INFINITY };
+    // Thickets are scenery without a click box, so the ray is walked through the tiles instead:
+    // the first thicket it passes through counts, unless something nearer was hit.
+    let thicket = ray_tall_tile_hit(
+        origin,
+        dir,
+        &|x, z| heights.0.height_at_world(x, z),
+        &|x, z| ground_to_tile(&meadow.0, x, z),
+        &|tile| scene_tile(atlas, tile).and_then(|(region, local)| atlas.level(&region).map(|level| editor::is_thicket(level, local))).unwrap_or(false),
+        THICKET_TOP,
+    )
+    .filter(|(_, distance)| *distance < object_distance);
+    let object = if let Some((tile, _)) = thicket {
+        scene_tile(atlas, tile).map(|(region, local)| (region, ObjectRef::Thicket(local), "thicket".to_string(), tile))
+    } else {
+        match picked {
+            Pick::Object { id, .. } => targets.get(id).ok().and_then(|(_, it)| {
+                let (region, local) = scene_tile(atlas, it.tile)?;
+                let found = editor::object_at(atlas.level(&region)?, local)?;
+                Some((region, found.reference(), found.name(), it.tile))
+            }),
+            _ => None,
+        }
     };
-    let ground = ray_ground_hit(origin, dir, GROUND_Y).and_then(|hit| ground_to_tile(&meadow.0, hit.x, hit.z));
+    let ground = terrain.and_then(|hit| ground_to_tile(&meadow.0, hit.x, hit.z));
     Some(Under { object, ground })
 }
 
@@ -455,6 +477,7 @@ pub fn editor_input(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     meadow: Res<Meadow>,
+    heights: Res<GroundHeights>,
     targets: Query<(Entity, &Interactable)>,
     players: Query<&Player>,
     mut atlas: ResMut<Atlas>,
@@ -462,6 +485,7 @@ pub fn editor_input(
     mut menu: ResMut<ContextMenuState>,
     mut chat: ResMut<ChatState>,
     blockers: Query<&Interaction, With<UiBlocker>>,
+    ui_scale: Res<UiScale>,
     mut world: WorldState,
 ) {
     let on_ui = blockers.iter().any(|i| *i != Interaction::None);
@@ -486,6 +510,8 @@ pub fn editor_input(
     }
     let (Ok(window), Ok(camera)) = (windows.get_single(), cameras.get_single()) else { return };
     let player_tile = players.get_single().map(|p| p.tile).ok();
+    // Menu geometry is in the interface's own pixels, which the text-size setting scales.
+    let scale = if ui_scale.0.is_finite() && ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
 
     // An open menu owns the next click: a left-click picks a row, any other closes it.
     if let Some(open) = menu.0.take() {
@@ -494,7 +520,8 @@ pub fn editor_input(
         }
         if left {
             let Some(cursor) = window.cursor_position() else { return };
-            let Some(row) = row_at((open.origin.x, open.origin.y), METRICS, open.entries.len(), (cursor.x, cursor.y)) else { return };
+            let cursor = cursor / scale;
+            let Some(row) = row_at((open.origin.x, open.origin.y), open.metrics, open.entries.len(), (cursor.x, cursor.y)) else { return };
             let target = session.menu.take();
             let Some(target) = target else { return };
             let action = open.entries[row].action;
@@ -510,7 +537,7 @@ pub fn editor_input(
     if on_ui {
         return;
     }
-    let Some(under) = look(window, &(camera.0, camera.1), &atlas, &meadow, &targets) else { return };
+    let Some(under) = look(window, &(camera.0, camera.1), &atlas, &meadow, &heights, &targets) else { return };
     let ground = under.ground.and_then(|tile| scene_tile(&atlas, tile).map(|(region, local)| (region, local, tile)));
 
     if left {
@@ -547,13 +574,14 @@ pub fn editor_input(
     let selected_name = session.state.selection.as_ref().and_then(|s| atlas.level(&s.region).and_then(|l| editor::find(l, &s.object))).map(|o| o.name());
     let asset = place_label(&session).filter(|_| session.state.tool == Tool::Place);
     let entries = build_edit_menu(under.object.as_ref().map(|(_, _, name, _)| name.as_str()), selected_name.as_deref(), ground.is_some(), asset.as_deref());
-    let size = METRICS.size(entries.len());
-    let at = place_menu((cursor.x, cursor.y), size, (window.width(), window.height()));
+    let logical = logical_size(window.width(), window.height(), scale);
+    let metrics = menu_metrics(&entries, logical.0);
+    let at = place_menu((cursor.x / scale, cursor.y / scale), metrics.size(entries.len()), logical);
     session.menu = Some(MenuTarget {
         object: under.object.map(|(region, object, name, _)| (region, object, name)),
         ground: ground.map(|(region, local, _)| (region, local)),
     });
-    menu.0 = Some(OpenMenu { origin: Vec2::new(at.0, at.1), entries, target: None, ground: None });
+    menu.0 = Some(OpenMenu { origin: Vec2::new(at.0, at.1), metrics, entries, target: None, ground: None });
 }
 
 fn run_menu_action(
@@ -603,6 +631,7 @@ fn run_menu_action(
 /// Clicks on the ribbon's buttons.
 pub fn ribbon_input(
     buttons: Query<(&Interaction, &RibbonButton), Changed<Interaction>>,
+    model: ModelSource,
     mut session: ResMut<EditorSession>,
     mut atlas: ResMut<Atlas>,
     mut chat: ResMut<ChatState>,
@@ -624,7 +653,7 @@ pub fn ribbon_input(
             EditorButton::Undo if session.history.can_undo() => change(&mut session, &mut atlas, &mut world, &mut chat, Change::Undo),
             EditorButton::Redo if session.history.can_redo() => change(&mut session, &mut atlas, &mut world, &mut chat, Change::Redo),
             EditorButton::Undo | EditorButton::Redo => {}
-            EditorButton::Export => export_selected(&mut session, &atlas, &wildlife, &mut chat),
+            EditorButton::Export => export_selected(&mut session, &atlas, &wildlife, &model, &mut chat),
             EditorButton::Exit => {
                 session.state.toggle();
                 session.menu = None;
@@ -635,7 +664,66 @@ pub fn ribbon_input(
     }
 }
 
-fn export_selected(session: &mut EditorSession, atlas: &Atlas, wildlife: &Wildlife, chat: &mut ChatState) {
+/// What it takes to read the triangles of an object that is standing in the world.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct ModelSource<'w, 's> {
+    targets: Query<'w, 's, (Entity, &'static Interactable)>,
+    children: Query<'w, 's, &'static Children>,
+    parts: Query<'w, 's, (&'static Mesh3d, Option<&'static MeshMaterial3d<StandardMaterial>>, &'static GlobalTransform)>,
+    roots: Query<'w, 's, &'static GlobalTransform>,
+    meshes: Res<'w, Assets<Mesh>>,
+    materials: Res<'w, Assets<StandardMaterial>>,
+}
+
+impl ModelSource<'_, '_> {
+    /// The meshes of the object standing on world tile `tile`, in the object's own frame (as it
+    /// was built: unturned, scale one, origin at its foot), or `None` when no such object is in
+    /// the world right now.
+    fn parts_at(&self, tile: TilePos) -> Option<Vec<ozbound::obj::Part>> {
+        let (root, _) = self.targets.iter().find(|(_, it)| it.tile == tile)?;
+        let to_model = self.roots.get(root).ok()?.compute_matrix().inverse();
+        let mut stack = vec![root];
+        let mut out = Vec::new();
+        while let Some(entity) = stack.pop() {
+            if let Ok((mesh, material, global)) = self.parts.get(entity) {
+                if let Some(part) = self.meshes.get(&mesh.0).and_then(|m| mesh_part(m, to_model * global.compute_matrix(), material.and_then(|m| self.materials.get(&m.0)))) {
+                    out.push(part);
+                }
+            }
+            if let Ok(kids) = self.children.get(entity) {
+                // Reverse so the first child is read first: the export order matches the model's.
+                stack.extend(kids.iter().rev());
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+}
+
+/// One Bevy mesh as an export part (triangle lists only; anything else is skipped).
+fn mesh_part(mesh: &Mesh, transform: Mat4, material: Option<&StandardMaterial>) -> Option<ozbound::obj::Part> {
+    use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
+    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
+        return None;
+    }
+    let float3 = |attribute| match mesh.attribute(attribute) {
+        Some(VertexAttributeValues::Float32x3(values)) => Some(values.clone()),
+        _ => None,
+    };
+    let positions = float3(Mesh::ATTRIBUTE_POSITION)?;
+    let normals = float3(Mesh::ATTRIBUTE_NORMAL).filter(|n| n.len() == positions.len()).unwrap_or_default();
+    let indices: Vec<u32> = match mesh.indices() {
+        Some(Indices::U32(list)) => list.clone(),
+        Some(Indices::U16(list)) => list.iter().map(|i| u32::from(*i)).collect(),
+        None => (0..positions.len() as u32).collect(),
+    };
+    let color = material.map_or([0.8, 0.8, 0.8, 1.0], |m| {
+        let c = m.base_color.to_srgba();
+        [c.red, c.green, c.blue, c.alpha]
+    });
+    Some(ozbound::obj::Part { positions, normals, indices, transform: transform.to_cols_array(), color })
+}
+
+fn export_selected(session: &mut EditorSession, atlas: &Atlas, wildlife: &Wildlife, model: &ModelSource, chat: &mut ChatState) {
     let Some(selection) = session.state.selection.clone() else { return };
     let Some(object) = atlas.level(&selection.region).and_then(|level| editor::find(level, &selection.object)) else { return };
     let creature_name = match &selection.object {
@@ -650,10 +738,23 @@ fn export_selected(session: &mut EditorSession, atlas: &Atlas, wildlife: &Wildli
         Ok(path) => {
             say(chat, format!("Exported {} to {}.", asset.name, path.display()));
             if let Some(library) = session.library.as_mut() {
-                library.upsert(asset);
+                library.upsert(asset.clone());
             }
         }
-        Err(error) => say(chat, error),
+        Err(error) => {
+            say(chat, error);
+            return;
+        }
+    }
+    // The geometry goes beside the asset file as <id>.obj and <id>.mtl.
+    let world_tile = atlas.overworld.as_ref().and_then(|o| o.to_world(&selection.region, object.tile()));
+    let Some(parts) = world_tile.and_then(|tile| model.parts_at(tile)) else {
+        say(chat, format!("The model of {} is not in the world right now, so only the asset file was written.", asset.name));
+        return;
+    };
+    match ozbound::obj::build_obj(&asset.id, &parts).and_then(|file| ozbound::obj::save_obj(Path::new(&session.library_dir), &asset.id, &file).map(|path| (path, file))) {
+        Ok((path, file)) => say(chat, format!("Exported the geometry of {} to {} ({} triangles; colours in the .mtl beside it).", asset.name, path.display(), file.triangles)),
+        Err(error) => say(chat, format!("The asset file was written, but not its geometry: {error}")),
     }
 }
 
@@ -668,6 +769,7 @@ pub fn sync_selection(
     session: Res<EditorSession>,
     atlas: Res<Atlas>,
     meadow: Res<Meadow>,
+    heights: Res<GroundHeights>,
     streaming: Res<Streaming>,
     assets: Res<ClickAssets>,
     mut markers: Query<(Entity, &mut Transform), With<SelectionMarker>>,
@@ -679,7 +781,7 @@ pub fn sync_selection(
             return None;
         }
         let world = atlas.overworld.as_ref()?.to_world(&selection.region, tile)?;
-        Some(marker_position(&meadow.0, world))
+        Some(marker_position(&meadow.0, &heights.0, world))
     });
     match (wanted, markers.get_single_mut()) {
         (Some(at), Ok((_, mut transform))) => {

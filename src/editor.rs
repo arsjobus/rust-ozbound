@@ -12,11 +12,11 @@
 //! (the scene) it happens in and works in that region's own tiles; an object is moved *within*
 //! its scene. The object kinds that can be edited are the ones a player can already click or
 //! talk to: the guide and villagers, creatures, moonpetals, resource nodes (trees, copper
-//! veins, herb patches, berry bushes), and readable signs.
+//! veins, herb patches, berry bushes), readable signs, and thickets (the dense bushes).
 //!
 //! * **Move** an object to another tile. Trees, copper veins, and signs *are* their tile (the
 //!   map holds a tree or rock or signpost there), so they move onto free grass and leave grass
-//!   behind. Everything else moves onto free walkable ground.
+//!   behind (a thicket is the same: a tree tile of the map with no chopping tree on it). Everything else moves onto free walkable ground.
 //! * **Remove** an object (a tree leaves grass behind). Everything it took with it, such as a
 //!   villager's behavior line, is kept so that undo puts it back exactly, in the same place in
 //!   the level's lists.
@@ -74,6 +74,8 @@ pub enum ObjectRef {
     Moonpetal(TilePos),
     Node(ResourceKind, TilePos),
     Sign(TilePos),
+    /// A tree tile that is not a chopping tree: the dense bush drawn as a thicket.
+    Thicket(TilePos),
 }
 
 /// A full copy of one object, with what it needs to be put back.
@@ -85,6 +87,7 @@ pub enum Object {
     Moonpetal(TilePos),
     Node(NodeSpawn),
     Sign(SignSpawn),
+    Thicket(TilePos),
 }
 
 /// An object taken out of a level, with where it stood in the level's lists so that putting it
@@ -98,7 +101,7 @@ pub struct Removed {
 
 impl ObjectRef {
     /// The text form used in the edit layer file: `guide`, `npc id`, `creature id`,
-    /// `moonpetal x y`, `node <kind> x y`, `sign x y`.
+    /// `moonpetal x y`, `node <kind> x y`, `sign x y`, `thicket x y`.
     pub fn to_text(&self) -> String {
         match self {
             Self::Guide => "guide".into(),
@@ -107,6 +110,7 @@ impl ObjectRef {
             Self::Moonpetal(t) => format!("moonpetal {} {}", t.x, t.y),
             Self::Node(kind, t) => format!("node {} {} {}", node_word(*kind), t.x, t.y),
             Self::Sign(t) => format!("sign {} {}", t.x, t.y),
+            Self::Thicket(t) => format!("thicket {} {}", t.x, t.y),
         }
     }
 
@@ -114,7 +118,7 @@ impl ObjectRef {
     pub fn parse(words: &[&str]) -> Result<Self, String> {
         let int = |w: &str| w.parse::<i32>().map_err(|_| format!("`{w}` is not a whole number"));
         let tile = |x: &str, y: &str| Ok::<_, String>(TilePos::new(int(x)?, int(y)?));
-        let wrong = || format!("`{}` is not an object (use guide, npc <id>, creature <id>, moonpetal <x> <y>, node <kind> <x> <y>, or sign <x> <y>)", words.join(" "));
+        let wrong = || format!("`{}` is not an object (use guide, npc <id>, creature <id>, moonpetal <x> <y>, node <kind> <x> <y>, sign <x> <y>, or thicket <x> <y>)", words.join(" "));
         let found = match words {
             ["guide"] => Self::Guide,
             ["npc", id] if is_valid_id(id) => Self::Npc((*id).to_string()),
@@ -122,6 +126,7 @@ impl ObjectRef {
             ["moonpetal", x, y] => Self::Moonpetal(tile(x, y)?),
             ["node", kind, x, y] => Self::Node(node_from_word(kind).ok_or_else(|| format!("unknown node kind `{kind}` (use tree, copper, herb, or berry)"))?, tile(x, y)?),
             ["sign", x, y] => Self::Sign(tile(x, y)?),
+            ["thicket", x, y] => Self::Thicket(tile(x, y)?),
             _ => return Err(wrong()),
         };
         Ok(found)
@@ -160,6 +165,7 @@ impl Object {
             Self::Moonpetal(t) => ObjectRef::Moonpetal(*t),
             Self::Node(n) => ObjectRef::Node(n.kind, n.tile),
             Self::Sign(s) => ObjectRef::Sign(s.tile),
+            Self::Thicket(t) => ObjectRef::Thicket(*t),
         }
     }
 
@@ -171,6 +177,7 @@ impl Object {
             Self::Moonpetal(t) => *t,
             Self::Node(n) => n.tile,
             Self::Sign(s) => s.tile,
+            Self::Thicket(t) => *t,
         }
     }
 
@@ -183,13 +190,14 @@ impl Object {
             Self::Moonpetal(_) => "moonpetal".into(),
             Self::Node(n) => n.kind.label().into(),
             Self::Sign(_) => "signpost".into(),
+            Self::Thicket(_) => "thicket".into(),
         }
     }
 
     /// True for the objects whose place in the world is a tile of the map (a tree, a rock, a
     /// signpost): moving or removing one changes the map.
     pub fn is_tile_bound(&self) -> bool {
-        matches!(self, Self::Sign(_)) || matches!(self, Self::Node(n) if tile_of_node(n.kind).is_some())
+        matches!(self, Self::Sign(_) | Self::Thicket(_)) || matches!(self, Self::Node(n) if tile_of_node(n.kind).is_some())
     }
 
     /// The asset file this object would be exported as. Signs are not exported: each carries
@@ -202,7 +210,7 @@ impl Object {
             Self::Creature(c) => Some(Asset::from_creature(c, creature_name.unwrap_or(&c.id))),
             Self::Moonpetal(_) => Some(Asset::moonpetal()),
             Self::Node(n) => Some(Asset::from_node(n)),
-            Self::Sign(_) => None,
+            Self::Sign(_) | Self::Thicket(_) => None,
         }
     }
 
@@ -216,6 +224,7 @@ impl Object {
             Self::Moonpetal(t) => *t = tile,
             Self::Node(n) => n.tile = tile,
             Self::Sign(s) => s.tile = tile,
+            Self::Thicket(t) => *t = tile,
         }
         moved
     }
@@ -231,7 +240,14 @@ pub fn find(level: &Level, object: &ObjectRef) -> Option<Object> {
         ObjectRef::Moonpetal(tile) => level.moonpetals.contains(tile).then_some(Object::Moonpetal(*tile)),
         ObjectRef::Node(kind, tile) => level.nodes.iter().find(|n| n.kind == *kind && n.tile == *tile).copied().map(Object::Node),
         ObjectRef::Sign(tile) => level.signs.iter().find(|s| s.tile == *tile).cloned().map(Object::Sign),
+        ObjectRef::Thicket(tile) => is_thicket(level, *tile).then_some(Object::Thicket(*tile)),
     }
+}
+
+/// True when `tile` is a thicket: a tree tile of the map with no chopping tree on it (the same
+/// rule as `scene::thicket_tiles`, which decides what is drawn as one).
+pub fn is_thicket(level: &Level, tile: TilePos) -> bool {
+    level.map.tile_at(tile) == Ok(Tile::Tree) && !level.nodes.iter().any(|n| n.tile == tile)
 }
 
 /// The editable object standing on `tile`, if there is one (the first match: nothing in a valid
@@ -245,6 +261,7 @@ pub fn object_at(level: &Level, tile: TilePos) -> Option<Object> {
         level.nodes.iter().find(|n| n.tile == tile).map(|n| ObjectRef::Node(n.kind, tile)),
         level.signs.iter().find(|s| s.tile == tile).map(|_| ObjectRef::Sign(tile)),
         level.moonpetals.iter().find(|t| **t == tile).map(|_| ObjectRef::Moonpetal(tile)),
+        is_thicket(level, tile).then_some(ObjectRef::Thicket(tile)),
     ];
     candidates.into_iter().flatten().find_map(|r| find(level, &r))
 }
@@ -293,6 +310,11 @@ fn take(level: &mut Level, object: &ObjectRef) -> Option<Removed> {
             behavior_index = None;
             set_tile(level, s.tile, Tile::Grass);
         }
+        Object::Thicket(t) => {
+            index = 0;
+            behavior_index = None;
+            set_tile(level, *t, Tile::Grass);
+        }
     }
     Some(Removed { object: found, index, behavior_index })
 }
@@ -336,6 +358,7 @@ fn put(level: &mut Level, removed: &Removed) {
             insert_at(&mut level.signs, removed.index, s.clone());
             set_tile(level, s.tile, Tile::Sign);
         }
+        Object::Thicket(t) => set_tile(level, *t, Tile::Tree),
     }
 }
 
@@ -503,6 +526,14 @@ fn check_target(level: &Level, object: &Object, to: TilePos) -> Result<(), EditE
         Object::Node(n) if tile_of_node(n.kind).is_some() => {
             if found != Tile::Grass {
                 return refuse(format!("A {} can only stand on bare grass.", n.kind.label()));
+            }
+            if busy {
+                return refuse("Something already stands there.");
+            }
+        }
+        Object::Thicket(_) => {
+            if found != Tile::Grass {
+                return refuse("A thicket can only grow on bare grass.");
             }
             if busy {
                 return refuse("Something already stands there.");

@@ -6,16 +6,15 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use ozbound::chat::Kind;
 use ozbound::{
-    context_menu::{build_menu, place_menu, row_at, MenuAction, MenuMetrics},
+    context_menu::{build_menu, fit_label, menu_metrics, place_menu, row_at, MenuAction, MENU_FONT_PX, MENU_PAD_X},
     interaction::examine_text,
-    picking::{ground_to_tile, pick, ray_ground_hit, Pick, PickBox},
+    picking::{ground_to_tile, pick_over, ray_terrain_hit, Pick, PickBox},
+    text_fit::logical_size,
 };
 
 use crate::components::*;
-use crate::pointer::{order_interact, order_walk, GROUND_Y};
+use crate::pointer::{order_interact, order_walk};
 
-/// Row geometry shared by the UI layout and the click test.
-pub const METRICS: MenuMetrics = MenuMetrics { width: 190.0, row_height: 26.0 };
 const ROW_IDLE: Color = Color::srgba(0.0, 0.0, 0.0, 0.0);
 const ROW_HOVER: Color = Color::srgba(0.35, 0.30, 0.10, 0.9);
 
@@ -37,6 +36,7 @@ pub fn menu_input(
     pack: Res<PackState>,
     mut chat: ResMut<ChatState>,
     blockers: Query<&Interaction, With<UiBlocker>>,
+    (heights, ui_scale): (Res<GroundHeights>, Res<UiScale>),
 ) {
     // A conversation or the crafting panel owns the mouse; a menu that was open when it
     // began is dismissed.
@@ -59,13 +59,17 @@ pub fn menu_input(
         return;
     }
     let Ok(window) = windows.get_single() else { return };
-    let Some(cursor) = window.cursor_position() else { return };
+    let Some(physical_cursor) = window.cursor_position() else { return };
+    // Menu geometry is in the interface's own pixels, which the text-size setting scales.
+    let scale = if ui_scale.0.is_finite() && ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
+    let cursor = physical_cursor / scale;
+    let logical = logical_size(window.width(), window.height(), scale);
     let map = &meadow.0;
 
     if let Some(open) = menu.0.take() {
         if left {
             let origin = (open.origin.x, open.origin.y);
-            let Some(row) = row_at(origin, METRICS, open.entries.len(), (cursor.x, cursor.y)) else { return };
+            let Some(row) = row_at(origin, open.metrics, open.entries.len(), (cursor.x, cursor.y)) else { return };
             let Ok(mut player) = players.get_single_mut() else { return };
             let object = open.target.and_then(|id| targets.get(id).ok());
             match open.entries[row].action {
@@ -78,12 +82,12 @@ pub fn menu_input(
                 }
                 MenuAction::Interact => {
                     if let Some((id, it)) = object {
-                        order_interact(&mut commands, map, &assets, &mut player, &mut progress, id, it);
+                        order_interact(&mut commands, map, &heights.0, &assets, &mut player, &mut progress, id, it);
                     }
                 }
                 MenuAction::WalkHere => {
                     if let Some(tile) = open.ground {
-                        order_walk(&mut commands, map, &assets, &mut player, &mut progress, tile);
+                        order_walk(&mut commands, map, &heights.0, &assets, &mut player, &mut progress, tile);
                     }
                 }
                 // The editor's rows only appear in the editor's own menu (see `editor_ui.rs`).
@@ -98,22 +102,23 @@ pub fn menu_input(
     }
 
     let Ok((camera, camera_transform)) = cameras.get_single() else { return };
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor) else { return };
+    let Ok(ray) = camera.viewport_to_world(camera_transform, physical_cursor) else { return };
     let (origin, dir) = (ray.origin.to_array(), ray.direction.as_vec3().to_array());
     let boxes = targets.iter().map(|(entity, it)| PickBox { id: entity, min: it.pick_min, max: it.pick_max });
-    let object = match pick(origin, dir, GROUND_Y, boxes) {
+    let terrain = ray_terrain_hit(origin, dir, &|x, z| heights.0.height_at_world(x, z));
+    let object = match pick_over(origin, dir, terrain, boxes) {
         Pick::Object { id, .. } => targets.get(id).ok(),
         _ => None,
     };
     // The ground tile under the cursor, even when an object stands in front of it.
-    let ground = ray_ground_hit(origin, dir, GROUND_Y)
+    let ground = terrain
         .and_then(|hit| ground_to_tile(map, hit.x, hit.z))
         .filter(|tile| map.can_walk_to(*tile));
 
     let entries = build_menu(object.map(|(_, it)| (it.kind, it.name)), ground.is_some());
-    let size = METRICS.size(entries.len());
-    let at = place_menu((cursor.x, cursor.y), size, (window.width(), window.height()));
-    menu.0 = Some(OpenMenu { origin: Vec2::new(at.0, at.1), entries, target: object.map(|(id, _)| id), ground });
+    let metrics = menu_metrics(&entries, logical.0);
+    let at = place_menu((cursor.x, cursor.y), metrics.size(entries.len()), logical);
+    menu.0 = Some(OpenMenu { origin: Vec2::new(at.0, at.1), metrics, entries, target: object.map(|(id, _)| id), ground });
 }
 
 /// Draws the menu: rebuilds the rows when the menu opens or closes, and highlights the row
@@ -124,6 +129,7 @@ pub fn sync_menu_ui(
     menu: Res<ContextMenuState>,
     mut panels: Query<(Entity, &mut Node, &mut Visibility), With<ContextMenuPanel>>,
     mut rows: Query<(&MenuRow, &mut BackgroundColor)>,
+    ui_scale: Res<UiScale>,
 ) {
     let Ok((panel, mut node, mut visibility)) = panels.get_single_mut() else { return };
 
@@ -139,10 +145,10 @@ pub fn sync_menu_ui(
                         panel
                             .spawn((
                                 Node {
-                                    width: Val::Px(METRICS.width),
-                                    height: Val::Px(METRICS.row_height),
+                                    width: Val::Px(open.metrics.width),
+                                    height: Val::Px(open.metrics.row_height),
                                     align_items: AlignItems::Center,
-                                    padding: UiRect::horizontal(Val::Px(10.0)),
+                                    padding: UiRect::horizontal(Val::Px(MENU_PAD_X)),
                                     ..default()
                                 },
                                 BackgroundColor(ROW_IDLE),
@@ -150,8 +156,9 @@ pub fn sync_menu_ui(
                             ))
                             .with_children(|row| {
                                 row.spawn((
-                                    Text::new(entry.label.clone()),
-                                    TextFont { font_size: 17.0, ..default() },
+                                    Text::new(fit_label(&entry.label, open.metrics.label_chars())),
+                                    TextFont { font_size: MENU_FONT_PX, ..default() },
+                                    TextLayout::new_with_no_wrap(),
                                     TextColor(Color::WHITE),
                                 ));
                             });
@@ -162,8 +169,9 @@ pub fn sync_menu_ui(
         }
     }
 
+    let scale = if ui_scale.0.is_finite() && ui_scale.0 > 0.0 { ui_scale.0 } else { 1.0 };
     let hovered = match (&menu.0, windows.get_single().ok().and_then(|w| w.cursor_position())) {
-        (Some(open), Some(cursor)) => row_at((open.origin.x, open.origin.y), METRICS, open.entries.len(), (cursor.x, cursor.y)),
+        (Some(open), Some(cursor)) => row_at((open.origin.x, open.origin.y), open.metrics, open.entries.len(), (cursor.x / scale, cursor.y / scale)),
         _ => None,
     };
     for (row, mut background) in &mut rows {

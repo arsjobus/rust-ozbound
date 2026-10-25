@@ -306,16 +306,36 @@ A milestone is complete only when its acceptance criteria pass and tests are add
   - Limits, stated plainly: **not seen on screen:** Redo (button and Ctrl+Y), Delete, the right-click menu and its rows, Place on the ground, Export asset, the refusal messages, and walking between scenes in the editor; they are covered by the unit tests but run section 12 of `docs/SMOKE_TEST.md`. Moving is click-then-click, not drag. The ribbon covers the top 44 px, so the toolbar and the top of the HUD are hidden behind it while editing. Only the open world can be edited (not caves), houses, plots, fences, the bridge, thickets, scenery trees and rocks, and waymarks cannot be selected, and an object moved or placed arrives fresh (a moved tree that was used up is full again). Changes made while editing to trees and petals in other chunks are, as before, only saved for the chunk you stand in. `cargo clippy --all-targets` adds no warnings from the new files (the older ones in `behavior.rs`, `locations.rs`, `overworld.rs`, `npc.rs`, `streaming.rs` remain), and the repository is still not rustfmt-clean, so no reformatting was done.
 
 ## M13 - Editor Mode (Next 1)
-- [ ] Every world chunk should be square and equally the same size like 64 x 64 tiles or whatever is going to be most performant to stream them in
-- [ ] Should be able to select and move the thickets or the bushes
-- [ ] The right-click context menu has issue to display all the options cleanly
-- [ ] Should have triangulated terrain tiles and there should be varying height so it's not so flat
-- [ ] The exported objects need their geometry data export in a .obj or .fbx file. Whatever format is most open and future proofed.
+- [x] Every world chunk should be square and equally the same size like 64 x 64 tiles or whatever is going to be most performant to stream them in
+  - Done: every chunk is **64 x 64** (`overworld::CHUNK_SIZE`). `overworld.world` sets `chunk_size = 64` and the loader refuses any chunk of another size, or placed off the 64-tile grid, naming the chunk and both sizes. Bluebrook grew from 64 x 40 and the road from 72 x 40 by adding rows on the north side only, so **every existing tile keeps its coordinates** (y counts up from the bottom); the road lost its last 8 columns (it still ends in forest at x = 63) and its east signpost moved from x = 66 to x = 60. The new northern bands (y = 40-61 in each) are empty meadow reached through a gap in the forest, ready to build out; they hold grass and a few trees, not thickets, which are the expensive props. Why 64: 4,096 tiles is a few hundred props per chunk, a power of two keeps origins on a grid, and with the 20/28-tile load/unload margins at most four chunks are ever loaded.
+  - Tests: sizes and grid checked on the shipped world, refusals name the sizes, the range of `chunk_size`, and the shipped map files equal the built-in copies.
+- [x] Should be able to select and move the thickets or the bushes
+  - Done: a thicket (a tree tile with no chopping tree) is now an editable object (`ObjectRef::Thicket`, `thicket x y` in the edit file). Click it to select, click free grass to move it, or use the right-click menu (Select / Remove). It can only land on bare grass, not on anyone, and a move that would close a path is refused like any other. Thickets have no click box, so the editor walks the cursor ray through the tiles to find one. Berry bushes were already selectable.
+  - Tests: finding, moving, refusing (player, petal, chopping tree, off the map, same tile), sealing the only gap, remove and undo, redo, edit-file round trip, and a playthrough on the shipped road.
+- [x] The right-click context menu has issue to display all the options cleanly
+  - Cause: the menu was a fixed 190 px wide and labels such as "Place Honeyberry bush here" wrapped and ran over the next row; it also ignored the text-size setting when placing itself.
+  - Done: the width fits the longest label (never wider than the window), every row is one line, a label that still cannot fit is shortened with `...`, and clicks and highlights use the same scaled coordinates as the drawing.
+  - Tests: width follows the label, small windows, shortening rules, degenerate windows, and the widest shipped menu fits.
+- [x] Should have triangulated terrain tiles and there should be varying height so it's not so flat
+  - Done: `heightfield.rs` gives every tile corner a height and every tile is two flat-shaded triangles over its corners, so neighbouring tiles share edges exactly. Hills (up to 0.55 tile, deterministic noise) fade out toward paths, water, houses, gardens and vines, which stay flat; water and bridge corners sit at -0.2. Gameplay is unchanged (walking and routes still use tiles). The player, villagers, props, click boxes, the click marker, and picking all follow the drawn ground (`picking::ray_terrain_hit` finds the hill under the cursor, not the plane behind it). Chunk edges agree because a corner's height depends only on the true tiles around it.
+  - Tests: forced levels and their priority, hills fade in, no cliffs, continuity across tiles and chunks (built whole or in pieces), triangle facing and normals, skirts only at the edge of the world, no cracks or doubled triangles between the shipped chunks, ray marching.
+- [x] The exported objects need their geometry data export in a .obj or .fbx file. Whatever format is most open and future proofed.
+  - Done: **Export asset** now also writes `assets/library/<id>.obj` and `<id>.mtl` beside the `.asset` file (Wavefront OBJ: plain text, read by every 3D tool; Y up, 1 unit = 1 tile, origin at the model's foot, unturned, flat colours in the MTL). It exports the meshes of the object as it stands in the world, so people are exported in their current pose.
+  - Tests: the exact text for a triangle, indices across parts, shared materials, opacity, normals under stretching and mirroring, refusal of bad input, determinism, safe names, atomic saving.
+- Limits, stated plainly: **seen on screen** (software Vulkan under Xvfb): the rolling faceted ground, props and the player standing on it, the right-click menu on a thicket and on a copper vein, selecting and moving a thicket (the edit line was written), and exporting a copper vein (88 triangles). **Not seen on screen:** walking over steep ground, the other chunk seams in the window, clicking on slopes at the far edges, and the menu in a very small window or at a large text size; they are covered by the unit tests. Performance was not measured (no GPU here), so 64 x 64 is reasoned, not benchmarked. A save made before this change has a different `world` line, so it is recovered as a resized map: progress is kept and the player restarts at the village. Rocks and scenery trees still cannot be selected. Not shipped: no `.obj` files are checked in; they are made when you press Export.
 
-## M14 - WebGL Build
+## M14 - Convert Objects to Obj / Mtl
+
+- [ ] Every object in the scenes should have and load in an object as an instance instead of programmatically being created
+- [ ] If an object does not have a obj / mtl file in the assets/library folder then generate it and use that instead
+- [ ] NPC or non-static animated objects should have the skeleton and rig and animations bake into them
+- [ ] Even the houses, bridges, and vineyard objects are 3d objects that must be instance and placed from obj / mtl files
+- [ ] We should be able to move objects that take up more than one tile in world /edit mode
+
+## M15 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
 
-## M15 — Optional future directions (not committed)
+## M16 — Optional future directions (not committed)
 - [ ] Consider controller support.
 - [ ] Consider a larger world split into local map regions.
 - [ ] Evaluate multiplayer only if there is a compelling reason; do not make it a prerequisite.

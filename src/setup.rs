@@ -17,8 +17,10 @@ use ozbound::{
     ambient,
     appearance::{portrait_rgba, Appearance, PORTRAIT_SIZE},
     gathering::{validate_node_placement, GatheringNode, ResourceKind},
+    heightfield::{HeightGrid, HeightSet},
     interaction::InteractionKind,
     level::{NodeSpawn, SignSpawn},
+    overworld::Overworld,
     npc::{seed_from, Brain},
     respawn::RespawnTimer,
     save::WorldChanges,
@@ -41,10 +43,16 @@ fn vec3(v: [f32; 3]) -> Vec3 {
     Vec3::from_array(v)
 }
 
-/// Pick box centered on a tile: `half` wide in x and z, `height` tall.
-fn pick_box(map: &WorldMap, tile: TilePos, half: f32, height: f32) -> ([f32; 3], [f32; 3]) {
-    let c = map.tile_center_3d(tile, 0.0);
-    ([c[0] - half, 0.0, c[2] - half], [c[0] + half, height, c[2] + half])
+/// Where something standing on `tile` is: the middle of the tile at the height of the ground
+/// there, plus `lift`.
+pub fn stand(map: &WorldMap, heights: &HeightSet, tile: TilePos, lift: f32) -> [f32; 3] {
+    map.tile_center_3d(tile, heights.tile_height(tile) + lift)
+}
+
+/// Pick box centered on a tile: `half` wide in x and z, `height` tall, standing on the ground.
+fn pick_box(map: &WorldMap, heights: &HeightSet, tile: TilePos, half: f32, height: f32) -> ([f32; 3], [f32; 3]) {
+    let c = stand(map, heights, tile, 0.0);
+    ([c[0] - half, c[1], c[2] - half], [c[0] + half, c[1] + height, c[2] + half])
 }
 
 /// The gathering rules for a node, set to what the save says is left on it (if it was used).
@@ -306,6 +314,8 @@ pub struct Ground<'a> {
     /// whole region off the overworld (removed when the player travels).
     pub chunk: bool,
     pub neighbour: Neighbour<'a>,
+    /// The ground heights of the scene (and its neighbours), built before anything is spawned.
+    pub heights: &'a HeightSet,
 }
 
 /// The ground material handle for a terrain material.
@@ -336,6 +346,31 @@ pub fn overworld_neighbour(atlas: &Atlas) -> impl Fn(TilePos) -> Option<(Tile, b
     }
 }
 
+/// Makes sure `heights` holds the ground of the chunks `ids`, building the ones it lacks from
+/// the true tiles of the whole overworld (so a chunk's edge matches its neighbour's whether or
+/// not the neighbour is loaded).
+pub fn ensure_chunk_heights(heights: &mut HeightSet, overworld: &Overworld, atlas: &Atlas, ids: &[String]) {
+    let lookup = overworld_neighbour(atlas);
+    for id in ids {
+        if heights.has(id) {
+            continue;
+        }
+        let Some(chunk) = overworld.chunk(id) else { continue };
+        let (x0, y0) = (chunk.origin.x, chunk.origin.y);
+        heights.insert(id, HeightGrid::build(x0, y0, x0 + chunk.width, y0 + chunk.height, heights.half(), &lookup));
+    }
+}
+
+/// The ground of a whole region off the overworld, in its own tiles.
+pub fn region_heights(id: &str, map: &WorldMap) -> HeightSet {
+    let half = (map.width() as f32 / 2.0, map.height() as f32 / 2.0);
+    let bridges: HashSet<TilePos> = scene::bridge_tiles(map).into_iter().map(|b| b.tile).collect();
+    let lookup = |pos: TilePos| map.tile_at(pos).ok().map(|tile| (tile, bridges.contains(&pos)));
+    let mut set = HeightSet::new(half);
+    set.insert(id, HeightGrid::build(0, 0, map.width() as i32, map.height() as i32, half, &lookup));
+    set
+}
+
 /// Builds what stands on `area` of `map`: terrain, props, houses, people, and creatures, using
 /// the spawns of `level` that lie inside the area. `changes` (in the map's tiles) says what the
 /// player has already picked or used up there. Used for a whole region off the overworld and for
@@ -354,6 +389,7 @@ pub fn spawn_area(
     meshes: &mut Assets<Mesh>,
     ground: &Ground,
 ) {
+    let heights = ground.heights;
     // Ground: the scene's terrain as a few merged meshes, one per ground material (see
     // `ozbound::terrain_mesh`), tinted from the same small palette as before so the meadow isn't
     // one flat colour. Water sits lower than the grass, so its banks read as little cliffs.
@@ -409,7 +445,7 @@ pub fn spawn_area(
         for x in area.x0..area.x1 {
             let pos = TilePos::new(x, y);
             let tile = map.tile_at(pos).expect("loop stays inside the map");
-            let at = vec3(map.tile_center_3d(pos, 0.0));
+            let at = vec3(stand(map, heights, pos, 0.0));
             let yaw = scene::tile_noise(pos, 4) * TAU;
             match tile {
                 Tile::Tree => {
@@ -423,7 +459,7 @@ pub fn spawn_area(
                     };
                     let (root, crown) = models::spawn_tree(commands, kit, at, yaw, scale, leaf);
                     {
-                        let (pick_min, pick_max) = pick_box(map, pos, 0.45, 2.5 * scale);
+                        let (pick_min, pick_max) = pick_box(map, heights, pos, 0.45, 2.5 * scale);
                         let gathering = node_for(node, changes);
                         show_spent(commands, root, crown, &gathering);
                         commands.entity(root).insert((
@@ -439,7 +475,7 @@ pub fn spawn_area(
                     let node = nodes.get(&pos).filter(|n| n.kind == ResourceKind::CopperVein);
                     let (root, flecks) = models::spawn_rock(commands, kit, at, yaw, scale, shade, node.is_some());
                     if let (Some(node), Some(flecks)) = (node, flecks) {
-                        let (pick_min, pick_max) = pick_box(map, pos, 0.5, 1.0);
+                        let (pick_min, pick_max) = pick_box(map, heights, pos, 0.5, 1.0);
                         let gathering = node_for(node, changes);
                         show_spent(commands, root, flecks, &gathering);
                         commands.entity(root).insert((
@@ -463,7 +499,7 @@ pub fn spawn_area(
                 Tile::Sign => {
                     let post = models::spawn_signpost(commands, kit, at, (scene::tile_noise(pos, 9) - 0.5) * 0.5);
                     if let Some(sign) = signs.get(&pos) {
-                        let (pick_min, pick_max) = pick_box(map, pos, 0.4, 1.2);
+                        let (pick_min, pick_max) = pick_box(map, heights, pos, 0.4, 1.2);
                         commands.entity(post).insert((
                             SignText(sign.text.clone()),
                             Interactable { kind: InteractionKind::Read, name: "signpost", tile: pos, approach: InteractionKind::Read.approach(), pick_min, pick_max },
@@ -477,6 +513,7 @@ pub fn spawn_area(
 
     // Wooden bridges where the path crosses water.
     for bridge in bridges.iter().filter(|b| area.contains(b.tile)) {
+        // The deck is level at y = 0, over the river bed below it.
         let at = vec3(map.tile_center_3d(bridge.tile, 0.0));
         models::spawn_bridge_tile(commands, kit, at, bridge.along_x, bridge.first, bridge.last);
     }
@@ -498,8 +535,8 @@ pub fn spawn_area(
             error!("skipping moonpetal at {tile:?}: {error:?}");
             continue;
         }
-        let at = vec3(map.tile_center_3d(tile, 0.12));
-        let (pick_min, pick_max) = pick_box(map, tile, 0.4, 0.7);
+        let at = vec3(stand(map, heights, tile, 0.12));
+        let (pick_min, pick_max) = pick_box(map, heights, tile, 0.4, 0.7);
         let flower = models::spawn_moonpetal(commands, kit, at);
         commands.entity(flower).insert((
             Moonpetal,
@@ -515,7 +552,7 @@ pub fn spawn_area(
         if !nodes.contains_key(&pos) {
             continue;
         }
-        let at = vec3(map.tile_center_3d(pos, 0.0));
+        let at = vec3(stand(map, heights, pos, 0.0));
         let yaw = scene::tile_noise(pos, 10) * TAU;
         let (root, crop, height) = match spawn.kind {
             ResourceKind::HerbPatch => {
@@ -527,7 +564,7 @@ pub fn spawn_area(
                 (root, berries, 0.8)
             }
         };
-        let (pick_min, pick_max) = pick_box(map, pos, 0.42, height);
+        let (pick_min, pick_max) = pick_box(map, heights, pos, 0.42, height);
         let kind = InteractionKind::Forage;
         let gathering = node_for(spawn, changes);
         show_spent(commands, root, crop, &gathering);
@@ -538,7 +575,7 @@ pub fn spawn_area(
         ));
     }
 
-    let start_at = vec3(map.tile_center_3d(level.player_start, 0.0));
+    let start_at = vec3(stand(map, heights, level.player_start, 0.0));
 
     // Portraits for every person who can be talked to (the guide uses the guide's look).
     let portrait_for = |key: &str, images: &mut Assets<Image>| {
@@ -556,10 +593,10 @@ pub fn spawn_area(
 
     // The village guide faces the player's starting tile. Only the story level has one.
     if let Some(guide_tile) = level.guide.filter(|t| area.contains(*t)) {
-        let guide_at = vec3(map.tile_center_3d(guide_tile, 0.0));
+        let guide_at = vec3(stand(map, heights, guide_tile, 0.0));
         let toward_start = ozbound::task::facing_yaw(start_at.x - guide_at.x, start_at.z - guide_at.z).unwrap_or(0.0);
         let guide = models::spawn_humanoid(commands, kit, &kit.guide, guide_at, toward_start);
-        let (pick_min, pick_max) = pick_box(map, guide_tile, 0.4, 1.95);
+        let (pick_min, pick_max) = pick_box(map, heights, guide_tile, 0.4, 1.95);
         commands.entity(guide).insert((
             Guide,
             NpcBrain(Brain::new(level.behavior_of(ozbound::level::GUIDE_ID), guide_tile, seed_from(ozbound::level::GUIDE_ID))),
@@ -574,10 +611,10 @@ pub fn spawn_area(
     // Interactable names are `&'static str`; the few names in the level file are leaked once
     // at startup, which is simpler than threading a lifetime through every system.
     for npc in level.npcs.iter().filter(|n| area.contains(n.tile)) {
-        let at = vec3(map.tile_center_3d(npc.tile, 0.0));
+        let at = vec3(stand(map, heights, npc.tile, 0.0));
         let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
         let body = models::spawn_humanoid(commands, kit, kit.look_for(npc.look.key().unwrap_or("traveller")), at, toward);
-        let (pick_min, pick_max) = pick_box(map, npc.tile, 0.4, 1.95);
+        let (pick_min, pick_max) = pick_box(map, heights, npc.tile, 0.4, 1.95);
         let name: &'static str = Box::leak(npc.name.clone().into_boxed_str());
         commands.entity(body).insert((
             NpcBrain(Brain::new(level.behavior_of(&npc.id), npc.tile, seed_from(&npc.id))),
@@ -590,7 +627,7 @@ pub fn spawn_area(
 
     // Named places are marked by a standing stone, so the player can see where to walk to.
     for place in level.places.iter().filter(|p| area.contains(p.tile)) {
-        let at = vec3(map.tile_center_3d(place.tile, 0.0));
+        let at = vec3(stand(map, heights, place.tile, 0.0));
         models::spawn_waymark(commands, kit, at, scene::tile_noise(place.tile, 11) * TAU);
     }
 
@@ -598,10 +635,10 @@ pub fn spawn_area(
     for (i, spawn) in level.creatures.iter().enumerate().filter(|(_, c)| area.contains(c.tile)) {
         let Some(creature) = wildlife.bestiary.get(&spawn.id) else { continue };
         let moth = spawn.id == "lantern_moth";
-        let at = vec3(map.tile_center_3d(spawn.tile, if moth { 0.8 } else { 0.0 }));
+        let at = vec3(stand(map, heights, spawn.tile, if moth { 0.8 } else { 0.0 }));
         let toward = ozbound::task::facing_yaw(start_at.x - at.x, start_at.z - at.z).unwrap_or(0.0);
         let body = models::spawn_creature(commands, kit, &spawn.id, at, toward);
-        let (pick_min, pick_max) = pick_box(map, spawn.tile, 0.45, if moth { 1.3 } else { 1.6 });
+        let (pick_min, pick_max) = pick_box(map, heights, spawn.tile, 0.45, if moth { 1.3 } else { 1.6 });
         let name: &'static str = Box::leak(creature.name.clone().into_boxed_str());
         commands.entity(body).insert((
             Creature(spawn.id.clone()),
@@ -632,6 +669,7 @@ pub fn build_world(
     current: Res<CurrentRegion>,
     mut streaming: ResMut<Streaming>,
     mut memory: ResMut<ChunkMemory>,
+    mut heights: ResMut<GroundHeights>,
     wildlife: Res<Wildlife>,
     kit: Res<Kit>,
     mut portraits: ResMut<Portraits>,
@@ -648,10 +686,13 @@ pub fn build_world(
         let loaded = overworld.wanted(tile, &[]);
         let composite = overworld.compose(&|id| atlas.level(id), &loaded);
         let neighbour = overworld_neighbour(&atlas);
+        let (width, height) = overworld.bounds();
+        heights.0 = HeightSet::new((width as f32 / 2.0, height as f32 / 2.0));
+        ensure_chunk_heights(&mut heights.0, overworld, &atlas, &loaded);
         for id in &loaded {
             let chunk = overworld.chunk(id).expect("wanted chunks exist");
             let none = WorldChanges::none();
-            let ground = Ground { scene: id, chunk: true, neighbour: &neighbour };
+            let ground = Ground { scene: id, chunk: true, neighbour: &neighbour, heights: &heights.0 };
             spawn_area(&mut commands, &kit, &composite.map, &composite.level, Area::of_chunk(chunk), memory.0.get(id).unwrap_or(&none), &wildlife, &mut portraits, &mut images, &mut meshes, &ground);
         }
         meadow.0 = composite.map;
@@ -662,14 +703,15 @@ pub fn build_world(
     } else {
         streaming.loaded.clear();
         streaming.interior = true;
-        let ground = Ground { scene: &current.0, chunk: false, neighbour: &|_| None };
+        heights.0 = region_heights(&current.0, &meadow.0);
+        let ground = Ground { scene: &current.0, chunk: false, neighbour: &|_| None, heights: &heights.0 };
         spawn_area(&mut commands, &kit, &meadow.0, &level.0, Area::of_map(&meadow.0), &saved.0.changes, &wildlife, &mut portraits, &mut images, &mut meshes, &ground);
         saved.0.player
     };
     let map = &meadow.0;
 
     // The player stands where the save left them (the level's start in a new game).
-    let player_at = vec3(map.tile_center_3d(player_tile, 0.0));
+    let player_at = vec3(stand(map, &heights.0, player_tile, 0.0));
     let player = models::spawn_humanoid(&mut commands, &kit, &kit.traveller, player_at, 0.0);
     commands.entity(player).insert((Player { tile: player_tile, task: Task::idle(), work: None, emote: None }, PlayerProgress::from_save(&saved.0)));
 

@@ -9,14 +9,13 @@ use bevy::window::PrimaryWindow;
 use ozbound::{
     interaction::hover_text,
     pathfinding::{find_path, plan_route},
-    picking::{ground_to_tile, pick, Pick, PickBox},
+    heightfield::HeightSet,
+    picking::{ground_to_tile, pick_over, ray_terrain_hit, Pick, PickBox},
     world::{TilePos, WorldMap},
 };
 
 use crate::components::*;
 
-/// Height of the walkable ground plane the cursor ray is intersected with.
-pub const GROUND_Y: f32 = 0.0;
 const MARKER_SECONDS: f32 = 0.7;
 
 pub fn pointer(
@@ -25,6 +24,7 @@ pub fn pointer(
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     buttons: Res<ButtonInput<MouseButton>>,
     meadow: Res<Meadow>,
+    heights: Res<GroundHeights>,
     assets: Res<ClickAssets>,
     targets: Query<(Entity, &Interactable)>,
     mut players: Query<&mut Player>,
@@ -54,7 +54,9 @@ pub fn pointer(
     let map = &meadow.0;
 
     let boxes = targets.iter().map(|(entity, it)| PickBox { id: entity, min: it.pick_min, max: it.pick_max });
-    let picked = pick(ray.origin.to_array(), ray.direction.as_vec3().to_array(), GROUND_Y, boxes);
+    let (origin, dir) = (ray.origin.to_array(), ray.direction.as_vec3().to_array());
+    let ground = ray_terrain_hit(origin, dir, &|x, z| heights.0.height_at_world(x, z));
+    let picked = pick_over(origin, dir, ground, boxes);
 
     // Label under the cursor.
     match picked {
@@ -78,11 +80,11 @@ pub fn pointer(
     match picked {
         Pick::Object { id, .. } => {
             let Ok((_, it)) = targets.get(id) else { return };
-            order_interact(&mut commands, map, &assets, &mut player, &mut progress, id, it);
+            order_interact(&mut commands, map, &heights.0, &assets, &mut player, &mut progress, id, it);
         }
         Pick::Ground(hit) => {
             let Some(tile) = ground_to_tile(map, hit.x, hit.z) else { return };
-            order_walk(&mut commands, map, &assets, &mut player, &mut progress, tile);
+            order_walk(&mut commands, map, &heights.0, &assets, &mut player, &mut progress, tile);
         }
         Pick::Nothing => {}
     }
@@ -93,6 +95,7 @@ pub fn pointer(
 pub fn order_interact(
     commands: &mut Commands,
     map: &WorldMap,
+    heights: &HeightSet,
     assets: &ClickAssets,
     player: &mut Player,
     progress: &mut GameProgress,
@@ -106,7 +109,7 @@ pub fn order_interact(
             let task = player.task.rerouted(route, Some(target));
             player.task = task;
             player.work = None;
-            spawn_marker(commands, assets, marker_position(map, it.tile), true);
+            spawn_marker(commands, assets, marker_position(map, heights, it.tile), true);
         }
         None => progress.notice = "You can't reach that.".into(),
     }
@@ -116,6 +119,7 @@ pub fn order_interact(
 pub fn order_walk(
     commands: &mut Commands,
     map: &WorldMap,
+    heights: &HeightSet,
     assets: &ClickAssets,
     player: &mut Player,
     progress: &mut GameProgress,
@@ -131,14 +135,14 @@ pub fn order_walk(
             let task = player.task.rerouted(route, None);
             player.task = task;
             player.work = None;
-            spawn_marker(commands, assets, marker_position(map, tile), false);
+            spawn_marker(commands, assets, marker_position(map, heights, tile), false);
         }
         None => progress.notice = "You can't reach that.".into(),
     }
 }
 
-pub fn marker_position(map: &WorldMap, tile: TilePos) -> Vec3 {
-    Vec3::from_array(map.tile_center_3d(tile, 0.06))
+pub fn marker_position(map: &WorldMap, heights: &HeightSet, tile: TilePos) -> Vec3 {
+    Vec3::from_array(map.tile_center_3d(tile, heights.tile_height(tile) + 0.06))
 }
 
 pub fn spawn_marker(commands: &mut Commands, assets: &ClickAssets, at: Vec3, interact: bool) {
