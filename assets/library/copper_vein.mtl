@@ -1,0 +1,7 @@
+# Ozbound model export: copper_vein
+newmtl color_808087ff
+Kd 0.5 0.5 0.53
+illum 1
+newmtl color_d97a3dff
+Kd 0.85 0.48 0.24
+illum 1

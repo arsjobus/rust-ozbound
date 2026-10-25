@@ -1,0 +1,7 @@
+# Ozbound model export: lantern_moth
+newmtl color_1f1a1aff
+Kd 0.12 0.1 0.1
+illum 1
+newmtl color_e6dbffff
+Kd 0.9 0.86 1
+illum 1

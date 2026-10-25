@@ -1,0 +1,16 @@
+# Ozbound model export: guide
+newmtl color_1f1a1aff
+Kd 0.12 0.1 0.1
+illum 1
+newmtl color_474d57ff
+Kd 0.278431 0.301961 0.341176
+illum 1
+newmtl color_574275ff
+Kd 0.341176 0.258824 0.458824
+illum 1
+newmtl color_cc9e38ff
+Kd 0.8 0.619608 0.219608
+illum 1
+newmtl color_edbd94ff
+Kd 0.929412 0.741176 0.580392
+illum 1

@@ -1,0 +1,10 @@
+# Ozbound model export: herb_patch
+newmtl color_337a38ff
+Kd 0.2 0.48 0.22
+illum 1
+newmtl color_408c47ff
+Kd 0.25 0.55 0.28
+illum 1
+newmtl color_b0966bff
+Kd 0.69 0.59 0.42
+illum 1

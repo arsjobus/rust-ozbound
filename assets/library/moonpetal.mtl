@@ -1,0 +1,10 @@
+# Ozbound model export: moonpetal
+newmtl color_408c47ff
+Kd 0.25 0.55 0.28
+illum 1
+newmtl color_ccbdfaff
+Kd 0.8 0.74 0.98
+illum 1
+newmtl color_e6dbffff
+Kd 0.9 0.86 1
+illum 1

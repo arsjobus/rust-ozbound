@@ -1,0 +1,16 @@
+# Ozbound model export: ferrywoman
+newmtl color_1f1a1aff
+Kd 0.12 0.1 0.1
+illum 1
+newmtl color_323846ff
+Kd 0.196078 0.219608 0.27451
+illum 1
+newmtl color_4678a0ff
+Kd 0.27451 0.470588 0.627451
+illum 1
+newmtl color_966448ff
+Kd 0.588235 0.392157 0.282353
+illum 1
+newmtl color_d6be78ff
+Kd 0.839216 0.745098 0.470588
+illum 1
