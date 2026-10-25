@@ -334,6 +334,7 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [ ] We should be able to move objects that take up more than one tile in world /edit mode
 - [ ] Modular wooden fences should return to the game and we should be able to place a fence part that auto-connects to adjacent fence one tile at a time
 - [ ] A single .map file shouldn't define more than 64x64 tiles
+- [ ] Edits made to the game should be permanent, so it's desired to edit the .map files instead of saves of edits.txt in the save folder
 
 ## M15 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
