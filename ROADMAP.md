@@ -331,6 +331,7 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 - [ ] NPC or non-static animated objects should have the skeleton and rig and animations bake into them
 - [ ] Even the houses, bridges, and vineyard objects are 3d objects that must be instance and placed from obj / mtl files
 - [ ] We should be able to move objects that take up more than one tile in world /edit mode
+- [ ] A single .map file shouldn't define more than 64x64 tiles
 
 ## M15 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io
