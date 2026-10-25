@@ -328,9 +328,11 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 
 - [ ] Every object in the scenes should have and load in an object as an instance instead of programmatically being created
 - [ ] If an object does not have a obj / mtl file in the assets/library folder then generate it and use that instead
-- [ ] NPC or non-static animated objects should have the skeleton and rig and animations bake into them
+- [ ] NPC or non-static animated objects should have the skeleton and rig and animations baked into them
+- [ ] NPC that uses the same animations like cheer, dance, wave etc.. they should use a common animation that can retarget the meshes
 - [ ] Even the houses, bridges, and vineyard objects are 3d objects that must be instance and placed from obj / mtl files
 - [ ] We should be able to move objects that take up more than one tile in world /edit mode
+- [ ] Modular wooden fences should return to the game and we should be able to place a fence part that auto-connects to adjacent fence one tile at a time
 - [ ] A single .map file shouldn't define more than 64x64 tiles
 
 ## M15 - WebGL Build
