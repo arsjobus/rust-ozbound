@@ -135,6 +135,7 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 ## 14. Models from files and modular fences (M14 in ROADMAP.md)
 
 - [ ] Start the game with `assets/library/tree.obj` renamed away: the console says `model tree: no file, so generated ...`, the file is back, and the trees look the same as before. Do the same for `fence_post.obj` and `fence_rail.obj`.
+- [ ] Walk Bluebrook and the road and look at a thicket, the bridge (both end posts, rails and piles), a garden bed of each crop, a vineyard row, and a house from outside and inside: they must look as before. Walking in drops the walls to a low rim and hides the roof; walking out restores both. Then rename `house_roof.obj` away and start again: the console says it was generated and the roof is back.
 - [ ] Damage `signpost.obj` (add a line `v 1 2`): the console names the file and line, the game still shows signposts, and the file is left as you made it. Restore it.
 - [ ] Trees keep their three leaf colours; copper veins show orange flecks and plain rocks show none; moonpetals still glow; chop a tree until spent and the crown disappears and returns; same for mint, berries, and copper.
 - [ ] `/edit`, choose Place until the label reads Fence, click bare grass three times in a row: the pieces join into one rail. Place one beside the road chunk seam: it joins across it. Select a middle piece, move it away, and the run reconnects around the gap. Remove, Undo, Redo.

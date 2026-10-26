@@ -1,0 +1,7 @@
+# Ozbound model export: crop_tomato
+newmtl color_337a38ff
+Kd 0.2 0.48 0.22
+illum 1
+newmtl color_c7294dff
+Kd 0.78 0.16 0.3
+illum 1

@@ -1,0 +1,19 @@
+# Ozbound model export: vine_row
+newmtl color_1f1a1aff
+Kd 0.12 0.1 0.1
+illum 1
+newmtl color_215c38ff
+Kd 0.13 0.36 0.22
+illum 1
+newmtl color_296b33ff
+Kd 0.16 0.42 0.2
+illum 1
+newmtl color_337a38ff
+Kd 0.2 0.48 0.22
+illum 1
+newmtl color_614226ff
+Kd 0.38 0.26 0.15
+illum 1
+newmtl color_662e7aff
+Kd 0.4 0.18 0.48
+illum 1

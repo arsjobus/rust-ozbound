@@ -15,6 +15,9 @@
 //!   without its `.obj`) counts as a problem for the same reason.
 //! * **A directory that does not exist is not created.** Started from another directory, the game
 //!   uses its code-built models and says so.
+//! * **A piece can take its colour from the tile.** A group the game names when it places the model
+//!   (a tree's `crown`, a thicket's `shade_b`, the roof's body) is drawn in that colour instead of
+//!   the file's.
 //! * **Parts are named by what they are.** A group called `crown`, `plants`, `berries` or
 //!   `flecks` is a piece the game hides when the object is spent; every other group is the
 //!   always-visible body (`part_N` groups, from older exports, are body too).
@@ -33,7 +36,7 @@ pub struct ModelSpec {
 }
 
 /// Every object kind that is spawned from a library file.
-pub const MODELS: [ModelSpec; 9] = [
+pub const MODELS: [ModelSpec; 21] = [
     ModelSpec { id: "tree", toggles: &["crown"] },
     ModelSpec { id: "copper_vein", toggles: &["flecks"] },
     ModelSpec { id: "herb_patch", toggles: &["plants"] },
@@ -45,6 +48,27 @@ pub const MODELS: [ModelSpec; 9] = [
     // rail that reaches half a tile toward +x (the game turns it toward each linked neighbour).
     ModelSpec { id: "fence_post", toggles: &[] },
     ModelSpec { id: "fence_rail", toggles: &[] },
+    // A thicket: `body` is its darker mounds, `shade_b` the lighter ones; the game swaps the two
+    // leaf colours from tile to tile, so both pieces take their colour from the tile.
+    ModelSpec { id: "thicket", toggles: &[] },
+    // One tile of bridge: the deck with its rails and piles, and the pair of end posts that
+    // stands at the `+x` end (the game turns it round for the first tile of a bridge).
+    ModelSpec { id: "bridge_deck", toggles: &[] },
+    ModelSpec { id: "bridge_end", toggles: &[] },
+    // A garden bed (frame and soil) and the three crops that can be planted in it.
+    ModelSpec { id: "garden_bed", toggles: &[] },
+    ModelSpec { id: "crop_cabbage", toggles: &[] },
+    ModelSpec { id: "crop_tomato", toggles: &[] },
+    ModelSpec { id: "crop_pumpkin", toggles: &[] },
+    // One tile of vineyard row; the game shows the first 2 to 4 of the four bunches.
+    ModelSpec { id: "vine_row", toggles: &["bunch0", "bunch1", "bunch2", "bunch3"] },
+    // A house is its walls, timbers, floor and roof. The first three are unit boxes (centred, one
+    // tile on a side) that the game stretches to each box of the house's shape; the roof is a
+    // hip roof one tile wide and one tile tall that is stretched to the house.
+    ModelSpec { id: "house_wall", toggles: &[] },
+    ModelSpec { id: "house_timber", toggles: &[] },
+    ModelSpec { id: "house_plank", toggles: &[] },
+    ModelSpec { id: "house_roof", toggles: &[] },
 ];
 
 /// The spec of `id`, if it is one of [`MODELS`].

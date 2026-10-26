@@ -1,0 +1,7 @@
+# Ozbound model export: garden_bed
+newmtl color_47301fff
+Kd 0.28 0.19 0.12
+illum 1
+newmtl color_a8804dff
+Kd 0.66 0.5 0.3
+illum 1
