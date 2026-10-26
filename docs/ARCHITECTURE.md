@@ -155,3 +155,7 @@ src/
 - **Terrain.** `terrain_mesh::build_terrain` takes the map, a rectangle, which path tiles are bridges, and a `neighbour` function that says what lies beyond the rectangle. Walls belong to the higher tile; for the open world the neighbour comes from the atlas (`setup::overworld_neighbour`), not from the loaded map, so load order does not matter. The mesh entities are tagged with their scene directly because `tag_world_entities` places by position and these sit at the origin.
 - **Assets.** `asset_file.rs` is the format and library; `export_world` regenerates the shipped library from the shipped world and a test compares the files, so they cannot drift.
 - **Rule for new code:** a new kind of thing that stands in a scene should get an asset file and an `ObjectRef`/`Object` case in `editor.rs`, with the same two checks, or be listed as not editable.
+
+## Models from files (M14)
+
+`model_library.rs` (pure) lists the props that have a library model, checks a model file, scans `assets/library`, and writes a generated pair without ever overwriting one. `obj.rs` writes and reads the OBJ/MTL dialect (named groups, `Ke` glow). `models.rs` (Bevy) turns loaded models into `Instances` on the `Kit`; each `spawn_*` places an instance and falls back to its code-built `build_*` twin, which is also what generates a missing file. `models::load_models` runs once at start-up between `setup_shell` and `build_world`. A map file is at most 64 x 64 tiles (`level::MAX_MAP_SIZE`).

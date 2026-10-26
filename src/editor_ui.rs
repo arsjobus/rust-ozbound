@@ -427,6 +427,8 @@ struct Under {
 
 /// How tall a thicket stands above the ground, for clicking it (the tallest mound of its model).
 const THICKET_TOP: f32 = 1.3;
+/// How tall a fence stands (its post), for clicking it.
+const FENCE_TOP: f32 = 0.9;
 
 fn look(
     window: &Window,
@@ -443,19 +445,37 @@ fn look(
     let terrain = ray_terrain_hit(origin, dir, &|x, z| heights.0.height_at_world(x, z));
     let picked = pick_over(origin, dir, terrain, boxes);
     let object_distance = if let Pick::Object { distance, .. } = picked { distance } else { f32::INFINITY };
-    // Thickets are scenery without a click box, so the ray is walked through the tiles instead:
-    // the first thicket it passes through counts, unless something nearer was hit.
-    let thicket = ray_tall_tile_hit(
-        origin,
-        dir,
-        &|x, z| heights.0.height_at_world(x, z),
-        &|x, z| ground_to_tile(&meadow.0, x, z),
-        &|tile| scene_tile(atlas, tile).and_then(|(region, local)| atlas.level(&region).map(|level| editor::is_thicket(level, local))).unwrap_or(false),
-        THICKET_TOP,
-    )
-    .filter(|(_, distance)| *distance < object_distance);
-    let object = if let Some((tile, _)) = thicket {
-        scene_tile(atlas, tile).map(|(region, local)| (region, ObjectRef::Thicket(local), "thicket".to_string(), tile))
+    // Thickets and fence pieces are scenery without a click box, so the ray is walked through the
+    // tiles instead: the first such tile it passes through counts, unless something nearer was
+    // hit, and the nearer of a thicket and a fence piece wins.
+    let walk = |wanted: fn(&ozbound::level::Level, TilePos) -> bool, top: f32| {
+        ray_tall_tile_hit(
+            origin,
+            dir,
+            &|x, z| heights.0.height_at_world(x, z),
+            &|x, z| ground_to_tile(&meadow.0, x, z),
+            &|tile| scene_tile(atlas, tile).and_then(|(region, local)| atlas.level(&region).map(|level| wanted(level, local))).unwrap_or(false),
+            top,
+        )
+        .filter(|(_, distance)| *distance < object_distance)
+    };
+    let is_fence = |level: &ozbound::level::Level, tile: TilePos| editor::object_at(level, tile).is_some_and(|o| matches!(o, editor::Object::Fence(_)));
+    let thicket = walk(editor::is_thicket, THICKET_TOP);
+    let fence = walk(is_fence, FENCE_TOP);
+    let scenery = match (thicket, fence) {
+        (Some((t, td)), Some((f, fd))) => Some(if td <= fd { (t, false) } else { (f, true) }),
+        (Some((t, _)), None) => Some((t, false)),
+        (None, Some((f, _))) => Some((f, true)),
+        (None, None) => None,
+    };
+    let object = if let Some((tile, is_fence_piece)) = scenery {
+        scene_tile(atlas, tile).map(|(region, local)| {
+            if is_fence_piece {
+                (region, ObjectRef::Fence(local), "fence".to_string(), tile)
+            } else {
+                (region, ObjectRef::Thicket(local), "thicket".to_string(), tile)
+            }
+        })
     } else {
         match picked {
             Pick::Object { id, .. } => targets.get(id).ok().and_then(|(_, it)| {
@@ -671,6 +691,7 @@ pub struct ModelSource<'w, 's> {
     children: Query<'w, 's, &'static Children>,
     parts: Query<'w, 's, (&'static Mesh3d, Option<&'static MeshMaterial3d<StandardMaterial>>, &'static GlobalTransform)>,
     roots: Query<'w, 's, &'static GlobalTransform>,
+    names: Query<'w, 's, &'static Name>,
     meshes: Res<'w, Assets<Mesh>>,
     materials: Res<'w, Assets<StandardMaterial>>,
 }
@@ -682,45 +703,22 @@ impl ModelSource<'_, '_> {
     fn parts_at(&self, tile: TilePos) -> Option<Vec<ozbound::obj::Part>> {
         let (root, _) = self.targets.iter().find(|(_, it)| it.tile == tile)?;
         let to_model = self.roots.get(root).ok()?.compute_matrix().inverse();
-        let mut stack = vec![root];
+        let mut stack = vec![(root, String::new())];
         let mut out = Vec::new();
-        while let Some(entity) = stack.pop() {
+        while let Some((entity, label)) = stack.pop() {
+            let label = self.names.get(entity).map_or(label, |name| name.as_str().to_string());
             if let Ok((mesh, material, global)) = self.parts.get(entity) {
-                if let Some(part) = self.meshes.get(&mesh.0).and_then(|m| mesh_part(m, to_model * global.compute_matrix(), material.and_then(|m| self.materials.get(&m.0)))) {
+                if let Some(part) = self.meshes.get(&mesh.0).and_then(|m| crate::models::mesh_part(m, to_model * global.compute_matrix(), material.and_then(|m| self.materials.get(&m.0)), &label)) {
                     out.push(part);
                 }
             }
             if let Ok(kids) = self.children.get(entity) {
                 // Reverse so the first child is read first: the export order matches the model's.
-                stack.extend(kids.iter().rev());
+                stack.extend(kids.iter().rev().map(|kid| (*kid, label.clone())));
             }
         }
         (!out.is_empty()).then_some(out)
     }
-}
-
-/// One Bevy mesh as an export part (triangle lists only; anything else is skipped).
-fn mesh_part(mesh: &Mesh, transform: Mat4, material: Option<&StandardMaterial>) -> Option<ozbound::obj::Part> {
-    use bevy::render::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
-    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
-        return None;
-    }
-    let float3 = |attribute| match mesh.attribute(attribute) {
-        Some(VertexAttributeValues::Float32x3(values)) => Some(values.clone()),
-        _ => None,
-    };
-    let positions = float3(Mesh::ATTRIBUTE_POSITION)?;
-    let normals = float3(Mesh::ATTRIBUTE_NORMAL).filter(|n| n.len() == positions.len()).unwrap_or_default();
-    let indices: Vec<u32> = match mesh.indices() {
-        Some(Indices::U32(list)) => list.clone(),
-        Some(Indices::U16(list)) => list.iter().map(|i| u32::from(*i)).collect(),
-        None => (0..positions.len() as u32).collect(),
-    };
-    let color = material.map_or([0.8, 0.8, 0.8, 1.0], |m| {
-        let c = m.base_color.to_srgba();
-        [c.red, c.green, c.blue, c.alpha]
-    });
-    Some(ozbound::obj::Part { positions, normals, indices, transform: transform.to_cols_array(), color })
 }
 
 fn export_selected(session: &mut EditorSession, atlas: &Atlas, wildlife: &Wildlife, model: &ModelSource, chat: &mut ChatState) {

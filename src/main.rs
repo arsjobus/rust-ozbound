@@ -197,7 +197,7 @@ fn main() {
         .insert_resource(ChunkMemory::default())
         .insert_resource(editor_session)
         .insert_resource(Soundscape::default())
-        .add_systems(Startup, ((setup::setup_shell, setup::build_world).chain(), chat_ui::spawn_chat_panel, editor_ui::spawn_ribbon))
+        .add_systems(Startup, ((setup::setup_shell, models::load_models, setup::build_world).chain(), chat_ui::spawn_chat_panel, editor_ui::spawn_ribbon))
         .add_systems(Last, (persist::save_on_exit, settings_ui::report_on_exit))
         .add_systems(
             Update,

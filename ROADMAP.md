@@ -326,15 +326,23 @@ A milestone is complete only when its acceptance criteria pass and tests are add
 
 ## M14 - Convert Objects to Obj / Mtl
 
-- [ ] Every object in the scenes should have and load in an object as an instance instead of programmatically being created
-- [ ] If an object does not have a obj / mtl file in the assets/library folder then generate it and use that instead
+- [~] Every object in the scenes should have and load in an object as an instance instead of programmatically being created
+  - Done for the props: trees, copper veins and rocks, meadowmint patches, honeyberry bushes, moonpetals, signposts, waymarks, and the fence post and rail are spawned as instances of `assets/library/<id>.obj` (`models::Instances`, `model_library::MODELS`). Hideable pieces are named groups in the file (`crown`, `plants`, `berries`, `flecks`); the tile still picks a tree's leaf colour and a rock's stone shade. `obj.rs` now reads OBJ/MTL (`parse_obj`, `load_obj`: polygons, `v/vt/vn`, negative indices, `Ke` glow) and writes group labels and glow.
+  - Not yet: people and creatures (they need the rig items below), thickets, houses, bridges, gardens, vines.
+- [x] If an object does not have a obj / mtl file in the assets/library folder then generate it and use that instead
+  - Done: `models::load_models` runs at start-up. A missing pair is generated from the code-built model and then loaded (what is on disk is what is used). An existing file is never overwritten: one that cannot be read or lacks a required piece is reported on the console and that prop keeps its code-built model for the run. A missing `assets/library` folder is not created. All nine models are now shipped; `cargo test --bin ozbound -- --ignored write_missing_library_models` regenerates any that are deleted.
 - [ ] NPC or non-static animated objects should have the skeleton and rig and animations baked into them
+  - Needs a decision first: OBJ cannot hold a skeleton. glTF 2.0 (open, text or binary) can; adopting it means a loader dependency.
 - [ ] NPC that uses the same animations like cheer, dance, wave etc.. they should use a common animation that can retarget the meshes
 - [ ] Even the houses, bridges, and vineyard objects are 3d objects that must be instance and placed from obj / mtl files
 - [ ] We should be able to move objects that take up more than one tile in world /edit mode
-- [ ] Modular wooden fences should return to the game and we should be able to place a fence part that auto-connects to adjacent fence one tile at a time
-- [ ] A single .map file shouldn't define more than 64x64 tiles
+- [x] Modular wooden fences should return to the game and we should be able to place a fence part that auto-connects to adjacent fence one tile at a time
+  - Done: a fence is built from the `fence_post` and `fence_rail` models, with one rail turned toward each neighbouring fence tile (`scene::fence_links`, so it also joins across chunk seams). In the editor a fence piece is an object (`fence x y` in the edit file): place it from the library (`fence`), select, move, remove, undo, redo, and click it. It goes on bare grass only, and every edit keeps the world playable.
+  - Tests: placing neighbours links them, move/remove/undo restore the level exactly, refusals (player tile, tree, off map), reference text round trip, and a headless build of every model in the library.
+- [x] A single .map file shouldn't define more than 64x64 tiles
+  - Done: `level::MAX_MAP_SIZE = 64`; a bigger map is refused with its size and the line of the first row that does not fit. `chunk_size` in `overworld.world` can no longer exceed 64. Every shipped map is checked.
 - [ ] Edits made to the game should be permanent, so it's desired to edit the .map files instead of saves of edits.txt in the save folder
+- Limits, stated plainly: nothing was run in a window. The look of instanced props (flat normals from the files, material roughness) and fence rails at corners are unchecked by eye; run the smoke test. A leaf or stone colour is applied to a whole piece, so a model with a mixed-colour crown would lose it. `cargo test` passes (930 library tests, 4 in the binary, plus the integration tests).
 
 ## M15 - WebGL Build
 - [ ] Should be able to build and package game with WebGL support ready to upload and demo on Itch.io

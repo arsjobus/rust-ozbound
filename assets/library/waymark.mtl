@@ -1,0 +1,8 @@
+# Ozbound model export: waymark
+newmtl color_6b6b75ff
+Kd 0.42 0.42 0.46
+illum 1
+newmtl color_ccbdfaff_ke55_45_110
+Kd 0.8 0.74 0.98
+Ke 0.55 0.45 1.1
+illum 1

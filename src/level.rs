@@ -202,6 +202,10 @@ impl Section {
     }
 }
 
+/// The most tiles a single `.map` file may be wide or tall. Bigger places are several files, each
+/// placed as a chunk of the open world (`overworld.world`), which is also the size of one chunk.
+pub const MAX_MAP_SIZE: usize = 64;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LevelErrorKind {
     /// Text appeared before the first `[section]` header.
@@ -215,6 +219,8 @@ pub enum LevelErrorKind {
     EmptyMap,
     /// A map row whose length differs from the first row.
     RaggedMapRow { expected: usize, found: usize },
+    /// A map wider or taller than [`MAX_MAP_SIZE`].
+    MapTooLarge { width: usize, height: usize },
     UnknownGlyph { glyph: char, column: usize },
     /// A line that does not have the shape its section expects.
     Malformed { expected: &'static str, found: String },
@@ -280,6 +286,10 @@ impl fmt::Display for LevelError {
             RaggedMapRow { expected, found } => {
                 write!(f, "map row is {found} tiles wide but the first row is {expected}")
             }
+            MapTooLarge { width, height } => write!(
+                f,
+                "the map is {width} x {height} tiles, but one map file may be at most {MAX_MAP_SIZE} x {MAX_MAP_SIZE}; split it into several files placed as chunks of the open world"
+            ),
             UnknownGlyph { glyph, column } => write!(
                 f,
                 "unknown map glyph {glyph:?} at column {column} (use . grass, = path, ~ water, T tree, # rock, F fence, S signpost, W wall, + doorway, , floor, g garden, v vineyard)"
@@ -622,6 +632,12 @@ impl Level {
         };
         if let Some(&(line, found)) = map_rows.iter().find(|(_, width)| *width != expected) {
             return Err(LevelError::at(line, LevelErrorKind::RaggedMapRow { expected, found }));
+        }
+        if expected > MAX_MAP_SIZE {
+            return Err(LevelError::at(map_rows[0].0, LevelErrorKind::MapTooLarge { width: expected, height: map_rows.len() }));
+        }
+        if map_rows.len() > MAX_MAP_SIZE {
+            return Err(LevelError::at(map_rows[MAX_MAP_SIZE].0, LevelErrorKind::MapTooLarge { width: expected, height: map_rows.len() }));
         }
         let mut map = WorldMap::from_ascii(&map_text).map_err(|error| match error {
             MapError::UnknownGlyph { glyph, line, column } => {
@@ -1073,6 +1089,37 @@ copper 1 1 2 1
         let text = small_with("......\n.#....", "......\n.#...");
         let e = err(&text);
         assert_eq!(e, LevelError { line: Some(4), kind: LevelErrorKind::RaggedMapRow { expected: 6, found: 5 } });
+    }
+
+    #[test]
+    fn a_map_file_may_be_at_most_64_by_64_tiles() {
+        let rows = |width: usize, height: usize| {
+            let row = ".".repeat(width);
+            (0..height).map(|_| row.clone()).collect::<Vec<_>>().join("\n")
+        };
+        let level = |width: usize, height: usize| format!("[map]\n{}\n[player]\n0 0\n", rows(width, height));
+        // Exactly the limit is fine, in either direction.
+        assert!(Level::parse(&level(64, 64)).is_ok());
+        assert!(Level::parse(&level(64, 3)).is_ok());
+        assert!(Level::parse(&level(3, 64)).is_ok());
+        // One too wide: the error points at the first row of the map.
+        let wide = Level::parse(&level(65, 3)).unwrap_err();
+        assert_eq!(wide, LevelError { line: Some(2), kind: LevelErrorKind::MapTooLarge { width: 65, height: 3 } });
+        // One too tall: it points at the first row that does not fit (the 65th, on line 66).
+        let tall = Level::parse(&level(3, 65)).unwrap_err();
+        assert_eq!(tall, LevelError { line: Some(66), kind: LevelErrorKind::MapTooLarge { width: 3, height: 65 } });
+        let text = tall.to_string();
+        assert!(text.contains("line 66") && text.contains("3 x 65") && text.contains("at most 64 x 64") && text.contains("chunks"), "{text}");
+    }
+
+    #[test]
+    fn every_shipped_map_file_is_within_the_size_limit() {
+        for name in ["bluebrook", "meadow", "yellow_road_east"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("assets/maps/{name}.map"));
+            let text = std::fs::read_to_string(&path).unwrap();
+            let level = Level::parse(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(level.map.width() <= MAX_MAP_SIZE && level.map.height() <= MAX_MAP_SIZE, "{name} is {} x {}", level.map.width(), level.map.height());
+        }
     }
 
     #[test]

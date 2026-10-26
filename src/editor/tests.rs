@@ -588,3 +588,66 @@ fn thicket_edits_are_kept_in_the_edit_layer() {
     assert!(text.contains("thicket 2 3"), "{text}");
     assert_eq!(EditLayer::parse(&text).unwrap(), layer);
 }
+
+// ---- modular fences ----
+
+#[test]
+fn fence_pieces_are_placed_one_tile_at_a_time_and_link_by_the_map() {
+    let lib = library();
+    let mut levels = mini(THICKETS);
+    let mut history = History::default();
+    let (a, b) = (tile(2, 3), tile(3, 3));
+    for at in [a, b] {
+        let message = history.apply(&mut levels, Edit::Place { region: "MINI".into(), asset: "fence".into(), tile: at }, &lib, &ok).unwrap();
+        assert_eq!(message, "Placed fence.");
+    }
+    let level = region(&levels, "MINI");
+    assert_eq!(object_at(&level, a), Some(Object::Fence(a)));
+    // Two neighbouring pieces reach toward each other: that is the auto-connection.
+    assert_eq!(crate::scene::fence_links(&level.map, a).rails(), vec![(1, 0)]);
+    assert_eq!(crate::scene::fence_links(&level.map, b).rails(), vec![(-1, 0)]);
+    history.undo(&mut levels, &lib, &ok).unwrap();
+    assert_eq!(level_tile(&levels, b), Tile::Grass);
+    assert_eq!(crate::scene::fence_links(&region(&levels, "MINI").map, a).rails(), vec![(1, 0), (-1, 0)], "a lone piece still gets short rails");
+}
+
+fn level_tile(levels: &Levels, at: TilePos) -> Tile {
+    region(levels, "MINI").map.tile_at(at).unwrap()
+}
+
+#[test]
+fn a_fence_piece_moves_and_is_removed_and_restored_exactly() {
+    let lib = library();
+    let mut levels = mini(THICKETS);
+    let mut history = History::default();
+    history.apply(&mut levels, Edit::Place { region: "MINI".into(), asset: "fence".into(), tile: tile(2, 3) }, &lib, &ok).unwrap();
+    let placed = levels.clone();
+    history.apply(&mut levels, Edit::Move { region: "MINI".into(), object: ObjectRef::Fence(tile(2, 3)), to: tile(3, 3) }, &lib, &ok).unwrap();
+    assert_eq!((level_tile(&levels, tile(2, 3)), level_tile(&levels, tile(3, 3))), (Tile::Grass, Tile::Fence));
+    history.apply(&mut levels, Edit::Remove { region: "MINI".into(), object: ObjectRef::Fence(tile(3, 3)) }, &lib, &ok).unwrap();
+    assert_eq!(level_tile(&levels, tile(3, 3)), Tile::Grass);
+    history.undo(&mut levels, &lib, &ok).unwrap();
+    history.undo(&mut levels, &lib, &ok).unwrap();
+    assert_eq!(levels, placed);
+}
+
+#[test]
+fn a_fence_only_goes_on_free_bare_grass() {
+    let lib = library();
+    let levels = mini(THICKETS);
+    let level = region(&levels, "MINI");
+    let place = |at: TilePos| apply_edit(&mut levels.clone(), &Edit::Place { region: "MINI".into(), asset: "fence".into(), tile: at }, &lib, &ok);
+    assert!(matches!(place(tile(0, 0)), Err(EditError::Refused(why)) if why.contains("Something already stands")), "the player's start");
+    assert!(matches!(place(level.nodes[0].tile), Err(EditError::Refused(why)) if why.contains("bare grass")));
+    assert!(matches!(place(tile(9, 9)), Err(EditError::Refused(why)) if why.contains("off the map")));
+    assert!(place(tile(2, 3)).is_ok());
+}
+
+#[test]
+fn fence_references_round_trip_as_text_and_the_asset_is_placeable() {
+    let reference = ObjectRef::Fence(tile(4, 7));
+    assert_eq!(reference.to_text(), "fence 4 7");
+    assert_eq!(ObjectRef::parse(&["fence", "4", "7"]), Ok(reference));
+    assert!(ObjectRef::parse(&["fence", "4"]).is_err());
+    assert!(library().placeable().iter().any(|a| a.id == "fence"));
+}

@@ -1,12 +1,26 @@
 //! Original low-poly models, assembled from a handful of flat-shaded primitives.
 //! Everything is generated in code, so there are no external assets to license.
 //!
+//! Props that have a library model (`ozbound::model_library::MODELS`: trees, copper veins, herb
+//! patches, berry bushes, moonpetals, signposts, waymarks, and the post and rail of a fence) are
+//! spawned as *instances* of `assets/library/<id>.obj`: [`load_models`] reads those files at
+//! start-up, generates any that are missing from the code-built models below (never overwriting
+//! one that exists), and each `spawn_*` for such a prop places an instance of the file. The code-built
+//! `build_*` functions remain as the source of a generated file and as the fallback when a file
+//! cannot be used (see `model_library.rs` for the rules).
+//!
 //! Scale: one world unit is one tile. A character stands about 1.8 units tall.
 
+use std::collections::HashMap;
 use std::f32::consts::TAU;
+use std::path::PathBuf;
 
 use bevy::prelude::*;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
+use bevy::render::render_asset::RenderAssetUsages;
 use ozbound::appearance::{Appearance, Rgb};
+use ozbound::model_library;
+use ozbound::obj::{self, ParsedModel};
 
 use crate::components::Limb;
 
@@ -96,6 +110,8 @@ pub struct Kit {
     pub guide: Look,
     /// One look per named appearance (`Appearance::KEYS`), for the villagers.
     pub npc_looks: Vec<(&'static str, Look)>,
+    /// The library models that props are spawned from (empty until [`load_models`] has run).
+    pub instances: Instances,
 }
 
 impl Kit {
@@ -167,6 +183,7 @@ impl Kit {
                 .iter()
                 .map(|key| (*key, look_from(materials, &Appearance::from_key(key).expect("listed appearance"))))
                 .collect(),
+            instances: Instances::default(),
         }
     }
 }
@@ -180,10 +197,10 @@ fn pivot(transform: Transform) -> impl Bundle {
 }
 
 /// A tree: trunk plus three stacked cones. Returns `(root, crown)`; hiding `crown` leaves a stump.
-pub fn spawn_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, leaf: usize) -> (Entity, Entity) {
+fn build_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, leaf: usize) -> (Entity, Entity) {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale)))).id();
     let trunk = commands.spawn(part(&kit.trunk, &kit.bark, Transform::from_xyz(0.0, 0.4, 0.0))).id();
-    let crown = commands.spawn(pivot(Transform::IDENTITY)).id();
+    let crown = commands.spawn((pivot(Transform::IDENTITY), Name::new("crown"))).id();
     let leaves = &kit.leaves[leaf % kit.leaves.len()];
     let layers = [(0, 1.10), (1, 1.65), (2, 2.15)];
     for (i, y) in layers {
@@ -196,10 +213,10 @@ pub fn spawn_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale:
 
 /// A patch of meadowmint: a bare soil patch (always visible, so the player can see where it
 /// regrows) with a tuft of leafy stems. Returns `(root, plants)`; hiding `plants` leaves the soil.
-pub fn spawn_herb_patch(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+fn build_herb_patch(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
     let soil = commands.spawn(part(&kit.cube, &kit.path[1], Transform::from_xyz(0.0, 0.02, 0.0).with_scale(Vec3::new(0.7, 0.04, 0.7)))).id();
-    let plants = commands.spawn(pivot(Transform::IDENTITY)).id();
+    let plants = commands.spawn((pivot(Transform::IDENTITY), Name::new("plants"))).id();
     // (x, z, lean about x, lean about z, height scale)
     let tuft = [(0.0, 0.0, 0.0, 0.0, 1.3), (0.18, 0.05, 0.0, -0.3, 1.0), (-0.17, 0.08, 0.1, 0.3, 1.1), (0.05, -0.2, -0.3, 0.1, 0.9), (-0.08, -0.15, -0.2, -0.1, 1.0)];
     for (x, z, lean_x, lean_z, tall) in tuft {
@@ -217,10 +234,10 @@ pub fn spawn_herb_patch(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) 
 
 /// A honeyberry bush: a low leafy mound dotted with berries. Returns `(root, berries)`;
 /// hiding `berries` leaves the bare bush.
-pub fn spawn_berry_bush(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+fn build_berry_bush(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
     let mound = commands.spawn(part(&kit.rock, &kit.leaves[1], Transform::from_xyz(0.0, 0.28, 0.0).with_scale(Vec3::new(1.05, 0.62, 0.95)))).id();
-    let berries = commands.spawn(pivot(Transform::IDENTITY)).id();
+    let berries = commands.spawn((pivot(Transform::IDENTITY), Name::new("berries"))).id();
     let dots = [(0.25, 0.45, 0.22), (-0.28, 0.40, 0.18), (0.05, 0.56, -0.12), (-0.12, 0.34, -0.34), (0.32, 0.30, -0.18), (-0.02, 0.38, 0.38)];
     for (x, y, z) in dots {
         let berry = commands.spawn(part(&kit.berry, &kit.berry_red, Transform::from_xyz(x, y, z))).id();
@@ -233,7 +250,7 @@ pub fn spawn_berry_bush(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) 
 /// One tile of fence: a post in the middle with two rails reaching toward each linked
 /// neighbour, so a row of fence tiles reads as one continuous fence. `rails` are unit map
 /// offsets `(dx, dy)` from [`ozbound::scene::FenceLinks::rails`]; map `+y` is world `-z`.
-pub fn spawn_fence(commands: &mut Commands, kit: &Kit, at: Vec3, rails: &[(i32, i32)]) -> Entity {
+fn build_fence(commands: &mut Commands, kit: &Kit, at: Vec3, rails: &[(i32, i32)]) -> Entity {
     let root = commands.spawn(pivot(Transform::from_translation(at))).id();
     let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.42, 0.0).with_scale(Vec3::new(0.14, 0.84, 0.14)))).id();
     commands.entity(root).add_child(post);
@@ -254,7 +271,7 @@ pub fn spawn_fence(commands: &mut Commands, kit: &Kit, at: Vec3, rails: &[(i32, 
 }
 
 /// A signpost: a wooden post with a painted board, turned a little so no two look identical.
-pub fn spawn_signpost(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+fn build_signpost(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
     let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.5, 0.0).with_scale(Vec3::new(0.10, 1.0, 0.10)))).id();
     let board = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(0.0, 0.92, 0.07).with_scale(Vec3::new(0.72, 0.38, 0.06)))).id();
@@ -267,14 +284,14 @@ pub fn spawn_signpost(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) ->
 
 /// A boulder made of two squashed icospheres. With `copper`, orange flecks stud the surface.
 /// Returns `(root, flecks)`; the flecks entity exists only when `copper` is true.
-pub fn spawn_rock(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, shade: usize, copper: bool) -> (Entity, Option<Entity>) {
+fn build_rock(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, shade: usize, copper: bool) -> (Entity, Option<Entity>) {
     let stone = &kit.stone[shade % kit.stone.len()];
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale)))).id();
     let big = commands.spawn(part(&kit.rock, stone, Transform::from_xyz(0.0, 0.28, 0.0).with_scale(Vec3::new(1.55, 1.05, 1.35)))).id();
     let small = commands.spawn(part(&kit.rock, stone, Transform::from_xyz(0.28, 0.16, -0.22).with_rotation(Quat::from_rotation_y(0.9)).with_scale(Vec3::new(0.8, 0.6, 0.7)))).id();
     commands.entity(root).add_children(&[big, small]);
     let flecks = copper.then(|| {
-        let group = commands.spawn(pivot(Transform::IDENTITY)).id();
+        let group = commands.spawn((pivot(Transform::IDENTITY), Name::new("flecks"))).id();
         let spots = [(-0.30, 0.50, 0.12, 0.4), (0.05, 0.60, 0.22, 1.1), (0.34, 0.34, 0.30, 2.0), (-0.12, 0.30, 0.46, 0.2)];
         for (x, y, z, turn) in spots {
             let fleck = commands.spawn(part(&kit.fleck, &kit.copper, Transform::from_xyz(x, y, z).with_rotation(Quat::from_euler(EulerRot::YXZ, turn, 0.5, 0.3)))).id();
@@ -287,7 +304,7 @@ pub fn spawn_rock(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale:
 }
 
 /// A glowing moonpetal flower: stem, blossom, and a ring of six flat petals.
-pub fn spawn_moonpetal(commands: &mut Commands, kit: &Kit, at: Vec3) -> Entity {
+fn build_moonpetal(commands: &mut Commands, kit: &Kit, at: Vec3) -> Entity {
     let root = commands.spawn(pivot(Transform::from_translation(at))).id();
     let stem = commands.spawn(part(&kit.stem, &kit.stem_green, Transform::from_xyz(0.0, 0.15, 0.0))).id();
     let bloom = commands.spawn(part(&kit.bloom, &kit.bloom_glow, Transform::from_xyz(0.0, 0.34, 0.0))).id();
@@ -345,7 +362,7 @@ impl Kit {
 }
 
 /// A standing stone with a faintly glowing cap: the marker for a named place.
-pub fn spawn_waymark(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+fn build_waymark(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
     let root = commands.spawn(pivot(Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)))).id();
     let stone = commands.spawn(part(&kit.cube, &kit.stone[1], Transform::from_xyz(0.0, 0.5, 0.0).with_scale(Vec3::new(0.30, 1.0, 0.22)))).id();
     let cap = commands.spawn(part(&kit.bloom, &kit.bloom_glow, Transform::from_xyz(0.0, 1.1, 0.0))).id();
@@ -534,4 +551,422 @@ pub fn spawn_house(commands: &mut Commands, kit: &Kit, map: &ozbound::world::Wor
         .id();
     commands.entity(roof).add_child(cone);
     (walls, roof)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Props spawned from library models
+// ---------------------------------------------------------------------------------------------
+
+/// One mesh of a loaded model and the piece of the model it belongs to.
+struct InstancePart {
+    /// `body`, or the name of a piece that is shown and hidden (`crown`).
+    sub_model: String,
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+}
+
+/// Every library model that loaded, as meshes and materials ready to be placed again and again.
+#[derive(Default)]
+pub struct Instances {
+    models: HashMap<&'static str, Vec<InstancePart>>,
+}
+
+/// What placing one instance made.
+pub struct Placed {
+    pub root: Entity,
+    /// The entity that holds each hideable piece of the model, by name.
+    toggles: HashMap<String, Entity>,
+}
+
+impl Placed {
+    /// The holder of the piece called `name`. Every model that can be placed has all the pieces
+    /// its spec asks for, so a caller that names one of them always gets it.
+    pub fn toggle(&self, name: &str) -> Entity {
+        self.toggles.get(name).copied().expect("a placed model has every piece its spec lists")
+    }
+}
+
+/// A flat-coloured mesh from the triangles of one part of a model file.
+fn mesh_of(part: &obj::ParsedPart) -> Mesh {
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, part.positions.clone())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, part.normals.clone())
+        .with_inserted_indices(Indices::U32(part.indices.clone()))
+}
+
+fn material_of(part: &obj::ParsedPart) -> StandardMaterial {
+    let [r, g, b, a] = part.color;
+    let [er, eg, eb] = part.emissive;
+    let glows = part.emissive.iter().any(|e| *e > 0.0);
+    StandardMaterial {
+        base_color: Color::srgba(r, g, b, a),
+        emissive: LinearRgba::rgb(er, eg, eb),
+        perceptual_roughness: if glows { 0.6 } else { 1.0 },
+        reflectance: if glows { 0.5 } else { 0.05 },
+        alpha_mode: if a < 1.0 { AlphaMode::Blend } else { AlphaMode::Opaque },
+        ..default()
+    }
+}
+
+impl Instances {
+    /// Turns loaded models into meshes and materials. Equal colours share one material.
+    pub fn new(models: &[(&'static str, ParsedModel)], meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
+        let mut out = HashMap::new();
+        for (id, model) in models {
+            let mut shared: HashMap<[u32; 7], Handle<StandardMaterial>> = HashMap::new();
+            let parts = model
+                .parts
+                .iter()
+                .map(|part| {
+                    let [r, g, b, a] = part.color;
+                    let key = [r.to_bits(), g.to_bits(), b.to_bits(), a.to_bits(), part.emissive[0].to_bits(), part.emissive[1].to_bits(), part.emissive[2].to_bits()];
+                    let material = shared.entry(key).or_insert_with(|| materials.add(material_of(part))).clone();
+                    InstancePart { sub_model: part.sub_model().to_string(), mesh: meshes.add(mesh_of(part)), material }
+                })
+                .collect();
+            out.insert(*id, parts);
+        }
+        Self { models: out }
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        self.models.contains_key(id)
+    }
+
+    /// Places an instance of the model `id` with `transform`, or `None` when that model is not
+    /// loaded. Parts of a piece named in `recolor` use the given material instead of the file's
+    /// (a tree's crown takes its leaf colour from the tile); pieces the spec hides get a holder
+    /// entity each, named after the piece.
+    pub fn spawn(&self, commands: &mut Commands, id: &str, transform: Transform, recolor: &[(&str, &Handle<StandardMaterial>)]) -> Option<Placed> {
+        let parts = self.models.get(id)?;
+        let toggles = model_library::spec(id)?.toggles;
+        let root = commands.spawn(pivot(transform)).id();
+        let mut holders: HashMap<String, Entity> = HashMap::new();
+        for name in toggles {
+            let holder = commands.spawn((pivot(Transform::IDENTITY), Name::new(*name))).id();
+            commands.entity(root).add_child(holder);
+            holders.insert((*name).to_string(), holder);
+        }
+        for p in parts {
+            let material = recolor.iter().find(|(name, _)| *name == p.sub_model).map_or(&p.material, |(_, m)| *m);
+            let entity = commands.spawn(part(&p.mesh, material, Transform::IDENTITY)).id();
+            commands.entity(holders.get(&p.sub_model).copied().unwrap_or(root)).add_child(entity);
+        }
+        Some(Placed { root, toggles: holders })
+    }
+}
+
+/// A tree. Returns `(root, crown)`; hiding `crown` leaves a stump.
+pub fn spawn_tree(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, leaf: usize) -> (Entity, Entity) {
+    let transform = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale));
+    match kit.instances.spawn(commands, "tree", transform, &[("crown", &kit.leaves[leaf % kit.leaves.len()])]) {
+        Some(placed) => (placed.root, placed.toggle("crown")),
+        None => build_tree(commands, kit, at, yaw, scale, leaf),
+    }
+}
+
+/// A patch of meadowmint. Returns `(root, plants)`; hiding `plants` leaves the soil.
+pub fn spawn_herb_patch(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+    let transform = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw));
+    match kit.instances.spawn(commands, "herb_patch", transform, &[]) {
+        Some(placed) => (placed.root, placed.toggle("plants")),
+        None => build_herb_patch(commands, kit, at, yaw),
+    }
+}
+
+/// A honeyberry bush. Returns `(root, berries)`; hiding `berries` leaves the bare bush.
+pub fn spawn_berry_bush(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> (Entity, Entity) {
+    let transform = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw));
+    match kit.instances.spawn(commands, "berry_bush", transform, &[]) {
+        Some(placed) => (placed.root, placed.toggle("berries")),
+        None => build_berry_bush(commands, kit, at, yaw),
+    }
+}
+
+/// A boulder; with `copper`, orange flecks stud it. Returns `(root, flecks)`, the flecks entity
+/// only when `copper` is true. A plain boulder is the same model without its flecks, in the
+/// stone shade the tile picks.
+pub fn spawn_rock(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32, scale: f32, shade: usize, copper: bool) -> (Entity, Option<Entity>) {
+    let transform = Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)).with_scale(Vec3::splat(scale));
+    let stone = &kit.stone[shade % kit.stone.len()];
+    match kit.instances.spawn(commands, "copper_vein", transform, &[(obj::BODY, stone)]) {
+        Some(placed) => {
+            let flecks = placed.toggle("flecks");
+            if copper {
+                (placed.root, Some(flecks))
+            } else {
+                commands.entity(flecks).despawn_recursive();
+                (placed.root, None)
+            }
+        }
+        None => build_rock(commands, kit, at, yaw, scale, shade, copper),
+    }
+}
+
+/// A glowing moonpetal flower.
+pub fn spawn_moonpetal(commands: &mut Commands, kit: &Kit, at: Vec3) -> Entity {
+    match kit.instances.spawn(commands, "moonpetal", Transform::from_translation(at), &[]) {
+        Some(placed) => placed.root,
+        None => build_moonpetal(commands, kit, at),
+    }
+}
+
+/// A signpost: a wooden post with a painted board.
+pub fn spawn_signpost(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+    match kit.instances.spawn(commands, "signpost", Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)), &[]) {
+        Some(placed) => placed.root,
+        None => build_signpost(commands, kit, at, yaw),
+    }
+}
+
+/// A standing stone with a faintly glowing cap: the marker for a named place.
+pub fn spawn_waymark(commands: &mut Commands, kit: &Kit, at: Vec3, yaw: f32) -> Entity {
+    match kit.instances.spawn(commands, "waymark", Transform::from_translation(at).with_rotation(Quat::from_rotation_y(yaw)), &[]) {
+        Some(placed) => placed.root,
+        None => build_waymark(commands, kit, at, yaw),
+    }
+}
+
+/// One tile of fence, built from the two modular pieces: a post in the middle and a rail toward
+/// each linked neighbour. `rails` are unit map offsets `(dx, dy)` from
+/// [`ozbound::scene::FenceLinks::rails`]; map `+y` is world `-z`. A rail piece reaches half a tile
+/// toward `+x`, so it is turned to face the neighbour and the rails of two neighbouring tiles
+/// meet at the tile edge.
+pub fn spawn_fence(commands: &mut Commands, kit: &Kit, at: Vec3, rails: &[(i32, i32)]) -> Entity {
+    if !(kit.instances.has("fence_post") && kit.instances.has("fence_rail")) {
+        return build_fence(commands, kit, at, rails);
+    }
+    let root = commands.spawn(pivot(Transform::from_translation(at))).id();
+    if let Some(post) = kit.instances.spawn(commands, "fence_post", Transform::IDENTITY, &[]) {
+        commands.entity(root).add_child(post.root);
+    }
+    for &(dx, dy) in rails {
+        // +x turned about +y by `yaw` points along (cos, -sin) in the (x, z) plane.
+        let yaw = match (dx.signum(), dy.signum()) {
+            (1, _) => 0.0,
+            (-1, _) => std::f32::consts::PI,
+            (_, 1) => std::f32::consts::FRAC_PI_2,
+            _ => -std::f32::consts::FRAC_PI_2,
+        };
+        if let Some(rail) = kit.instances.spawn(commands, "fence_rail", Transform::from_rotation(Quat::from_rotation_y(yaw)), &[]) {
+            commands.entity(root).add_child(rail.root);
+        }
+    }
+    root
+}
+
+/// The post of a fence tile, at the tile's middle.
+fn build_fence_post(commands: &mut Commands, kit: &Kit, at: Vec3) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at))).id();
+    let post = commands.spawn(part(&kit.cube, &kit.bark, Transform::from_xyz(0.0, 0.42, 0.0).with_scale(Vec3::new(0.14, 0.84, 0.14)))).id();
+    commands.entity(root).add_child(post);
+    root
+}
+
+/// The rail of a fence tile toward `+x`: two bars half a tile long.
+fn build_fence_rail(commands: &mut Commands, kit: &Kit, at: Vec3) -> Entity {
+    let root = commands.spawn(pivot(Transform::from_translation(at))).id();
+    for height in [0.34, 0.64] {
+        let bar = commands.spawn(part(&kit.cube, &kit.plank, Transform::from_xyz(0.25, height, 0.0).with_scale(Vec3::new(0.5, 0.07, 0.05)))).id();
+        commands.entity(root).add_child(bar);
+    }
+    root
+}
+
+// ---- reading the triangles of a model that is standing in the world ----
+
+/// One Bevy mesh as an export part (triangle lists only; anything else is skipped). `label` is the
+/// name of the piece it belongs to, empty for the body.
+pub fn mesh_part(mesh: &Mesh, transform: Mat4, material: Option<&StandardMaterial>, label: &str) -> Option<obj::Part> {
+    use bevy::render::mesh::VertexAttributeValues;
+    if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
+        return None;
+    }
+    let float3 = |attribute| match mesh.attribute(attribute) {
+        Some(VertexAttributeValues::Float32x3(values)) => Some(values.clone()),
+        _ => None,
+    };
+    let positions = float3(Mesh::ATTRIBUTE_POSITION)?;
+    let normals = float3(Mesh::ATTRIBUTE_NORMAL).filter(|n| n.len() == positions.len()).unwrap_or_default();
+    let indices: Vec<u32> = match mesh.indices() {
+        Some(Indices::U32(list)) => list.clone(),
+        Some(Indices::U16(list)) => list.iter().map(|i| u32::from(*i)).collect(),
+        None => (0..positions.len() as u32).collect(),
+    };
+    let (color, emissive) = material.map_or(([0.8, 0.8, 0.8, 1.0], [0.0; 3]), |m| {
+        let c = m.base_color.to_srgba();
+        ([c.red, c.green, c.blue, c.alpha], [m.emissive.red, m.emissive.green, m.emissive.blue])
+    });
+    Some(obj::Part { positions, normals, indices, transform: transform.to_cols_array(), color, emissive, label: label.to_string() })
+}
+
+/// The meshes under `root` as export parts, in the model's own frame (`root`'s own transform is
+/// the frame, so it is not applied), in drawing order. A named entity labels itself and
+/// everything below it until a nearer name replaces it.
+fn parts_under(world: &World, root: Entity) -> Vec<obj::Part> {
+    let (meshes, materials) = (world.resource::<Assets<Mesh>>(), world.resource::<Assets<StandardMaterial>>());
+    let mut out = Vec::new();
+    let mut stack = vec![(root, Mat4::IDENTITY, String::new())];
+    while let Some((entity, parent, label)) = stack.pop() {
+        let matrix = if entity == root { Mat4::IDENTITY } else { parent * world.get::<Transform>(entity).map_or(Mat4::IDENTITY, |t| t.compute_matrix()) };
+        let label = world.get::<Name>(entity).map_or(label, |name| name.as_str().to_string());
+        if let Some(mesh) = world.get::<Mesh3d>(entity) {
+            let material = world.get::<MeshMaterial3d<StandardMaterial>>(entity).and_then(|m| materials.get(&m.0));
+            if let Some(part) = meshes.get(&mesh.0).and_then(|m| mesh_part(m, matrix, material, &label)) {
+                out.push(part);
+            }
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            // Reversed so the first child is read first.
+            stack.extend(children.iter().rev().map(|child| (*child, matrix, label.clone())));
+        }
+    }
+    out
+}
+
+/// Builds the code-made model of `id` once at the origin (unturned, scale one) and reads its
+/// triangles back, then removes it. `None` for an id with no code-made model.
+fn built_parts(world: &mut World, id: &str) -> Option<Vec<obj::Part>> {
+    let root = world.resource_scope::<Kit, _>(|world, kit| {
+        let root = {
+            let mut commands = world.commands();
+            let at = Vec3::ZERO;
+            match id {
+                "tree" => build_tree(&mut commands, &kit, at, 0.0, 1.0, 0).0,
+                "copper_vein" => build_rock(&mut commands, &kit, at, 0.0, 1.0, 0, true).0,
+                "herb_patch" => build_herb_patch(&mut commands, &kit, at, 0.0).0,
+                "berry_bush" => build_berry_bush(&mut commands, &kit, at, 0.0).0,
+                "moonpetal" => build_moonpetal(&mut commands, &kit, at),
+                "signpost" => build_signpost(&mut commands, &kit, at, 0.0),
+                "waymark" => build_waymark(&mut commands, &kit, at, 0.0),
+                "fence_post" => build_fence_post(&mut commands, &kit, at),
+                "fence_rail" => build_fence_rail(&mut commands, &kit, at),
+                _ => return None,
+            }
+        };
+        world.flush();
+        Some(root)
+    })?;
+    let parts = parts_under(world, root);
+    world.commands().entity(root).despawn_recursive();
+    world.flush();
+    Some(parts)
+}
+
+/// Where the library lives: `OZBOUND_LIBRARY` or `assets/library` (the same place the editor
+/// reads and writes).
+fn library_dir() -> PathBuf {
+    std::env::var_os("OZBOUND_LIBRARY").map_or_else(|| PathBuf::from(ozbound::asset_file::LIBRARY_DIR), PathBuf::from)
+}
+
+/// Startup, after the kit exists and before the world is built: loads every library model,
+/// generates the ones that have no file from their code-made models, and makes them the models
+/// the props are spawned from. Nothing here stops the game: a model that cannot be used is
+/// reported on the console and its prop keeps the code-made model for this run.
+pub fn load_models(world: &mut World) {
+    let dir = library_dir();
+    let scan = model_library::scan(&dir);
+    if scan.directory_missing() {
+        eprintln!("note: {} not found; props use their built-in models", dir.display());
+        return;
+    }
+    for (id, why) in &scan.problems {
+        eprintln!("model {id}: {why}; using the built-in model (the file is left as it is)");
+    }
+    let mut models = scan.found;
+    for id in scan.missing {
+        let Some(parts) = built_parts(world, id) else {
+            eprintln!("model {id}: no built-in model to generate it from");
+            continue;
+        };
+        match model_library::write_generated(&dir, id, &parts) {
+            Ok((path, model)) => {
+                eprintln!("model {id}: no file, so generated {} ({} triangles)", path.display(), model.triangles());
+                models.push((id, model));
+            }
+            Err(error) => eprintln!("model {id}: could not generate it: {error}; using the built-in model"),
+        }
+    }
+    let instances = world.resource_scope::<Assets<Mesh>, _>(|world, mut meshes| {
+        world.resource_scope::<Assets<StandardMaterial>, _>(|_, mut materials| Instances::new(&models, &mut meshes, &mut materials))
+    });
+    world.resource_mut::<Kit>().instances = instances;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn world_with_kit() -> World {
+        let mut world = World::new();
+        let mut meshes = Assets::<Mesh>::default();
+        let mut materials = Assets::<StandardMaterial>::default();
+        let kit = Kit::new(&mut meshes, &mut materials);
+        world.insert_resource(meshes);
+        world.insert_resource(materials);
+        world.insert_resource(kit);
+        world
+    }
+
+    #[test]
+    fn every_library_model_can_be_generated_from_its_code_built_version_and_then_loads() {
+        let dir = std::env::temp_dir().join(format!("ozbound-gen-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut world = world_with_kit();
+        let mut models = Vec::new();
+        for spec in &model_library::MODELS {
+            let parts = built_parts(&mut world, spec.id).unwrap_or_else(|| panic!("{} has a built-in model", spec.id));
+            let (_, model) = model_library::write_generated(&dir, spec.id, &parts).unwrap_or_else(|e| panic!("{}: {e}", spec.id));
+            assert!(model.triangles() > 0, "{}", spec.id);
+            models.push((spec.id, model));
+        }
+        // A second scan finds every file and nothing to generate.
+        let scan = model_library::scan(&dir);
+        assert!(scan.missing.is_empty() && scan.problems.is_empty(), "{:?}", scan.problems);
+        assert_eq!(scan.found.len(), model_library::MODELS.len());
+        // The scratch models were removed from the world again.
+        assert_eq!(world.query::<&Transform>().iter(&world).count(), 0);
+        // And they turn into instances that can be placed.
+        let (mut meshes, mut materials) = (Assets::<Mesh>::default(), Assets::<StandardMaterial>::default());
+        let instances = Instances::new(&models, &mut meshes, &mut materials);
+        assert!(model_library::MODELS.iter().all(|m| instances.has(m.id)));
+        let mut commands_world = World::new();
+        let placed = {
+            let mut commands = commands_world.commands();
+            instances.spawn(&mut commands, "tree", Transform::IDENTITY, &[])
+        };
+        commands_world.flush();
+        let placed = placed.expect("the tree is loaded");
+        assert!(commands_world.get::<Children>(placed.toggle("crown")).is_some_and(|c| c.len() == 3), "three cones under the crown");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Writes any model file missing from `assets/library` (never overwriting one). Run it with
+    /// `cargo test --bin ozbound -- --ignored write_missing_library_models` after adding a model.
+    #[test]
+    #[ignore]
+    fn write_missing_library_models() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(ozbound::asset_file::LIBRARY_DIR);
+        let mut world = world_with_kit();
+        for id in model_library::scan(&dir).missing {
+            let parts = built_parts(&mut world, id).unwrap();
+            let (path, _) = model_library::write_generated(&dir, id, &parts).unwrap();
+            println!("wrote {}", path.display());
+        }
+    }
+
+    #[test]
+    fn the_generated_pieces_match_the_shipped_files_in_shape() {
+        let mut world = world_with_kit();
+        for (id, groups) in [("tree", 4), ("herb_patch", 11), ("berry_bush", 7), ("copper_vein", 6), ("moonpetal", 8)] {
+            let parts = built_parts(&mut world, id).unwrap();
+            let shipped = ozbound::obj::load_obj(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/library")), id).unwrap();
+            assert_eq!(parts.len(), groups, "{id}");
+            assert_eq!(shipped.parts.len(), groups, "{id}");
+            let generated: Vec<&str> = parts.iter().map(|p| if p.label.is_empty() { "body" } else { p.label.as_str() }).collect();
+            let on_disk: Vec<&str> = shipped.parts.iter().map(|p| p.sub_model()).collect();
+            assert_eq!(generated, on_disk, "{id}: same pieces in the same order");
+        }
+    }
 }

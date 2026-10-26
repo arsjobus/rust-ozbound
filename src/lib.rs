@@ -19,6 +19,7 @@ pub mod inventory;
 pub mod journal;
 pub mod level;
 pub mod locations;
+pub mod model_library;
 pub mod orbit;
 pub mod overworld;
 pub mod music;

@@ -56,6 +56,9 @@ pub enum Body {
     Npc { look: Appearance, behavior: Behavior },
     /// A creature from the bestiary (the bestiary holds its rules).
     Creature,
+    /// One tile of wooden fence. It joins the fence tiles beside it by itself (the scene draws a
+    /// rail toward each neighbouring fence tile), so a run is built one tile at a time.
+    Fence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,6 +122,8 @@ pub fn node_asset_id(kind: ResourceKind) -> &'static str {
 
 /// The id of the library asset for a signpost.
 pub const SIGN_ASSET_ID: &str = "signpost";
+/// The id of the library asset for a piece of fence.
+pub const FENCE_ASSET_ID: &str = "fence";
 
 fn capitalised(text: &str) -> String {
     let mut chars = text.chars();
@@ -141,6 +146,11 @@ impl Asset {
 
     pub fn signpost(text: &str) -> Self {
         Self { id: SIGN_ASSET_ID.to_string(), name: "Signpost".into(), body: Body::Sign { text: text.to_string() } }
+    }
+
+    /// The one-tile piece of modular fence.
+    pub fn fence() -> Self {
+        Self { id: FENCE_ASSET_ID.to_string(), name: "Fence".into(), body: Body::Fence }
     }
 
     pub fn from_npc(npc: &NpcSpawn, behavior: &Behavior) -> Self {
@@ -178,10 +188,10 @@ impl Asset {
         }
     }
 
-    /// True for what the editor can put into a scene on its own: nodes, moonpetals, signs.
+    /// True for what the editor can put into a scene on its own: nodes, moonpetals, signs, fence.
     /// People and creatures also need dialogue or bestiary entries, so they are only moved.
     pub fn is_placeable(&self) -> bool {
-        matches!(self.body, Body::Node { .. } | Body::Moonpetal | Body::Sign { .. })
+        matches!(self.body, Body::Node { .. } | Body::Moonpetal | Body::Sign { .. } | Body::Fence)
     }
 
     /// A short line for the editor: what this is and what it gives.
@@ -192,6 +202,7 @@ impl Asset {
             Body::Sign { .. } => format!("{}: readable", self.name),
             Body::Npc { behavior, .. } => format!("{}: {}", self.name, behavior.to_text()),
             Body::Creature => format!("{}: creature", self.name),
+            Body::Fence => format!("{}: joins the fence beside it", self.name),
         }
     }
 
@@ -203,6 +214,7 @@ impl Asset {
             Body::Sign { .. } => "sign",
             Body::Npc { .. } => "npc",
             Body::Creature => "creature",
+            Body::Fence => "fence",
         };
         let mut text = format!("{HEADER_WORD} {FORMAT_VERSION}\nid = {}\nkind = {kind}\nname = {}\n", self.id, self.name);
         match &self.body {
@@ -212,7 +224,7 @@ impl Asset {
                 text.push_str(&format!("look = {}\n", look.key().unwrap_or("traveller")));
                 text.push_str(&format!("behavior = {}\n", behavior.to_text()));
             }
-            Body::Moonpetal | Body::Creature => {}
+            Body::Moonpetal | Body::Creature | Body::Fence => {}
         }
         text
     }
@@ -273,10 +285,10 @@ impl Asset {
         }
         let allowed: &[&str] = match kind.as_str() {
             "tree" | "copper" | "herb" | "berry" => &["id", "kind", "name", "actions", "yield"],
-            "moonpetal" | "creature" => &["id", "kind", "name"],
+            "moonpetal" | "creature" | "fence" => &["id", "kind", "name"],
             "sign" => &["id", "kind", "name", "text"],
             "npc" => &["id", "kind", "name", "look", "behavior"],
-            other => return Err(AssetError::at(*kind_line, format!("unknown kind `{other}` (use tree, copper, herb, berry, moonpetal, sign, npc, or creature)"))),
+            other => return Err(AssetError::at(*kind_line, format!("unknown kind `{other}` (use tree, copper, herb, berry, moonpetal, sign, fence, npc, or creature)"))),
         };
         if let Some((line, key, _)) = fields.iter().find(|(_, k, _)| !allowed.contains(&k.as_str())) {
             return Err(AssetError::at(*line, format!("`{key}` does not belong on a {kind} asset")));
@@ -296,6 +308,7 @@ impl Asset {
             },
             "moonpetal" => Body::Moonpetal,
             "creature" => Body::Creature,
+            "fence" => Body::Fence,
             "sign" => {
                 let (line, _, message) = need("text")?;
                 if message.is_empty() {
@@ -324,10 +337,11 @@ pub struct Library {
 }
 
 /// The shipped files, compiled in as the fallback for a game started from another directory.
-pub const BUILTIN: [(&str, &str); 14] = [
+pub const BUILTIN: [(&str, &str); 15] = [
     ("apothecary.asset", include_str!("../assets/library/apothecary.asset")),
     ("berry_bush.asset", include_str!("../assets/library/berry_bush.asset")),
     ("copper_vein.asset", include_str!("../assets/library/copper_vein.asset")),
+    ("fence.asset", include_str!("../assets/library/fence.asset")),
     ("ferrywoman.asset", include_str!("../assets/library/ferrywoman.asset")),
     ("guide.asset", include_str!("../assets/library/guide.asset")),
     ("herb_patch.asset", include_str!("../assets/library/herb_patch.asset")),
@@ -456,6 +470,7 @@ pub fn export_world(world: &World) -> Vec<Asset> {
     }
     out.push(Asset::moonpetal());
     out.push(Asset::signpost(DEFAULT_SIGN_TEXT));
+    out.push(Asset::fence());
     if let Some(guide) = Asset::guide(&world.level.behavior_of(GUIDE_ID)) {
         out.push(guide);
     }
@@ -584,12 +599,12 @@ mod tests {
     #[test]
     fn the_shipped_library_loads_and_is_in_id_order() {
         let library = Library::builtin().unwrap();
-        assert_eq!(library.len(), 14);
+        assert_eq!(library.len(), 15);
         let ids: Vec<&str> = library.iter().map(|a| a.id.as_str()).collect();
         let mut sorted = ids.clone();
         sorted.sort();
         assert_eq!(ids, sorted);
-        assert_eq!(library.placeable().len(), 6);
+        assert_eq!(library.placeable().len(), 7);
         assert!(library.get("tree").is_some() && library.get("nothing").is_none());
     }
 
@@ -597,7 +612,7 @@ mod tests {
     fn a_missing_directory_falls_back_and_a_bad_file_stops_loading() {
         let missing = std::env::temp_dir().join("ozbound-no-such-library-dir");
         let (library, note) = Library::load(&missing).unwrap();
-        assert!(note.is_some() && library.len() == 14);
+        assert!(note.is_some() && library.len() == 15);
 
         let dir = std::env::temp_dir().join(format!("ozbound-asset-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

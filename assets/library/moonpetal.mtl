@@ -2,9 +2,11 @@
 newmtl color_408c47ff
 Kd 0.25 0.55 0.28
 illum 1
-newmtl color_ccbdfaff
+newmtl color_ccbdfaff_ke55_45_110
 Kd 0.8 0.74 0.98
+Ke 0.55 0.45 1.1
 illum 1
-newmtl color_e6dbffff
+newmtl color_e6dbffff_ke35_30_80
 Kd 0.9 0.86 1
+Ke 0.35 0.3 0.8
 illum 1

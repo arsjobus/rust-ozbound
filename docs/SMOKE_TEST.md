@@ -131,3 +131,11 @@ Start from a clean state (`saves/` removed) unless a step says otherwise. Run `c
 - [ ] `/edit`, then right-click a thicket: the menu offers Select thicket, Remove thicket, Cancel. Select it (left-click), then click bare grass: it moves there and the chat says "Moved thicket.". Try to move it onto the path, water, a tree or yourself: it stays and the chat says why. Undo and Redo work. Remove it and Undo.
 - [ ] Right-click different things (tree, copper vein, a villager with a long name, bare grass with something selected): every row is one line, nothing overlaps, and the menu stays inside the window. Repeat with a larger text size in the pause menu and in a narrow window.
 - [ ] Select a tree or copper vein and click Export asset: the chat names the `.asset` file and then the `.obj` file with its triangle count. Open `assets/library/<id>.obj` (and its `.mtl`) in Blender or MeshLab: the model looks like the one in the game, upright, in its colours.
+
+## 14. Models from files and modular fences (M14 in ROADMAP.md)
+
+- [ ] Start the game with `assets/library/tree.obj` renamed away: the console says `model tree: no file, so generated ...`, the file is back, and the trees look the same as before. Do the same for `fence_post.obj` and `fence_rail.obj`.
+- [ ] Damage `signpost.obj` (add a line `v 1 2`): the console names the file and line, the game still shows signposts, and the file is left as you made it. Restore it.
+- [ ] Trees keep their three leaf colours; copper veins show orange flecks and plain rocks show none; moonpetals still glow; chop a tree until spent and the crown disappears and returns; same for mint, berries, and copper.
+- [ ] `/edit`, choose Place until the label reads Fence, click bare grass three times in a row: the pieces join into one rail. Place one beside the road chunk seam: it joins across it. Select a middle piece, move it away, and the run reconnects around the gap. Remove, Undo, Redo.
+- [ ] Open `assets/library/tree.obj` in Blender: the crown is a separate group.

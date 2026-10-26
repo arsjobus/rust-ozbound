@@ -71,7 +71,8 @@ use crate::{
 pub const CHUNK_SIZE: i32 = 64;
 /// The smallest and largest `chunk_size` a world file may ask for.
 pub const MIN_CHUNK_SIZE: i32 = 8;
-pub const MAX_CHUNK_SIZE: i32 = 256;
+/// A chunk is one map file, and a map file may be at most [`crate::level::MAX_MAP_SIZE`] tiles.
+pub const MAX_CHUNK_SIZE: i32 = crate::level::MAX_MAP_SIZE as i32;
 
 /// Default distance, in tiles, at which a chunk starts loading.
 pub const DEFAULT_LOAD_MARGIN: i32 = 20;
@@ -764,7 +765,7 @@ theme = road
 
     #[test]
     fn chunk_size_must_be_a_sensible_whole_number() {
-        for value in ["0", "7", "-8", "300"] {
+        for value in ["0", "7", "-8", "65", "300"] {
             let text = WORLD.replace("unload_margin = 5\n", &format!("unload_margin = 5\nchunk_size = {value}\n"));
             assert!(bad(&text).contains("chunk_size must be between"), "{value}");
         }
