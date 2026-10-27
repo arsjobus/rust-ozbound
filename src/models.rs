@@ -1285,7 +1285,7 @@ mod tests {
         let map = WorldMap::from_ascii(&format!("{}\n", ".".repeat(16)).repeat(16)).unwrap();
         for (w, h) in [(3, 3), (4, 4), (5, 4), (7, 9)] {
             for door in Side::ALL {
-                let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 3), width: w, height: h, door, name: "h".into() };
+                let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 3), width: w, height: h, door, name: "h".into(), ground: Vec::new() };
                 for variant in 0..2 {
                     assert_same_shapes("house", |c, k| {
                         let (walls, roof) = spawn_house(c, k, &map, &house, variant);
@@ -1295,7 +1295,7 @@ mod tests {
             }
         }
         // The two roof variants differ in colour only.
-        let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 3), width: 5, height: 5, door: Side::South, name: "h".into() };
+        let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 3), width: 5, height: 5, door: Side::South, name: "h".into(), ground: Vec::new() };
         let mut world = world_with_models("roofs");
         let roofs: Vec<_> = (0..2).map(|variant| shapes(&mut world, |c, k| vec![spawn_house(c, k, &map, &house, variant).1]).remove(0)).collect();
         assert_ne!(roofs[0].triangles_by_colour, roofs[1].triangles_by_colour);
@@ -1309,7 +1309,7 @@ mod tests {
         use ozbound::homestead::{HouseSpawn, Side};
         use ozbound::world::{TilePos, WorldMap};
         let map = WorldMap::from_ascii(&format!("{}\n", ".".repeat(12)).repeat(12)).unwrap();
-        let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 2), width: 4, height: 4, door: Side::South, name: "h".into() };
+        let house = HouseSpawn { id: "h".into(), origin: TilePos::new(2, 2), width: 4, height: 4, door: Side::South, name: "h".into(), ground: Vec::new() };
         let mut world = world_with_models("roots");
         let (walls, roof) = world.resource_scope::<Kit, _>(|world, kit| {
             let roots = spawn_house(&mut world.commands(), &kit, &map, &house, 0);

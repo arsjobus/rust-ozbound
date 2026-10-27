@@ -47,6 +47,7 @@ use std::path::Path;
 
 use crate::asset_file::{Asset, Body, Library};
 use crate::gathering::ResourceKind;
+use crate::homestead::{self, HouseSpawn};
 use crate::level::{BehaviorSpawn, CreatureSpawn, Level, NodeSpawn, NpcSpawn, SignSpawn, GUIDE_ID};
 use crate::npc::{self, Behavior};
 use crate::pathfinding::Approach;
@@ -80,6 +81,8 @@ pub enum ObjectRef {
     Thicket(TilePos),
     /// One tile of fence.
     Fence(TilePos),
+    /// A walk-in house, by id. It covers many tiles; it is moved as a whole.
+    House(String),
 }
 
 /// A full copy of one object, with what it needs to be put back.
@@ -93,6 +96,7 @@ pub enum Object {
     Sign(SignSpawn),
     Thicket(TilePos),
     Fence(TilePos),
+    House(HouseSpawn),
 }
 
 /// An object taken out of a level, with where it stood in the level's lists so that putting it
@@ -106,7 +110,7 @@ pub struct Removed {
 
 impl ObjectRef {
     /// The text form used in the edit layer file: `guide`, `npc id`, `creature id`,
-    /// `moonpetal x y`, `node <kind> x y`, `sign x y`, `thicket x y`, `fence x y`.
+    /// `moonpetal x y`, `node <kind> x y`, `sign x y`, `thicket x y`, `fence x y`, `house id`.
     pub fn to_text(&self) -> String {
         match self {
             Self::Guide => "guide".into(),
@@ -117,6 +121,7 @@ impl ObjectRef {
             Self::Sign(t) => format!("sign {} {}", t.x, t.y),
             Self::Thicket(t) => format!("thicket {} {}", t.x, t.y),
             Self::Fence(t) => format!("fence {} {}", t.x, t.y),
+            Self::House(id) => format!("house {id}"),
         }
     }
 
@@ -124,7 +129,7 @@ impl ObjectRef {
     pub fn parse(words: &[&str]) -> Result<Self, String> {
         let int = |w: &str| w.parse::<i32>().map_err(|_| format!("`{w}` is not a whole number"));
         let tile = |x: &str, y: &str| Ok::<_, String>(TilePos::new(int(x)?, int(y)?));
-        let wrong = || format!("`{}` is not an object (use guide, npc <id>, creature <id>, moonpetal <x> <y>, node <kind> <x> <y>, sign <x> <y>, thicket <x> <y>, or fence <x> <y>)", words.join(" "));
+        let wrong = || format!("`{}` is not an object (use guide, npc <id>, creature <id>, moonpetal <x> <y>, node <kind> <x> <y>, sign <x> <y>, thicket <x> <y>, fence <x> <y>, or house <id>)", words.join(" "));
         let found = match words {
             ["guide"] => Self::Guide,
             ["npc", id] if is_valid_id(id) => Self::Npc((*id).to_string()),
@@ -134,6 +139,7 @@ impl ObjectRef {
             ["sign", x, y] => Self::Sign(tile(x, y)?),
             ["thicket", x, y] => Self::Thicket(tile(x, y)?),
             ["fence", x, y] => Self::Fence(tile(x, y)?),
+            ["house", id] if is_valid_id(id) => Self::House((*id).to_string()),
             _ => return Err(wrong()),
         };
         Ok(found)
@@ -174,6 +180,7 @@ impl Object {
             Self::Sign(s) => ObjectRef::Sign(s.tile),
             Self::Thicket(t) => ObjectRef::Thicket(*t),
             Self::Fence(t) => ObjectRef::Fence(*t),
+            Self::House(h) => ObjectRef::House(h.id.clone()),
         }
     }
 
@@ -186,6 +193,24 @@ impl Object {
             Self::Node(n) => n.tile,
             Self::Sign(s) => s.tile,
             Self::Thicket(t) | Self::Fence(t) => *t,
+            Self::House(h) => h.origin,
+        }
+    }
+
+    /// Every tile the object covers: one for most objects, the whole rectangle for a house.
+    pub fn footprint(&self) -> Vec<TilePos> {
+        match self {
+            Self::House(h) => h.footprint(),
+            other => vec![other.tile()],
+        }
+    }
+
+    /// The tiles the object would cover if it stood on `to` (for a house, `to` is its
+    /// south-west corner).
+    pub fn footprint_at(&self, to: TilePos) -> Vec<TilePos> {
+        match self {
+            Self::House(h) => HouseSpawn { origin: to, ..h.clone() }.footprint(),
+            _ => vec![to],
         }
     }
 
@@ -200,13 +225,14 @@ impl Object {
             Self::Sign(_) => "signpost".into(),
             Self::Thicket(_) => "thicket".into(),
             Self::Fence(_) => "fence".into(),
+            Self::House(h) => h.name.clone(),
         }
     }
 
     /// True for the objects whose place in the world is a tile of the map (a tree, a rock, a
     /// signpost): moving or removing one changes the map.
     pub fn is_tile_bound(&self) -> bool {
-        matches!(self, Self::Sign(_) | Self::Thicket(_) | Self::Fence(_)) || matches!(self, Self::Node(n) if tile_of_node(n.kind).is_some())
+        matches!(self, Self::Sign(_) | Self::Thicket(_) | Self::Fence(_) | Self::House(_)) || matches!(self, Self::Node(n) if tile_of_node(n.kind).is_some())
     }
 
     /// The asset file this object would be exported as. Signs are not exported: each carries
@@ -220,7 +246,7 @@ impl Object {
             Self::Moonpetal(_) => Some(Asset::moonpetal()),
             Self::Node(n) => Some(Asset::from_node(n)),
             Self::Fence(_) => Some(Asset::fence()),
-            Self::Sign(_) | Self::Thicket(_) => None,
+            Self::Sign(_) | Self::Thicket(_) | Self::House(_) => None,
         }
     }
 
@@ -235,6 +261,7 @@ impl Object {
             Self::Node(n) => n.tile = tile,
             Self::Sign(s) => s.tile = tile,
             Self::Thicket(t) | Self::Fence(t) => *t = tile,
+            Self::House(h) => h.origin = tile,
         }
         moved
     }
@@ -252,6 +279,7 @@ pub fn find(level: &Level, object: &ObjectRef) -> Option<Object> {
         ObjectRef::Sign(tile) => level.signs.iter().find(|s| s.tile == *tile).cloned().map(Object::Sign),
         ObjectRef::Thicket(tile) => is_thicket(level, *tile).then_some(Object::Thicket(*tile)),
         ObjectRef::Fence(tile) => (level.map.tile_at(*tile) == Ok(Tile::Fence)).then_some(Object::Fence(*tile)),
+        ObjectRef::House(id) => level.houses.iter().find(|h| h.id == *id).cloned().map(Object::House),
     }
 }
 
@@ -274,6 +302,7 @@ pub fn object_at(level: &Level, tile: TilePos) -> Option<Object> {
         level.moonpetals.iter().find(|t| **t == tile).map(|_| ObjectRef::Moonpetal(tile)),
         is_thicket(level, tile).then_some(ObjectRef::Thicket(tile)),
         (level.map.tile_at(tile) == Ok(Tile::Fence)).then_some(ObjectRef::Fence(tile)),
+        level.houses.iter().find(|h| h.contains(tile)).map(|h| ObjectRef::House(h.id.clone())),
     ];
     candidates.into_iter().flatten().find_map(|r| find(level, &r))
 }
@@ -327,6 +356,8 @@ fn take(level: &mut Level, object: &ObjectRef) -> Option<Removed> {
             behavior_index = None;
             set_tile(level, *t, Tile::Grass);
         }
+        // A house is only ever moved (see `move_house`), never taken out.
+        Object::House(_) => return None,
     }
     Some(Removed { object: found, index, behavior_index })
 }
@@ -372,6 +403,13 @@ fn put(level: &mut Level, removed: &Removed) {
         }
         Object::Thicket(t) => set_tile(level, *t, Tile::Tree),
         Object::Fence(t) => set_tile(level, *t, Tile::Fence),
+        Object::House(h) => {
+            for tile in h.footprint() {
+                if let Some(stamped) = h.tile_at(tile) {
+                    set_tile(level, tile, stamped);
+                }
+            }
+        }
     }
 }
 
@@ -446,6 +484,7 @@ pub fn check_level(level: &Level) -> Result<(), String> {
         return Err(format!("the quest needs {need} moonpetals in the world, and only {} would be left", level.moonpetals.len()));
     }
     crate::homestead::check_doors(map, &level.houses, start).map_err(|(_, error)| error.to_string())?;
+    homestead::check_plots(map, &level.houses, &level.plots).map_err(|(_, error)| error.to_string())?;
     let keep_out: HashSet<TilePos> = level.npc_keep_out().into_iter().collect();
     let people: Vec<(&str, TilePos)> = level.guide.iter().map(|t| (GUIDE_ID, *t)).chain(level.npcs.iter().map(|n| (n.id.as_str(), n.tile))).collect();
     for entry in &level.behaviors {
@@ -576,6 +615,7 @@ fn check_target(level: &Level, object: &Object, to: TilePos) -> Result<(), EditE
                 return refuse("Something already stands there.");
             }
         }
+        Object::House(_) => unreachable!("houses are moved by `move_house`"),
         _ => {
             if !found.is_walkable() {
                 return refuse("That tile cannot be walked on.");
@@ -588,11 +628,87 @@ fn check_target(level: &Level, object: &Object, to: TilePos) -> Result<(), EditE
     Ok(())
 }
 
+/// Moves a house, with everything standing on its floor, so that its south-west corner is `to`.
+///
+/// The land the house stood on is put back as it was and the house is stamped onto its new
+/// footprint, which must be bare grass or path with nothing else on it. People, creatures,
+/// moonpetals, waymarks, and plants on the floor travel with the house. A house with the player's
+/// start or an exit inside it is not moved. Whether the result is still a good level (doorway
+/// clear, house still inside its plot, everything reachable) is decided by [`check_level`].
+fn move_house(level: &mut Level, id: &str, to: TilePos) -> Result<(), EditError> {
+    let at = level.houses.iter().position(|h| h.id == id).ok_or(EditError::NotThere)?;
+    let old = level.houses[at].clone();
+    if to == old.origin {
+        return refuse("It is already there.");
+    }
+    let moved = HouseSpawn { origin: to, ..old.clone() };
+    let delta = (to.x - old.origin.x, to.y - old.origin.y);
+    let old_footprint = old.footprint();
+    if old_footprint.contains(&level.player_start) || level.exits.iter().any(|e| old.contains(e.tile)) {
+        return refuse("The way into this scene starts inside that house, so it cannot be moved.");
+    }
+    // Everything that is not part of the house, to keep clear of.
+    level.houses.remove(at);
+    let interior: HashSet<TilePos> = old.interior().into_iter().collect();
+    let mut taken = occupied(level);
+    taken.retain(|t| !interior.contains(t));
+    for (i, tile) in old_footprint.iter().enumerate() {
+        set_tile(level, *tile, old.ground.get(i).copied().unwrap_or(Tile::Grass));
+    }
+    let mut ground = Vec::with_capacity(moved.footprint().len());
+    for tile in moved.footprint() {
+        match level.map.tile_at(tile) {
+            Err(_) => return refuse("That does not fit on the map."),
+            Ok(found @ (Tile::Grass | Tile::Path)) => {
+                if taken.contains(&tile) {
+                    return refuse("Something already stands there.");
+                }
+                ground.push(found);
+            }
+            Ok(_) => return refuse("A house can only stand on bare grass or path."),
+        }
+    }
+    for tile in moved.footprint() {
+        if let Some(stamped) = moved.tile_at(tile) {
+            set_tile(level, tile, stamped);
+        }
+    }
+    let shift = |t: &mut TilePos| {
+        if interior.contains(t) {
+            *t = TilePos::new(t.x + delta.0, t.y + delta.1);
+        }
+    };
+    level.guide.iter_mut().for_each(shift);
+    level.npcs.iter_mut().for_each(|n| shift(&mut n.tile));
+    level.creatures.iter_mut().for_each(|c| shift(&mut c.tile));
+    level.moonpetals.iter_mut().for_each(shift);
+    level.places.iter_mut().for_each(|p| shift(&mut p.tile));
+    level.nodes.iter_mut().for_each(|n| shift(&mut n.tile));
+    level.houses.insert(at, HouseSpawn { ground, ..moved });
+    Ok(())
+}
+
+/// Where a click on `clicked` puts `object`: that tile for most objects, and for a house the
+/// corner that centres the house on the click.
+pub fn move_anchor(level: &Level, object: &ObjectRef, clicked: TilePos) -> TilePos {
+    match find(level, object) {
+        Some(Object::House(h)) => TilePos::new(clicked.x - h.width / 2, clicked.y - h.height / 2),
+        _ => clicked,
+    }
+}
+
 /// Applies an edit to a copy of the level and returns the copy and the edit that undoes it.
 fn try_edit(level: &Level, edit: &Edit, library: &Library) -> Result<(Level, Edit, String), EditError> {
     let region = edit.region().to_string();
     let mut next = level.clone();
     match edit {
+        Edit::Move { object: ObjectRef::House(id), to, .. } => {
+            let found = find(level, &ObjectRef::House(id.clone())).ok_or(EditError::NotThere)?;
+            move_house(&mut next, id, *to)?;
+            let inverse = Edit::Move { region, object: ObjectRef::House(id.clone()), to: found.tile() };
+            Ok((next, inverse, format!("Moved {}.", found.name())))
+        }
+        Edit::Remove { object: ObjectRef::House(_), .. } => refuse("A house can be moved, but not removed."),
         Edit::Move { object, to, .. } => {
             let found = find(level, object).ok_or(EditError::NotThere)?;
             check_target(level, &found, *to)?;

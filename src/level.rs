@@ -503,7 +503,7 @@ fn parse_house(text: &str, line: usize) -> Result<HouseSpawn, LevelError> {
     let door = Side::from_name(side).ok_or_else(|| {
         LevelError::at(line, LevelErrorKind::Malformed { expected: "a door side: north, south, east, or west", found: side.to_string() })
     })?;
-    Ok(HouseSpawn { id: id.to_string(), origin: TilePos::new(x, y), width, height, door, name: name.to_string() })
+    Ok(HouseSpawn { id: id.to_string(), origin: TilePos::new(x, y), width, height, door, name: name.to_string(), ground: Vec::new() })
 }
 
 /// `id x y width height name...`: a plot of land. `x y` is its south-west corner.
@@ -649,9 +649,14 @@ impl Level {
 
         // Houses are stamped onto the map first, so every later check (player, guide, villagers,
         // reachability) sees walls, doorways, and floors exactly as the player will.
-        let house_list: Vec<HouseSpawn> = houses.iter().map(|e| e.value.clone()).collect();
+        let mut house_list: Vec<HouseSpawn> = houses.iter().map(|e| e.value.clone()).collect();
+        let unstamped = map.clone();
         homestead::stamp_houses(&mut map, &house_list)
             .map_err(|(i, error)| LevelError::at(houses[i].line, LevelErrorKind::Homestead(error)))?;
+        // Remember the land under each house, so the editor can lift a house and put it back.
+        for house in &mut house_list {
+            house.ground = house.footprint().into_iter().map(|t| unstamped.tile_at(t).unwrap_or(Tile::Grass)).collect();
+        }
 
         let single = |entries: &[Entry<TilePos>], section: &'static str| -> Result<(usize, TilePos), LevelError> {
             match entries {

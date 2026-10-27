@@ -651,3 +651,69 @@ fn fence_references_round_trip_as_text_and_the_asset_is_placeable() {
     assert!(ObjectRef::parse(&["fence", "4"]).is_err());
     assert!(library().placeable().iter().any(|a| a.id == "fence"));
 }
+
+// ---- houses ----
+
+const HOUSE_LEVEL: &str = "[map]\n~~~~~~~~..\n..........\n..........\n..........\n..........\n..........\n..........\n\n[player]\n0 0\n[houses]\nhut 2 1 4 4 south The Hut\n";
+
+#[test]
+fn house_references_round_trip_and_reject_bad_ids() {
+    let r = ObjectRef::House("pell_house".into());
+    assert_eq!(r.to_text(), "house pell_house");
+    assert_eq!(ObjectRef::parse(&["house", "pell_house"]), Ok(r));
+    assert!(ObjectRef::parse(&["house"]).is_err());
+    assert!(ObjectRef::parse(&["house", "Bad-Id"]).is_err());
+}
+
+#[test]
+fn a_house_moves_onto_grass_and_back_leaving_path_and_grass_as_they_were() {
+    let mut level = Level::parse(HOUSE_LEVEL).unwrap();
+    let house = level.houses[0].clone();
+    assert_eq!(house.ground.len(), 16);
+    assert!(house.ground.iter().all(|t| *t == Tile::Grass));
+    level.map.set_tile(tile(7, 2), Tile::Path).unwrap();
+    let mut levels: Levels = vec![("MINI".into(), level)];
+    let before = levels.clone();
+    let lib = library();
+    let go = Edit::Move { region: "MINI".into(), object: ObjectRef::House("hut".into()), to: tile(5, 1) };
+    let (back, _) = apply_edit(&mut levels, &go, &lib, &ok).unwrap();
+    let after = &levels[0].1;
+    assert_eq!(after.houses[0].origin, tile(5, 1));
+    assert_eq!(after.map.tile_at(tile(2, 1)), Ok(Tile::Grass), "the old corner is grass again");
+    assert_eq!(after.map.tile_at(tile(5, 1)), Ok(Tile::Wall));
+    assert_eq!(after.houses[0].ground.len(), 16);
+    apply_edit(&mut levels, &back, &lib, &ok).unwrap();
+    assert_eq!(levels, before);
+}
+
+#[test]
+fn a_house_is_refused_on_water_trees_the_map_edge_and_other_things() {
+    let lib = library();
+    let mut levels = mini(HOUSE_LEVEL);
+    let before = levels.clone();
+    for (to, why) in [(tile(2, 3), "water"), (tile(8, 1), "the map edge"), (tile(-1, 1), "off the map"), (tile(0, 0), "the player start")] {
+        let edit = Edit::Move { region: "MINI".into(), object: ObjectRef::House("hut".into()), to };
+        let error = apply_edit(&mut levels, &edit, &lib, &ok);
+        assert!(error.is_err(), "{why}");
+        assert_eq!(levels, before, "{why}: nothing changed");
+    }
+    let same = Edit::Move { region: "MINI".into(), object: ObjectRef::House("hut".into()), to: tile(2, 1) };
+    assert!(matches!(apply_edit(&mut levels, &same, &lib, &ok), Err(EditError::Refused(_))));
+}
+
+#[test]
+fn move_anchor_centres_a_house_on_the_click_and_leaves_other_objects_alone() {
+    let level = Level::parse(HOUSE_LEVEL).unwrap();
+    assert_eq!(move_anchor(&level, &ObjectRef::House("hut".into()), tile(6, 4)), tile(4, 2));
+    assert_eq!(move_anchor(&level, &ObjectRef::Moonpetal(tile(1, 1)), tile(6, 4)), tile(6, 4));
+}
+
+#[test]
+fn a_house_footprint_covers_its_rectangle_and_other_objects_one_tile() {
+    let level = Level::parse(HOUSE_LEVEL).unwrap();
+    let house = find(&level, &ObjectRef::House("hut".into())).unwrap();
+    assert_eq!(house.footprint().len(), 16);
+    assert_eq!(house.footprint_at(tile(5, 1)).len(), 16);
+    assert!(house.footprint_at(tile(5, 1)).contains(&tile(8, 4)));
+    assert_eq!(Object::Moonpetal(tile(1, 1)).footprint_at(tile(3, 3)), vec![tile(3, 3)]);
+}

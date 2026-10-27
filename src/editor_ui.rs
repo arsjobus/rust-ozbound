@@ -429,6 +429,21 @@ struct Under {
 const THICKET_TOP: f32 = 1.3;
 /// How tall a fence stands (its post), for clicking it.
 const FENCE_TOP: f32 = 0.9;
+/// How tall a house stands (walls and roof), for clicking it.
+const HOUSE_TOP: f32 = 2.3;
+
+/// True when the player stands where `object` would be if it were moved with a click on `local`
+/// (for a house, also where it stands now, since the player would be left inside a wall).
+fn player_in_the_way(atlas: &Atlas, region: &str, object: &ObjectRef, local: TilePos, player_tile: Option<TilePos>) -> bool {
+    let Some((player_region, player_local)) = player_tile.and_then(|p| scene_tile(atlas, p)) else { return false };
+    if player_region != region {
+        return false;
+    }
+    let Some(level) = atlas.level(region) else { return false };
+    let Some(found) = editor::find(level, object) else { return false };
+    let to = editor::move_anchor(level, object, local);
+    found.footprint_at(to).contains(&player_local) || (matches!(found, editor::Object::House(_)) && found.footprint().contains(&player_local))
+}
 
 fn look(
     window: &Window,
@@ -462,18 +477,20 @@ fn look(
     let is_fence = |level: &ozbound::level::Level, tile: TilePos| editor::object_at(level, tile).is_some_and(|o| matches!(o, editor::Object::Fence(_)));
     let thicket = walk(editor::is_thicket, THICKET_TOP);
     let fence = walk(is_fence, FENCE_TOP);
-    let scenery = match (thicket, fence) {
-        (Some((t, td)), Some((f, fd))) => Some(if td <= fd { (t, false) } else { (f, true) }),
-        (Some((t, _)), None) => Some((t, false)),
-        (None, Some((f, _))) => Some((f, true)),
-        (None, None) => None,
-    };
-    let object = if let Some((tile, is_fence_piece)) = scenery {
-        scene_tile(atlas, tile).map(|(region, local)| {
-            if is_fence_piece {
-                (region, ObjectRef::Fence(local), "fence".to_string(), tile)
-            } else {
-                (region, ObjectRef::Thicket(local), "thicket".to_string(), tile)
+    let is_house = |level: &ozbound::level::Level, tile: TilePos| level.houses.iter().any(|h| h.contains(tile));
+    let house = walk(is_house, HOUSE_TOP);
+    // The nearest of the three wins: (tile, distance, what).
+    let scenery = [(thicket, 0u8), (fence, 1), (house, 2)]
+        .into_iter()
+        .filter_map(|(hit, what)| hit.map(|(tile, distance)| (tile, distance, what)))
+        .min_by(|a, b| a.1.total_cmp(&b.1));
+    let object = if let Some((tile, _, what)) = scenery {
+        scene_tile(atlas, tile).and_then(|(region, local)| match what {
+            0 => Some((region, ObjectRef::Thicket(local), "thicket".to_string(), tile)),
+            1 => Some((region, ObjectRef::Fence(local), "fence".to_string(), tile)),
+            _ => {
+                let found = editor::object_at(atlas.level(&region)?, local)?;
+                Some((region, found.reference(), found.name(), tile))
             }
         })
     } else {
@@ -572,10 +589,11 @@ pub fn editor_input(
             GroundClick::MoveSelection(selection) => {
                 if selection.region != region {
                     say(&mut chat, "An object stays in its own scene. Pick a tile in the same scene.");
-                } else if player_tile.is_some_and(|p| scene_tile(&atlas, p) == Some((region.clone(), local))) {
+                } else if player_in_the_way(&atlas, &region, &selection.object, local, player_tile) {
                     say(&mut chat, "You are standing there.");
                 } else {
-                    change(&mut session, &mut atlas, &mut world, &mut chat, Change::Do(Edit::Move { region, object: selection.object, to: local }));
+                    let to = atlas.level(&region).map_or(local, |level| editor::move_anchor(level, &selection.object, local));
+                    change(&mut session, &mut atlas, &mut world, &mut chat, Change::Do(Edit::Move { region, object: selection.object, to }));
                 }
             }
             GroundClick::PlaceAsset(asset) => {
@@ -629,10 +647,11 @@ fn run_menu_action(
             let (Some(selection), Some((region, local))) = (session.state.selection.clone(), target.ground.clone()) else { return };
             if selection.region != region {
                 say(chat, "An object stays in its own scene. Pick a tile in the same scene.");
-            } else if player_tile.is_some_and(|p| scene_tile(atlas, p) == Some((region.clone(), local))) {
+            } else if player_in_the_way(atlas, &region, &selection.object, local, player_tile) {
                 say(chat, "You are standing there.");
             } else {
-                change(session, atlas, world, chat, Change::Do(Edit::Move { region, object: selection.object, to: local }));
+                let to = atlas.level(&region).map_or(local, |level| editor::move_anchor(level, &selection.object, local));
+                change(session, atlas, world, chat, Change::Do(Edit::Move { region, object: selection.object, to }));
             }
         }
         MenuAction::PlaceHere => {
@@ -729,7 +748,8 @@ fn export_selected(session: &mut EditorSession, atlas: &Atlas, wildlife: &Wildli
         _ => None,
     };
     let Some(asset) = object.to_asset(creature_name.as_deref()) else {
-        say(chat, format!("{} carries its own text, so it is not exported as an asset.", object.name()));
+        let why = if matches!(object, editor::Object::House(_)) { "is a house, which is moved but not exported as an asset" } else { "carries its own text, so it is not exported as an asset" };
+        say(chat, format!("{} {why}.", object.name()));
         return;
     };
     match asset_file::save_asset(Path::new(&session.library_dir), &asset) {

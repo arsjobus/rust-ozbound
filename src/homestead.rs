@@ -105,6 +105,10 @@ pub struct HouseSpawn {
     pub height: i32,
     pub door: Side,
     pub name: String,
+    /// The ground each footprint tile was before the house was stamped onto it, bottom row
+    /// first (the order of [`HouseSpawn::footprint`]), so that lifting the house in the world
+    /// editor leaves the land as it was. Empty means bare grass everywhere.
+    pub ground: Vec<Tile>,
 }
 
 impl HouseSpawn {
@@ -470,7 +474,7 @@ mod tests {
     use super::*;
 
     fn house(id: &str, x: i32, y: i32, w: i32, h: i32, door: Side) -> HouseSpawn {
-        HouseSpawn { id: id.into(), origin: TilePos::new(x, y), width: w, height: h, door, name: id.into() }
+        HouseSpawn { id: id.into(), origin: TilePos::new(x, y), width: w, height: h, door, name: id.into(), ground: Vec::new() }
     }
 
     fn plot(id: &str, x: i32, y: i32, w: i32, h: i32) -> PlotSpawn {

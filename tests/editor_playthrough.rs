@@ -391,3 +391,132 @@ fn a_thicket_of_the_shipped_road_can_be_moved_removed_and_restored() {
     history.undo(&mut levels, &library, &check).unwrap();
     assert_eq!(levels, before, "two undos restore the world exactly");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Houses (M14): objects that cover more than one tile
+// ---------------------------------------------------------------------------------------------
+
+/// A one-tile shift of a house that the editor accepts, if any.
+fn accepted_house_shift(levels: &Levels, library: &Library, world: &World, region: &str, house: &str) -> Option<(TilePos, Edit)> {
+    let origin = level_of(levels, region).houses.iter().find(|h| h.id == house)?.origin;
+    let check = |id: &str, l: &Level| world.check_with(id, l);
+    [(1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)].into_iter().find_map(|(dx, dy)| {
+        let to = tile(origin.x + dx, origin.y + dy);
+        let edit = Edit::Move { region: region.into(), object: ObjectRef::House(house.into()), to };
+        let mut trial = levels.clone();
+        apply_edit(&mut trial, &edit, library, &check).ok().map(|_| (to, edit))
+    })
+}
+
+#[test]
+fn every_shipped_house_is_an_object_the_editor_can_find_by_any_of_its_tiles() {
+    let world = world();
+    let levels = world.all_levels();
+    let mut found = 0;
+    for (_, level) in &levels {
+        for house in &level.houses {
+            assert_eq!(house.ground.len(), house.footprint().len(), "{} remembers the land under it", house.id);
+            for t in house.footprint() {
+                // People standing inside win the click; otherwise the house does.
+                let object = editor::object_at(level, t).expect("something is editable on every house tile");
+                if !matches!(object, editor::Object::House(_)) {
+                    assert!(house.interior().contains(&t), "only a person on the floor can hide the house");
+                } else {
+                    assert_eq!(object.reference(), ObjectRef::House(house.id.clone()));
+                }
+            }
+            found += 1;
+        }
+    }
+    assert_eq!(found, 4, "three houses in Bluebrook and the waystation");
+}
+
+#[test]
+fn a_shipped_house_moves_with_what_is_inside_and_undo_restores_the_world_exactly() {
+    let world = world();
+    let library = Library::builtin().unwrap();
+    let check = |id: &str, l: &Level| world.check_with(id, l);
+    let mut moved_any = false;
+    for (region, house_id) in world.all_levels().iter().flat_map(|(r, l)| l.houses.iter().map(move |h| (r.clone(), h.id.clone()))) {
+        let mut levels = world.all_levels();
+        let before = levels.clone();
+        let Some((to, edit)) = accepted_house_shift(&levels, &library, &world, &region, &house_id) else { continue };
+        let old = level_of(&levels, &region).houses.iter().find(|h| h.id == house_id).unwrap().clone();
+        let inside: Vec<(String, TilePos)> = level_of(&levels, &region).npc_list().into_iter().filter(|(_, t, _)| old.interior().contains(t)).map(|(id, t, _)| (id.to_string(), t)).collect();
+        let mut history = History::default();
+        history.apply(&mut levels, edit, &library, &check).unwrap();
+        let after = level_of(&levels, &region);
+        let house = after.houses.iter().find(|h| h.id == house_id).unwrap();
+        assert_eq!(house.origin, to);
+        let (dx, dy) = (to.x - old.origin.x, to.y - old.origin.y);
+        // The new footprint is stamped, the land left behind is as it was before the house.
+        for t in house.footprint() {
+            assert_eq!(after.map.tile_at(t), Ok(house.tile_at(t).unwrap()));
+        }
+        for (i, t) in old.footprint().into_iter().enumerate() {
+            if !house.contains(t) {
+                assert_eq!(after.map.tile_at(t), Ok(old.ground[i]), "{t:?} is open land again");
+            }
+        }
+        // People who were on the floor are still on the floor, one shift away.
+        for (id, t) in &inside {
+            let now = after.npc_list().into_iter().find(|(n, _, _)| n == id).map(|(_, t, _)| t).unwrap();
+            assert_eq!(now, tile(t.x + dx, t.y + dy), "{id} travelled with the house");
+            assert!(house.interior().contains(&now));
+        }
+        assert!(check_level(after).is_ok());
+        history.undo(&mut levels, &library, &check).unwrap();
+        assert_eq!(levels, before, "undo puts the house, its people, and the land back exactly");
+        history.redo(&mut levels, &library, &check).unwrap();
+        history.undo(&mut levels, &library, &check).unwrap();
+        assert_eq!(levels, before);
+        moved_any = true;
+    }
+    assert!(moved_any, "at least one shipped house can be nudged");
+}
+
+#[test]
+fn a_house_with_people_inside_exists_and_they_stay_inside_after_a_move() {
+    let world = world();
+    let levels = world.all_levels();
+    let with_people = levels.iter().flat_map(|(r, l)| l.houses.iter().map(move |h| (r, l, h))).filter(|(_, l, h)| l.npc_list().iter().any(|(_, t, _)| h.interior().contains(t))).count();
+    assert!(with_people >= 1, "Mistress Pell keeps shop inside her house");
+}
+
+#[test]
+fn houses_cannot_leave_their_plot_sit_on_water_or_be_removed() {
+    let world = world();
+    let library = Library::builtin().unwrap();
+    let check = |id: &str, l: &Level| world.check_with(id, l);
+    let (region, house) = world.all_levels().iter().flat_map(|(r, l)| l.houses.iter().map(move |h| (r.clone(), h.clone()))).next().unwrap();
+    let mut levels = world.all_levels();
+    let before = levels.clone();
+    let far = tile(1, 1);
+    for to in [far, tile(-3, 4), tile(house.origin.x + 40, house.origin.y)] {
+        let edit = Edit::Move { region: region.clone(), object: ObjectRef::House(house.id.clone()), to };
+        assert!(apply_edit(&mut levels, &edit, &library, &check).is_err(), "{to:?} is outside the plot or off the map");
+        assert_eq!(levels, before, "a refused move changes nothing");
+    }
+    let remove = Edit::Remove { region: region.clone(), object: ObjectRef::House(house.id.clone()) };
+    let error = apply_edit(&mut levels, &remove, &library, &check).unwrap_err();
+    assert!(error.to_string().contains("moved, but not removed"), "{error}");
+    assert_eq!(levels, before);
+}
+
+#[test]
+fn house_edits_are_saved_in_the_edit_layer_and_replay_to_the_same_world() {
+    let world = world();
+    let library = Library::builtin().unwrap();
+    let check = |id: &str, l: &Level| world.check_with(id, l);
+    let mut levels = world.all_levels();
+    let (region, house) = levels.iter().flat_map(|(r, l)| l.houses.iter().map(move |h| (r.clone(), h.id.clone()))).find(|(r, h)| accepted_house_shift(&world.all_levels(), &library, &world, r, h).is_some()).unwrap();
+    let (_, edit) = accepted_house_shift(&levels, &library, &world, &region, &house).unwrap();
+    let mut history = History::default();
+    history.apply(&mut levels, edit, &library, &check).unwrap();
+    let text = history.layer().to_text();
+    assert!(text.contains(&format!("house {house}")), "{text}");
+    let layer = EditLayer::parse(&text).unwrap();
+    let mut replayed = world.all_levels();
+    replay(&mut replayed, &layer, &library, &check).unwrap();
+    assert_eq!(replayed, levels);
+}
